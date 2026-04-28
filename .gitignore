@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+agent/
+.turbo/
+.cache/
+data/
+traces/
+*.tsbuildinfo
+*.db
+*.db-shm
+*.db-wal

@@ -1,0 +1,17 @@
+services:
+  coordinator:
+    build: .
+    ports:
+      - "8787:8787"
+    environment:
+      NODE_ENV: development
+      PORT: 8787
+      DATABASE_URL: file:/app/data/vibly-coordinator.sqlite
+      API_AUTH_MODE: static-token
+      API_TOKENS: dev-token
+      LOG_LEVEL: info
+      ENABLE_SWAGGER: "true"
+      ENABLE_DEV_ROUTES: "true"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
