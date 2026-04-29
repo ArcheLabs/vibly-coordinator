@@ -200,30 +200,93 @@ const negotiationsRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /negotiations/:negotiationId/close
   fastify.post<{
     Params: { negotiationId: string };
-    Body: { source?: string };
+    Body: { source?: string; projectId?: string };
   }>(
     "/negotiations/:negotiationId/close",
     {
       schema: {
         tags: ["Negotiations"],
-        summary: "Close a negotiation and produce decision record",
+        summary: "Close the current round. Returns decisionRecord + updated negotiation. If result is needs_revision, a new round is already opened.",
         params: { type: "object", required: ["negotiationId"], properties: { negotiationId: { type: "string" } } },
         body: {
           type: "object",
-          properties: { source: { type: "string" } },
+          properties: {
+            source: { type: "string" },
+            projectId: { type: "string" },
+          },
         },
       },
     },
     async (request) => {
-      const decisionRecord = await fastify.concord.negotiation.close({
+      const { decision: decisionRecord, instance: negotiation } = await fastify.concord.negotiation.close({
         negotiationId: request.params.negotiationId as never,
         source: (request.body.source ?? "structured_negotiation") as never,
+        projectId: request.body.projectId,
       });
       const { createEvent } = await import("@concord/foundation");
-      const evt = createEvent({ type: "NegotiationClosed", payload: decisionRecord });
+      const evt = createEvent({ type: "NegotiationClosed", payload: { decisionRecord, negotiation } });
       await fastify.concord.state.events.append(evt);
       fastify.eventBus.publish(evt);
-      return ok({ decisionRecord });
+      return ok({ decisionRecord, negotiation });
+    },
+  );
+
+  // POST /negotiations/:negotiationId/fork
+  fastify.post<{
+    Params: { negotiationId: string };
+    Body: {
+      newInitiatorId: string;
+      participantIds: string[];
+      forkReason: string;
+      maxRounds?: number;
+      convergenceThreshold?: number;
+    };
+  }>(
+    "/negotiations/:negotiationId/fork",
+    {
+      schema: {
+        tags: ["Negotiations"],
+        summary: "Fork a negotiation: create a new NegotiationInstance branching from this one with a different initiator and participants",
+        params: { type: "object", required: ["negotiationId"], properties: { negotiationId: { type: "string" } } },
+        body: {
+          type: "object",
+          required: ["newInitiatorId", "participantIds", "forkReason"],
+          properties: {
+            newInitiatorId: { type: "string" },
+            participantIds: { type: "array", items: { type: "string" } },
+            forkReason: { type: "string" },
+            maxRounds: { type: "number" },
+            convergenceThreshold: { type: "number" },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const parent = await fastify.concord.negotiation.get(request.params.negotiationId as never);
+      if (!parent) throw notFound("Negotiation", request.params.negotiationId);
+
+      const initiatorActor = await fastify.concord.actors.get(request.body.newInitiatorId as never);
+      if (!initiatorActor) throw notFound("Actor", request.body.newInitiatorId);
+
+      const participants = (
+        await Promise.all(request.body.participantIds.map((id) => fastify.concord.actors.get(id as never)))
+      ).filter(Boolean) as never[];
+
+      const fork = await fastify.concord.negotiation.fork({
+        parentNegotiationId: parent.id,
+        newInitiator: initiatorActor as never,
+        participants,
+        forkReason: request.body.forkReason,
+        context: parent.context as never,
+        ...(request.body.maxRounds !== undefined && { maxRounds: request.body.maxRounds }),
+        ...(request.body.convergenceThreshold !== undefined && { convergenceThreshold: request.body.convergenceThreshold }),
+      });
+
+      const { createEvent } = await import("@concord/foundation");
+      const evt = createEvent({ type: "NegotiationForked", payload: { fork, parentNegotiationId: parent.id } });
+      await fastify.concord.state.events.append(evt);
+      fastify.eventBus.publish(evt);
+      return ok({ negotiation: fork });
     },
   );
 };
