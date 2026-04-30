@@ -111,6 +111,18 @@ Swagger UI：`http://localhost:8787/docs`
 
 Phase G 复用 `/projects/:projectId/stream` 作为实时主路径。Phase F smoke 会发布 `PhaseGTimelineUpdated`、Guardian、Trace、Work、Knowledge 与 `PhaseFSmokeCompleted` 相关事件，Console 可无需刷新地更新页面。
 
+### Phase H Minimal Incentive / Risk Loop
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/phase-h/smoke` | dev-only：在 Phase F accepted work 基础上跑通 mock ledger、reputation、slash、Guardian 风险 smoke |
+| `GET` | `/phase-h/runs` | 列出 Phase H run projection |
+| `GET` | `/projects/:projectId/phase-h/overview` | 项目级激励/风险摘要：reward、claimable、ledger、reputation evidence、slash、Guardian |
+| `GET` | `/reputation/evidence` | 查询 typed reputation evidence read model |
+| `GET` | `/slash-requests` | 查询 slash/risk request read model |
+
+Phase H 默认使用 mock ledger。真实 Vibly chain settlement 不在本阶段主路径内。
+
 ### 知识与状态
 
 | 方法 | 路径 | 说明 |

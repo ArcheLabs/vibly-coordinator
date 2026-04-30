@@ -10,7 +10,7 @@ interface RewardIntent {
   amount: string;
   currency: string;
   recipient: string;
-  status: "draft" | "reserved" | "approved" | "claimed" | "cancelled";
+  status: "draft" | "reserved" | "claimable" | "approved" | "claimed" | "cancelled";
   fundingReceipt?: unknown;
   settlementReceipt?: unknown;
   createdAt: string;
@@ -144,7 +144,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
       fastify.coordinatorStore.saveProjection("reward_intent", intent.id, updated);
 
       const { createEvent } = await import("@concord/foundation");
-      const event = createEvent({ type: "FundingReserved", payload: { rewardIntentId: intent.id, fundingReceipt } });
+      const event = createEvent({ type: "FundingReserved", payload: { projectId: updated.projectId, rewardIntentId: intent.id, fundingReceipt } });
       await fastify.concord.state.events.append(event);
       fastify.eventBus.publish(event);
 
@@ -183,7 +183,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
       fastify.coordinatorStore.saveProjection("reward_intent", intent.id, updated);
 
       const { createEvent } = await import("@concord/foundation");
-      const event = createEvent({ type: "RewardClaimed", payload: { rewardIntentId: intent.id, settlementReceipt } });
+      const event = createEvent({ type: "RewardClaimed", payload: { projectId: updated.projectId, rewardIntentId: intent.id, settlementReceipt } });
       await fastify.concord.state.events.append(event);
       fastify.eventBus.publish(event);
 
@@ -207,10 +207,13 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
         byStatus: {
           draft: intents.filter((r) => r.status === "draft").length,
           reserved: intents.filter((r) => r.status === "reserved").length,
+          claimable: intents.filter((r) => r.status === "claimable" || r.status === "approved").length,
           approved: intents.filter((r) => r.status === "approved").length,
           claimed: intents.filter((r) => r.status === "claimed").length,
           cancelled: intents.filter((r) => r.status === "cancelled").length,
         },
+        fundingReceipts: intents.filter((r) => r.fundingReceipt).slice(-10).map((r) => ({ rewardIntentId: r.id, receipt: r.fundingReceipt })),
+        settlementReceipts: intents.filter((r) => r.settlementReceipt).slice(-10).map((r) => ({ rewardIntentId: r.id, receipt: r.settlementReceipt })),
         recentEntries: intents.slice(-10),
       };
       return ok(summary);
