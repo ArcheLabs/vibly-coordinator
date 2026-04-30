@@ -13,10 +13,15 @@ import { GovernanceIndexConsumer } from "../../services/governanceIndexConsumer.
 import { GovernanceBackendRegistry } from "../../services/governanceBackendRegistry.js";
 import governanceRoutes from "./routes.js";
 import type { NormalizedChainEvent } from "@concord/core";
-import type { GovernanceEventType, GovernanceProposalSummary, GovernanceIndexFeedPort } from "@concord/governance";
+import type {
+  GovernanceCheckpointView,
+  GovernanceEventType,
+  GovernanceProposalSummary,
+  GovernanceIndexFeedPort,
+} from "@concord/governance";
 
 const CHAIN = { namespace: "substrate", chainId: "vibly-solo" } as const;
-const EVM_CHAIN = { namespace: "evm", chainId: "31337" } as const;
+const EVM_CHAIN = { namespace: "eip155", chainId: "31337" } as const;
 
 function makeEvmProposalEvent(externalId: string, status = "Deciding"): NormalizedChainEvent<GovernanceEventType> {
   const payload: GovernanceProposalSummary = {
@@ -311,6 +316,82 @@ describe("governance routes", () => {
     const entry = body.data.items.find((i) => i.id === `merged:${intentId}`);
     expect(entry).toBeDefined();
     expect(entry?.freshness.stale).toBe(true);
+  });
+
+  it("GET /governance/merged uses the checkpoint for each subject chain", async () => {
+    const evmConsumer = makeEvmConsumer(store);
+    consumer.handleEvent(store, makeProposalEvent("GovernanceProposalDiscovered", "sub-stale"));
+    evmConsumer.handleEvent(store, makeEvmProposalEvent("evm-fresh"));
+
+    const staleSubstrateCheckpoint: GovernanceCheckpointView = {
+      id: "checkpoint:substrate:vibly-solo",
+      chain: CHAIN,
+      finalized: true,
+      observedAt: new Date(Date.now() - 3_600_000).toISOString(),
+      source: { adapter: "subquery" },
+      projection: { version: "1", hash: "substrate-old", projectedAt: new Date().toISOString(), projector: "test" },
+    };
+    const freshEvmCheckpoint: GovernanceCheckpointView = {
+      id: "checkpoint:eip155:31337",
+      chain: EVM_CHAIN,
+      finalized: false,
+      observedAt: new Date().toISOString(),
+      source: { adapter: "evm-fixture" },
+      projection: { version: "1", hash: "evm-new", projectedAt: new Date().toISOString(), projector: "test" },
+    };
+    store.saveProjection("governance_checkpoint", staleSubstrateCheckpoint.id, staleSubstrateCheckpoint);
+    store.saveProjection("governance_checkpoint", freshEvmCheckpoint.id, freshEvmCheckpoint);
+
+    const res = await app.inject({ method: "GET", url: "/governance/merged" });
+    const body = res.json<{
+      data: {
+        items: {
+          subject?: { backend: string };
+          freshness: { stale: boolean; checkpoint?: { id: string } };
+        }[];
+      };
+    }>();
+
+    const substrateEntry = body.data.items.find((item) => item.subject?.backend === "substrate-opengov");
+    const evmEntry = body.data.items.find((item) => item.subject?.backend === "evm-governor");
+    expect(substrateEntry?.freshness.checkpoint?.id).toBe("checkpoint:substrate:vibly-solo");
+    expect(substrateEntry?.freshness.stale).toBe(true);
+    expect(evmEntry?.freshness.checkpoint?.id).toBe("checkpoint:eip155:31337");
+    expect(evmEntry?.freshness.stale).toBe(false);
+  });
+
+  it("GET /governance/checkpoint can filter stored checkpoints by backend", async () => {
+    app.governanceBackendRegistry.register(
+      {
+        id: "eip155:31337",
+        backend: "evm-governor",
+        chain: EVM_CHAIN,
+        displayName: "EVM Governor fixture",
+        source: { kind: "fixture" },
+        capabilities: {
+          readSubjects: true, readVotes: true, readDelegations: false, checkpoint: true,
+          prepareProposal: true, submitProposal: true, castVote: true, delegate: false,
+          queueExecution: true, executeProposal: true, requiresWallet: true,
+          supportsReason: true, supportsWeightedVote: false,
+        },
+      },
+      { start: () => {} } as unknown as GovernanceIndexConsumer,
+    );
+    const evmCheckpoint: GovernanceCheckpointView = {
+      id: "checkpoint:eip155:31337",
+      chain: EVM_CHAIN,
+      finalized: false,
+      observedAt: new Date().toISOString(),
+      source: { adapter: "evm-fixture" },
+      projection: { version: "1", hash: "evm-checkpoint", projectedAt: new Date().toISOString(), projector: "test" },
+    };
+    store.saveProjection("governance_checkpoint", evmCheckpoint.id, evmCheckpoint);
+
+    const res = await app.inject({ method: "GET", url: "/governance/checkpoint?backend=evm-governor" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{ data: { checkpoint: { id: string } | null; items: { id: string }[] } }>();
+    expect(body.data.checkpoint?.id).toBe("checkpoint:eip155:31337");
+    expect(body.data.items).toHaveLength(1);
   });
 
   // ── D5: backend filter + /governance/backends ──────────────────────────────

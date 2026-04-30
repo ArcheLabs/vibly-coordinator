@@ -179,7 +179,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
 
   // ── GET /governance/checkpoint ────────────────────────────────────────────
   // Returns the latest indexed block checkpoint from GovernanceIndexQueryPort.
-  fastify.get(
+  fastify.get<{ Querystring: { backend?: string; chainId?: string } }>(
     "/governance/checkpoint",
     {
       schema: {
@@ -187,13 +187,30 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
         summary: "Get the latest governance index checkpoint",
       },
     },
-    async () => {
+    async (request) => {
+      const { backend, chainId } = request.query;
+      const storedCheckpoints = fastify.coordinatorStore.listProjections<GovernanceCheckpointView>(GOVERNANCE_CHECKPOINT);
+      if (storedCheckpoints.length > 0 || backend || chainId) {
+        const descriptors = fastify.governanceBackendRegistry.listDescriptors();
+        const backendChains = backend
+          ? descriptors.filter((descriptor) => descriptor.backend === backend).map((descriptor) => descriptor.chain)
+          : [];
+        const items = storedCheckpoints
+          .filter((checkpoint) => !chainId || checkpoint.chain.chainId === chainId)
+          .filter((checkpoint) => {
+            if (!backend) return true;
+            return backendChains.some((chain) => chainsEqual(chain, checkpoint.chain));
+          })
+          .sort((a, b) => new Date(b.observedAt).getTime() - new Date(a.observedAt).getTime());
+        return ok({ checkpoint: items[0] ?? null, items });
+      }
+
       const indexQuery = fastify.concord.governanceIndexQuery;
       if (!indexQuery) {
         return ok({ checkpoint: null, note: "governanceIndexQuery not configured" });
       }
-      const chainId = fastify.config.substrateChainId ?? "substrate:vibly-solo";
-      const chain = { namespace: "substrate" as const, chainId };
+      const substrateChainId = fastify.config.substrateChainId ?? "substrate:vibly-solo";
+      const chain = { namespace: "substrate" as const, chainId: substrateChainId };
       const checkpoint = await indexQuery.getGovernanceCheckpoint({ chain });
       return ok({ checkpoint });
     },
@@ -322,11 +339,11 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
       const subjects = fastify.coordinatorStore.listProjections<GovernanceSubjectView>(GOVERNANCE_SUBJECT_VIEW);
       const links = fastify.coordinatorStore.listProjections<GovernanceIntentChainLink>(GOVERNANCE_INTENT_CHAIN_LINK);
       const checkpoints = fastify.coordinatorStore.listProjections<GovernanceCheckpointView>(GOVERNANCE_CHECKPOINT);
-      const checkpoint = checkpoints[0];
 
       const merged = intents.slice(0, limit).map((intent) => {
         const link = links.find((l) => l.governanceIntentId === intent.id);
         const subject = link ? subjects.find((s) => s.id === link.subjectId) : undefined;
+        const checkpoint = selectCheckpointForGovernanceView(checkpoints, subject, link);
         return buildMergedView({
           id: `merged:${intent.id}`,
           projectId: intent.projectId,
@@ -341,6 +358,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
       const linkedSubjectIds = new Set(links.map((l) => l.subjectId));
       for (const subject of subjects) {
         if (!linkedSubjectIds.has(subject.id) && merged.length < limit) {
+          const checkpoint = selectCheckpointForGovernanceView(checkpoints, subject);
           merged.push(buildMergedView({
             id: `merged:${subject.id}`,
             subject,
@@ -408,7 +426,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
         : [];
 
       const checkpoints = fastify.coordinatorStore.listProjections<GovernanceCheckpointView>(GOVERNANCE_CHECKPOINT);
-      const checkpoint = checkpoints[0];
+      const checkpoint = selectCheckpointForGovernanceView(checkpoints, subject, link);
 
       const merged = buildMergedView({
         id: rawId,
@@ -486,3 +504,28 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
 };
 
 export default governanceRoutes;
+
+function selectCheckpointForGovernanceView(
+  checkpoints: GovernanceCheckpointView[],
+  subject?: GovernanceSubjectView,
+  link?: GovernanceIntentChainLink,
+): GovernanceCheckpointView | undefined {
+  const chain = subject?.chain ?? link?.chain;
+  if (chain) {
+    const matching = checkpoints
+      .filter((checkpoint) => chainsEqual(checkpoint.chain, chain))
+      .sort((a, b) => new Date(b.observedAt).getTime() - new Date(a.observedAt).getTime());
+    return matching[0];
+  }
+
+  return checkpoints
+    .slice()
+    .sort((a, b) => new Date(b.observedAt).getTime() - new Date(a.observedAt).getTime())[0];
+}
+
+function chainsEqual(
+  left: { namespace?: string; chainId?: string },
+  right: { namespace?: string; chainId?: string },
+): boolean {
+  return left.namespace === right.namespace && left.chainId === right.chainId;
+}

@@ -7,7 +7,7 @@ function makeDescriptor(id: string, backend: "substrate-opengov" | "evm-governor
   return {
     id,
     backend,
-    chain: { namespace: backend === "evm-governor" ? "evm" : "substrate", chainId: "test" },
+    chain: { namespace: backend === "evm-governor" ? "eip155" : "substrate", chainId: "test" },
     displayName: id,
     source: { kind: backend === "evm-governor" ? "fixture" : "subquery" },
     capabilities: {

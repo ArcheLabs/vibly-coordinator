@@ -142,7 +142,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   if (config.evmGovernorFixture) {
     const { EvmFixtureGovernanceIndexAdapter } = await import("@concord/adapter-evm-indexer");
     const { defaultEvmCapabilities } = await import("@concord/governance");
-    const evmChain = { namespace: "evm", chainId: config.evmChainId };
+    const evmChain = { namespace: "eip155" as const, chainId: config.evmChainId };
     const evmAdapter = new EvmFixtureGovernanceIndexAdapter();
     const projector = new GovernanceProjectorService();
     const consumer = new GovernanceIndexConsumer({
@@ -153,7 +153,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
     });
     governanceBackendRegistry.register(
       {
-        id: `evm:${config.evmChainId}`,
+        id: `eip155:${config.evmChainId}`,
         backend: "evm-governor",
         chain: evmChain,
         displayName: `EVM Governor (fixture, chainId=${config.evmChainId})`,
@@ -171,5 +171,5 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   // Start all registered backends
   governanceBackendRegistry.startAll();
 
-  return fastify;
+  return fastify as unknown as FastifyInstance;
 }

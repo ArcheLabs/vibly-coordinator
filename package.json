@@ -14,6 +14,7 @@
     "db:reset": "tsx src/db/reset.ts"
   },
   "dependencies": {
+    "@concord/adapter-evm-indexer": "workspace:*",
     "@concord/adapter-substrate-indexer": "workspace:*",
     "@concord/adapters": "workspace:*",
     "@concord/core": "workspace:*",
