@@ -5,9 +5,7 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import Fastify from "fastify";
-import { DatabaseSync } from "node:sqlite";
 import { CoordinatorStore } from "../../db/coordinatorStore.js";
-import { runMigrations } from "../../db/migrations.js";
 import { GovernanceProjectorService } from "../../services/governanceProjector.js";
 import { GovernanceIndexConsumer } from "../../services/governanceIndexConsumer.js";
 import { GovernanceBackendRegistry } from "../../services/governanceBackendRegistry.js";
@@ -43,7 +41,7 @@ function makeEvmProposalEvent(externalId: string, status = "Deciding"): Normaliz
   };
 }
 
-function makeTestApp(store: CoordinatorStore) {
+function makeTestApp(store: CoordinatorStore, config?: Partial<import("../../config/env.js").CoordinatorConfig>) {
   const fastify = Fastify({ logger: false });
 
   // Minimal concord mock
@@ -62,7 +60,10 @@ function makeTestApp(store: CoordinatorStore) {
   fastify.decorate("eventBus", { publish: () => {} } as unknown as import("../../services/eventBus.js").EventBus);
   fastify.decorate("config", {
     substrateChainId: "vibly-solo",
+    evmChainId: "31337",
+    enableDevRoutes: false,
     nodeEnv: "test",
+    ...config,
   } as unknown as import("../../config/env.js").CoordinatorConfig);
 
   fastify.decorate("governanceBackendRegistry", new GovernanceBackendRegistry());
@@ -96,9 +97,16 @@ function makeProposalEvent(
 }
 
 function makeStore(): CoordinatorStore {
-  const db = new DatabaseSync(":memory:");
-  runMigrations(db);
-  return new CoordinatorStore(db);
+  const projections = new Map<string, Map<string, unknown>>();
+  return {
+    saveProjection: (kind: string, id: string, value: unknown) => {
+      const bucket = projections.get(kind) ?? new Map<string, unknown>();
+      bucket.set(id, value);
+      projections.set(kind, bucket);
+    },
+    getProjection: (_kind: string, id: string) => projections.get(_kind)?.get(id) ?? null,
+    listProjections: (kind: string) => Array.from(projections.get(kind)?.values() ?? []),
+  } as unknown as CoordinatorStore;
 }
 
 function makeConsumer(store: CoordinatorStore): GovernanceIndexConsumer {
@@ -363,7 +371,7 @@ describe("governance routes", () => {
   it("GET /governance/checkpoint can filter stored checkpoints by backend", async () => {
     app.governanceBackendRegistry.register(
       {
-        id: "eip155:31337",
+        id: "evm-fixture",
         backend: "evm-governor",
         chain: EVM_CHAIN,
         displayName: "EVM Governor fixture",
@@ -443,7 +451,7 @@ describe("governance routes", () => {
     const registry = new Registry();
     registry.register(
       {
-        id: "substrate:vibly-solo",
+        id: "substrate-local",
         backend: "substrate-opengov",
         chain: CHAIN,
         displayName: "Vibly Solo",
@@ -471,8 +479,150 @@ describe("governance routes", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json<{ data: { backends: { id: string; backend: string }[] } }>();
     expect(body.data.backends).toHaveLength(1);
-    expect(body.data.backends[0].id).toBe("substrate:vibly-solo");
+    expect(body.data.backends[0].id).toBe("substrate-local");
     expect(body.data.backends[0].backend).toBe("substrate-opengov");
+
+    await localApp.close();
+  });
+
+  it("GET /governance/backends includes unavailable health when no checkpoint exists", async () => {
+    app.governanceBackendRegistry.register(
+      {
+        id: "substrate-local",
+        backend: "substrate-opengov",
+        chain: CHAIN,
+        displayName: "Vibly Solo",
+        source: { kind: "subquery" },
+        capabilities: {
+          readSubjects: true, readVotes: true, readDelegations: true, checkpoint: true,
+          prepareProposal: true, submitProposal: true, castVote: true, delegate: true,
+          queueExecution: false, executeProposal: false, requiresWallet: false,
+          supportsReason: true, supportsWeightedVote: true,
+        },
+      },
+      { start: () => {} } as unknown as GovernanceIndexConsumer,
+    );
+
+    const res = await app.inject({ method: "GET", url: "/governance/backends" });
+    const body = res.json<{
+      data: { backends: { id: string; health: { status: string; stale: boolean; reason?: string } }[] };
+    }>();
+
+    expect(body.data.backends[0]).toMatchObject({
+      id: "substrate-local",
+      health: { status: "unavailable", stale: true, reason: "checkpoint_missing" },
+    });
+  });
+
+  it("GET /governance/backends reports freshness per backend chain", async () => {
+    app.governanceBackendRegistry.register(
+      {
+        id: "substrate-local",
+        backend: "substrate-opengov",
+        chain: CHAIN,
+        displayName: "Vibly Solo",
+        source: { kind: "subquery" },
+        capabilities: {
+          readSubjects: true, readVotes: true, readDelegations: true, checkpoint: true,
+          prepareProposal: true, submitProposal: true, castVote: true, delegate: true,
+          queueExecution: false, executeProposal: false, requiresWallet: false,
+          supportsReason: true, supportsWeightedVote: true,
+        },
+      },
+      { start: () => {} } as unknown as GovernanceIndexConsumer,
+    );
+    app.governanceBackendRegistry.register(
+      {
+        id: "evm-fixture",
+        backend: "evm-governor",
+        chain: EVM_CHAIN,
+        displayName: "EVM Governor fixture",
+        source: { kind: "fixture" },
+        capabilities: {
+          readSubjects: true, readVotes: true, readDelegations: false, checkpoint: true,
+          prepareProposal: true, submitProposal: true, castVote: true, delegate: false,
+          queueExecution: true, executeProposal: true, requiresWallet: true,
+          supportsReason: true, supportsWeightedVote: false,
+        },
+      },
+      { start: () => {} } as unknown as GovernanceIndexConsumer,
+    );
+
+    store.saveProjection("governance_checkpoint", "checkpoint:substrate:vibly-solo", {
+      id: "checkpoint:substrate:vibly-solo",
+      chain: CHAIN,
+      finalized: true,
+      observedAt: new Date(Date.now() - 3_600_000).toISOString(),
+      source: { adapter: "subquery" },
+      projection: { version: "1", hash: "substrate-old", projectedAt: new Date().toISOString(), projector: "test" },
+    } satisfies GovernanceCheckpointView);
+    store.saveProjection("governance_checkpoint", "checkpoint:eip155:31337", {
+      id: "checkpoint:eip155:31337",
+      chain: EVM_CHAIN,
+      finalized: false,
+      observedAt: new Date().toISOString(),
+      source: { adapter: "evm-fixture" },
+      projection: { version: "1", hash: "evm-new", projectedAt: new Date().toISOString(), projector: "test" },
+    } satisfies GovernanceCheckpointView);
+
+    const res = await app.inject({ method: "GET", url: "/governance/backends" });
+    const body = res.json<{
+      data: { backends: { id: string; health: { status: string; stale: boolean; checkpoint?: { id: string } } }[] };
+    }>();
+
+    const substrate = body.data.backends.find((backend) => backend.id === "substrate-local");
+    const evm = body.data.backends.find((backend) => backend.id === "evm-fixture");
+    expect(substrate?.health).toMatchObject({
+      status: "stale",
+      stale: true,
+      checkpoint: { id: "checkpoint:substrate:vibly-solo" },
+    });
+    expect(evm?.health).toMatchObject({
+      status: "healthy",
+      stale: false,
+      checkpoint: { id: "checkpoint:eip155:31337" },
+    });
+  });
+
+  it("GET /governance/backends omits EVM when the fixture backend is disabled", async () => {
+    app.governanceBackendRegistry.register(
+      {
+        id: "substrate-local",
+        backend: "substrate-opengov",
+        chain: CHAIN,
+        displayName: "Vibly Solo",
+        source: { kind: "subquery" },
+        capabilities: {
+          readSubjects: true, readVotes: true, readDelegations: true, checkpoint: true,
+          prepareProposal: true, submitProposal: true, castVote: true, delegate: true,
+          queueExecution: false, executeProposal: false, requiresWallet: false,
+          supportsReason: true, supportsWeightedVote: true,
+        },
+      },
+      { start: () => {} } as unknown as GovernanceIndexConsumer,
+    );
+
+    const res = await app.inject({ method: "GET", url: "/governance/backends" });
+    const body = res.json<{ data: { backends: { backend: string }[] } }>();
+
+    expect(body.data.backends.map((backend) => backend.backend)).toEqual(["substrate-opengov"]);
+  });
+
+  it("POST /governance/dev/seed-demo seeds Substrate and EVM merged demo subjects when dev routes are enabled", async () => {
+    const localApp = makeTestApp(store, {
+      enableDevRoutes: true,
+      substrateChainId: "substrate:vibly-solo",
+      evmChainId: "31337",
+    });
+    await localApp.ready();
+
+    const seedRes = await localApp.inject({ method: "POST", url: "/governance/dev/seed-demo" });
+    expect(seedRes.statusCode).toBe(200);
+
+    const mergedRes = await localApp.inject({ method: "GET", url: "/governance/merged" });
+    const body = mergedRes.json<{ data: { items: { subject?: { backend: string } }[] } }>();
+    expect(body.data.items.some((item) => item.subject?.backend === "substrate-opengov")).toBe(true);
+    expect(body.data.items.some((item) => item.subject?.backend === "evm-governor")).toBe(true);
 
     await localApp.close();
   });

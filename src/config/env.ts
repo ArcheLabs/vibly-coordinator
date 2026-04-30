@@ -14,6 +14,7 @@ const envSchema = z.object({
   TRACE_OUTPUT_DIR: z.string().default("./data/traces"),
   ENABLE_SWAGGER: z.string().transform((v) => v === "true").default("true"),
   ENABLE_DEV_ROUTES: z.string().transform((v) => v === "true").default("false"),
+  GOVERNANCE_BACKENDS: z.string().default(""),
   SUBSTRATE_INDEXER_URL: z.string().optional(),
   SUBSTRATE_CHAIN_ID: z.string().default("substrate:vibly-solo"),
   EVM_GOVERNOR_FIXTURE: z.string().transform((v) => v === "true").default("false"),
@@ -34,6 +35,7 @@ export interface CoordinatorConfig {
   traceOutputDir: string;
   enableSwagger: boolean;
   enableDevRoutes: boolean;
+  governanceBackends: string[];
   substrateIndexerUrl?: string;
   substrateChainId: string;
   evmGovernorFixture: boolean;
@@ -56,6 +58,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     traceOutputDir: parsed.TRACE_OUTPUT_DIR,
     enableSwagger: parsed.ENABLE_SWAGGER,
     enableDevRoutes: parsed.ENABLE_DEV_ROUTES,
+    governanceBackends: parsed.GOVERNANCE_BACKENDS.split(",").map((name) => name.trim()).filter(Boolean),
     substrateIndexerUrl: parsed.SUBSTRATE_INDEXER_URL,
     substrateChainId: parsed.SUBSTRATE_CHAIN_ID,
     evmGovernorFixture: parsed.EVM_GOVERNOR_FIXTURE,

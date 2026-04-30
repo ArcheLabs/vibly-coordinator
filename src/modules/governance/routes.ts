@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok } from "../../domain/apiTypes.js";
-import { notFound } from "../../domain/errors.js";
+import { forbidden, notFound } from "../../domain/errors.js";
 import {
   GOVERNANCE_SUBJECT_VIEW,
   GOVERNANCE_VOTE_ACTIVITY,
@@ -8,14 +8,29 @@ import {
   GOVERNANCE_CHECKPOINT,
   GOVERNANCE_INTENT_CHAIN_LINK,
 } from "../../db/projectionKinds.js";
-import { buildMergedView } from "./mergeBuilder.js";
+import { buildMergedView, isCheckpointStale } from "./mergeBuilder.js";
 import type {
+  GovernanceBackendDescriptor,
   GovernanceSubjectView,
   GovernanceVoteActivityView,
   GovernanceDelegationView,
   GovernanceCheckpointView,
   GovernanceIntentChainLink,
 } from "@concord/governance";
+
+type BackendHealthStatus = "healthy" | "stale" | "unavailable";
+
+interface GovernanceBackendHealth {
+  status: BackendHealthStatus;
+  stale: boolean;
+  reason?: string;
+  lastObservedAt?: string;
+  checkpoint?: GovernanceCheckpointView;
+}
+
+type GovernanceBackendReadModel = GovernanceBackendDescriptor & {
+  health: GovernanceBackendHealth;
+};
 
 const governanceRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /governance/intents
@@ -382,8 +397,31 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async () => {
-      const backends = fastify.governanceBackendRegistry.listDescriptors();
+      const checkpoints = fastify.coordinatorStore.listProjections<GovernanceCheckpointView>(GOVERNANCE_CHECKPOINT);
+      const backends = buildBackendReadModels(
+        fastify.governanceBackendRegistry.listDescriptors(),
+        checkpoints,
+      );
       return ok({ backends });
+    },
+  );
+
+  // ── POST /governance/dev/seed-demo ────────────────────────────────────────
+  fastify.post(
+    "/governance/dev/seed-demo",
+    {
+      schema: {
+        tags: ["Governance"],
+        summary: "Seed Phase D.5 demo governance projections (dev only)",
+      },
+    },
+    async () => {
+      if (!fastify.config.enableDevRoutes) {
+        throw forbidden("Dev routes are disabled");
+      }
+
+      const seeded = seedPhaseD5GovernanceDemo(fastify);
+      return ok(seeded);
     },
   );
 
@@ -520,6 +558,128 @@ function selectCheckpointForGovernanceView(
 
   return checkpoints
     .slice()
+    .sort((a, b) => new Date(b.observedAt).getTime() - new Date(a.observedAt).getTime())[0];
+}
+
+function buildBackendReadModels(
+  descriptors: GovernanceBackendDescriptor[],
+  checkpoints: GovernanceCheckpointView[],
+): GovernanceBackendReadModel[] {
+  return descriptors.map((descriptor) => ({
+    ...descriptor,
+    health: buildBackendHealth(descriptor, checkpoints),
+  }));
+}
+
+function seedPhaseD5GovernanceDemo(fastify: Parameters<FastifyPluginAsync>[0]) {
+  const now = new Date().toISOString();
+  const substrateChain = {
+    namespace: "substrate" as const,
+    chainId: fastify.config.substrateChainId ?? "substrate:vibly-solo",
+  };
+  const evmChain = {
+    namespace: "eip155" as const,
+    chainId: fastify.config.evmChainId ?? "31337",
+  };
+
+  const projection = {
+    version: "phase-d5-demo",
+    hash: "phase-d5-demo-seed",
+    projectedAt: now,
+    projector: "vibly-coordinator:dev-seed",
+  };
+  const source = { adapter: "phase-d5-demo-seed" };
+
+  const subjects: GovernanceSubjectView[] = [
+    {
+      id: `${substrateChain.namespace}:${substrateChain.chainId}:demo-open-gov-1`,
+      chain: substrateChain,
+      backend: "substrate-opengov",
+      externalId: "demo-open-gov-1",
+      title: "Phase D.5 Substrate OpenGov demo",
+      status: "Deciding",
+      lifecycle: { discoveredAt: now, updatedAt: now },
+      finality: "included",
+      source,
+      projection,
+      metadata: { seed: "phase-d5", track: "root" },
+    },
+    {
+      id: `${evmChain.namespace}:${evmChain.chainId}:demo-evm-governor-1`,
+      chain: evmChain,
+      backend: "evm-governor",
+      externalId: "demo-evm-governor-1",
+      title: "Phase D.5 EVM Governor fixture demo",
+      status: "Deciding",
+      lifecycle: { discoveredAt: now, updatedAt: now },
+      finality: "included",
+      source,
+      projection,
+      metadata: { seed: "phase-d5", fixture: true },
+    },
+  ];
+
+  const checkpoints: GovernanceCheckpointView[] = [
+    {
+      id: `checkpoint:${substrateChain.namespace}:${substrateChain.chainId}`,
+      chain: substrateChain,
+      cursor: { position: "phase-d5-demo-substrate", blockNumber: "1" },
+      finalized: false,
+      observedAt: now,
+      source,
+      projection,
+    },
+    {
+      id: `checkpoint:${evmChain.namespace}:${evmChain.chainId}`,
+      chain: evmChain,
+      cursor: { position: "phase-d5-demo-evm", blockNumber: "1" },
+      finalized: false,
+      observedAt: now,
+      source,
+      projection,
+    },
+  ];
+
+  for (const subject of subjects) {
+    fastify.coordinatorStore.saveProjection(GOVERNANCE_SUBJECT_VIEW, subject.id, subject);
+  }
+  for (const checkpoint of checkpoints) {
+    fastify.coordinatorStore.saveProjection(GOVERNANCE_CHECKPOINT, checkpoint.id, checkpoint);
+  }
+
+  return { subjects, checkpoints };
+}
+
+function buildBackendHealth(
+  descriptor: GovernanceBackendDescriptor,
+  checkpoints: GovernanceCheckpointView[],
+): GovernanceBackendHealth {
+  const checkpoint = selectCheckpointForChain(checkpoints, descriptor.chain);
+  if (!checkpoint) {
+    return {
+      status: "unavailable",
+      stale: true,
+      reason: "checkpoint_missing",
+    };
+  }
+
+  const stale = isCheckpointStale(checkpoint);
+  const health: GovernanceBackendHealth = {
+    status: stale ? "stale" : "healthy",
+    stale,
+    lastObservedAt: checkpoint.observedAt,
+    checkpoint,
+  };
+  if (stale) health.reason = "checkpoint_age_exceeds_threshold";
+  return health;
+}
+
+function selectCheckpointForChain(
+  checkpoints: GovernanceCheckpointView[],
+  chain: { namespace?: string; chainId?: string },
+): GovernanceCheckpointView | undefined {
+  return checkpoints
+    .filter((checkpoint) => chainsEqual(checkpoint.chain, chain))
     .sort((a, b) => new Date(b.observedAt).getTime() - new Date(a.observedAt).getTime())[0];
 }
 

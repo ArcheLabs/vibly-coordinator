@@ -41,16 +41,16 @@ describe("GovernanceBackendRegistry", () => {
 
   it("registers backends and lists descriptors", () => {
     const registry = new GovernanceBackendRegistry();
-    const subDesc = makeDescriptor("substrate:test", "substrate-opengov");
-    const evmDesc = makeDescriptor("evm:test", "evm-governor");
+    const subDesc = makeDescriptor("substrate-local", "substrate-opengov");
+    const evmDesc = makeDescriptor("evm-fixture", "evm-governor");
     registry.register(subDesc, makeMockConsumer());
     registry.register(evmDesc, makeMockConsumer());
 
     expect(registry.size).toBe(2);
     const descriptors = registry.listDescriptors();
     expect(descriptors).toHaveLength(2);
-    expect(descriptors[0].id).toBe("substrate:test");
-    expect(descriptors[1].id).toBe("evm:test");
+    expect(descriptors[0].id).toBe("substrate-local");
+    expect(descriptors[1].id).toBe("evm-fixture");
   });
 
   it("startAll calls start() on each consumer", () => {

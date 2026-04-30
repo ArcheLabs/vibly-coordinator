@@ -56,10 +56,11 @@ export interface CreateAppOptions {
   concord: Concord;
   coordinatorStore: CoordinatorStore;
   eventBus: EventBus;
+  startGovernanceConsumers?: boolean;
 }
 
 export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance> {
-  const { config, logger, concord, coordinatorStore, eventBus } = opts;
+  const { config, logger, concord, coordinatorStore, eventBus, startGovernanceConsumers = true } = opts;
 
   const fastify = Fastify({
     loggerInstance: logger,
@@ -107,7 +108,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(streamsRoutes);
 
   // ─── Register Substrate backend ─────────────────────────────────────────────
-  if (config.substrateIndexerUrl) {
+  if (isGovernanceBackendEnabled(config, "substrate-local", Boolean(config.substrateIndexerUrl)) && config.substrateIndexerUrl) {
     const { SubQueryGovernanceIndexAdapter } = await import("@concord/adapter-substrate-indexer");
     const { defaultSubstrateCapabilities } = await import("@concord/governance");
     const indexerAdapter = new SubQueryGovernanceIndexAdapter(config.substrateIndexerUrl);
@@ -123,7 +124,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
     });
     governanceBackendRegistry.register(
       {
-        id: `substrate:${config.substrateChainId}`,
+        id: "substrate-local",
         backend: "substrate-opengov",
         chain: { namespace: "substrate", chainId: config.substrateChainId },
         displayName: `Substrate OpenGov (${config.substrateChainId})`,
@@ -136,10 +137,15 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
       { indexerUrl: config.substrateIndexerUrl },
       "Registered Substrate governance backend",
     );
+  } else if (isGovernanceBackendEnabled(config, "substrate-local", false)) {
+    fastify.log.warn(
+      { backendId: "substrate-local" },
+      "Skipped Substrate governance backend because SUBSTRATE_INDEXER_URL is not configured",
+    );
   }
 
   // ─── Register EVM fixture backend ───────────────────────────────────────────
-  if (config.evmGovernorFixture) {
+  if (isGovernanceBackendEnabled(config, "evm-fixture", config.evmGovernorFixture)) {
     const { EvmFixtureGovernanceIndexAdapter } = await import("@concord/adapter-evm-indexer");
     const { defaultEvmCapabilities } = await import("@concord/governance");
     const evmChain = { namespace: "eip155" as const, chainId: config.evmChainId };
@@ -153,7 +159,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
     });
     governanceBackendRegistry.register(
       {
-        id: `eip155:${config.evmChainId}`,
+        id: "evm-fixture",
         backend: "evm-governor",
         chain: evmChain,
         displayName: `EVM Governor (fixture, chainId=${config.evmChainId})`,
@@ -169,7 +175,18 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   }
 
   // Start all registered backends
-  governanceBackendRegistry.startAll();
+  if (startGovernanceConsumers) {
+    governanceBackendRegistry.startAll();
+  }
 
   return fastify as unknown as FastifyInstance;
+}
+
+function isGovernanceBackendEnabled(
+  config: CoordinatorConfig,
+  backendId: string,
+  defaultEnabled: boolean,
+): boolean {
+  if (config.governanceBackends.length === 0) return defaultEnabled;
+  return config.governanceBackends.includes(backendId);
 }

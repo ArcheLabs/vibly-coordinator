@@ -44,8 +44,11 @@ Swagger UI：`http://localhost:8787/docs`
 | `API_AUTH_MODE` | `static-token` | `none` 或 `static-token` |
 | `API_TOKENS` | `dev-token` | 逗号分隔的有效 token |
 | `ENABLE_SWAGGER` | `true` | 启用 Swagger UI |
+| `GOVERNANCE_BACKENDS` | — | 可选 allowlist，例如 `substrate-local,evm-fixture` |
 | `SUBSTRATE_INDEXER_URL` | — | SubQuery GraphQL endpoint（设置后启动链上读模型消费者）|
 | `SUBSTRATE_CHAIN_ID` | `substrate:vibly-solo` | 链标识符 |
+| `EVM_GOVERNOR_FIXTURE` | `false` | 启用 EVM Governor fixture backend |
+| `EVM_CHAIN_ID` | `31337` | EVM fixture 的 EIP-155 chain id |
 
 ## API 路由
 
@@ -123,7 +126,10 @@ Swagger UI：`http://localhost:8787/docs`
 | `POST` | `/governance/intents/:id/submit-mock` | Mock 提交（已废弃，设有 `Deprecation: true` 响应头） |
 | `GET` | `/governance/views` | 列出链上 governance 读模型（由 SubQuery 消费者写入） |
 | `GET` | `/governance/views/:subjectId` | 获取单个链上治理主题（格式：`chainId:referendumIndex`） |
-| `GET` | `/governance/checkpoint` | 最新链上索引 checkpoint |
+| `GET` | `/governance/checkpoint?backend=...` | 最新链上索引 checkpoint，可按 backend/chain 过滤 |
+| `GET` | `/governance/subjects?backend=...` | typed governance subjects，可按 backend 过滤 |
+| `GET` | `/governance/merged?backend=...` | 合并治理视图，可按 backend 过滤 |
+| `GET` | `/governance/backends` | 已注册 backend descriptor、capability 与 health/freshness |
 
 ## GovernanceIndexConsumer
 
@@ -137,6 +143,32 @@ Swagger UI：`http://localhost:8787/docs`
 SUBSTRATE_INDEXER_URL=http://localhost:3010/graphql \
 SUBSTRATE_CHAIN_ID=substrate:vibly-solo \
 pnpm dev
+```
+
+Phase D.5 多 backend demo 同时启用 Substrate OpenGov 与 EVM fixture：
+
+```bash
+GOVERNANCE_BACKENDS=substrate-local,evm-fixture \
+SUBSTRATE_INDEXER_URL=http://localhost:3010/graphql \
+SUBSTRATE_CHAIN_ID=substrate:vibly-solo \
+EVM_GOVERNOR_FIXTURE=true \
+EVM_CHAIN_ID=31337 \
+ENABLE_DEV_ROUTES=true \
+pnpm dev
+```
+
+规范 backend descriptor id：
+
+- `substrate-local`：`backend=substrate-opengov`，`chain.namespace=substrate`。
+- `evm-fixture`：`backend=evm-governor`，`chain.namespace=eip155`，`chainId=31337`。
+
+`/governance/backends` 会返回 backend-neutral `health` 字段，包含 `status`、`stale`、`reason`、`lastObservedAt` 与最新 checkpoint。health/freshness 按 backend chain 计算，不使用全局 checkpoint。
+
+本地演示可使用 dev-only seed 路由稳定生成 Substrate + EVM 两类 merged 条目：
+
+```bash
+curl -X POST -H "Authorization: Bearer dev-token" http://localhost:8787/governance/dev/seed-demo
+curl -H "Authorization: Bearer dev-token" http://localhost:8787/governance/merged
 ```
 
 ## 开发命令
