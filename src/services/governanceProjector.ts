@@ -61,6 +61,17 @@ function makeCheckpointId(event: NormalizedChainEvent<string>): string {
   return `checkpoint:${event.chain.namespace}:${event.chain.chainId}`;
 }
 
+/** Build a serializable cursor — converts bigint blockNumber to string. */
+function makeCursor(event: NormalizedChainEvent<string>) {
+  if (event.blockNumber === undefined) return undefined;
+  return {
+    blockNumber: String(event.blockNumber),
+    blockHash: event.blockHash,
+    eventIndex: event.logIndex,
+    extrinsicIndex: event.extrinsicIndex,
+  };
+}
+
 function buildCheckpointPatch(
   event: NormalizedChainEvent<string>,
 ): GovernanceProjectionPatch {
@@ -68,14 +79,7 @@ function buildCheckpointPatch(
   const view: GovernanceCheckpointView = {
     id,
     chain: event.chain,
-    cursor: event.blockNumber !== undefined
-      ? {
-          blockNumber: event.blockNumber,
-          blockHash: event.blockHash,
-          eventIndex: event.logIndex,
-          extrinsicIndex: event.extrinsicIndex,
-        }
-      : undefined,
+    cursor: makeCursor(event),
     finalized: event.finality === "finalized",
     observedAt: event.observedAt,
     source: makeSource(event),
@@ -134,13 +138,7 @@ export class GovernanceProjectorService implements GovernanceProjector<Governanc
               : payload?.createdAt,
             updatedAt: payload?.updatedAt ?? event.observedAt,
           },
-          chainCursor: event.blockNumber !== undefined
-            ? {
-                blockNumber: event.blockNumber,
-                blockHash: event.blockHash,
-                extrinsicIndex: event.extrinsicIndex,
-              }
-            : undefined,
+          chainCursor: makeCursor(event),
           finality: (event.finality as GovernanceSubjectView["finality"]) ?? "unknown",
           source: makeSource(event),
           projection: makeProjection(event),
@@ -167,13 +165,7 @@ export class GovernanceProjectorService implements GovernanceProjector<Governanc
           stance: payload?.stance ?? "unknown",
           conviction: payload?.conviction,
           balance: payload?.balance,
-          chainCursor: event.blockNumber !== undefined
-            ? {
-                blockNumber: event.blockNumber,
-                blockHash: event.blockHash,
-                extrinsicIndex: event.extrinsicIndex,
-              }
-            : undefined,
+          chainCursor: makeCursor(event),
           finality: (event.finality as GovernanceVoteActivityView["finality"]) ?? "unknown",
           source: makeSource(event),
           projection: makeProjection(event),
@@ -201,13 +193,7 @@ export class GovernanceProjectorService implements GovernanceProjector<Governanc
           conviction: payload?.conviction,
           balance: payload?.balance,
           isActive: event.type === "GovernanceDelegated",
-          chainCursor: event.blockNumber !== undefined
-            ? {
-                blockNumber: event.blockNumber,
-                blockHash: event.blockHash,
-                extrinsicIndex: event.extrinsicIndex,
-              }
-            : undefined,
+          chainCursor: makeCursor(event),
           finality: (event.finality as GovernanceDelegationView["finality"]) ?? "unknown",
           source: makeSource(event),
           projection: makeProjection(event),
