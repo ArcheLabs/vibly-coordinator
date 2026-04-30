@@ -12,7 +12,7 @@ import { GovernanceProjectorService } from "../../services/governanceProjector.j
 import { GovernanceIndexConsumer } from "../../services/governanceIndexConsumer.js";
 import governanceRoutes from "./routes.js";
 import type { NormalizedChainEvent } from "@concord/core";
-import type { GovernanceEventType, GovernanceProposalSummary } from "@concord/governance";
+import type { GovernanceEventType, GovernanceProposalSummary, GovernanceIndexFeedPort } from "@concord/governance";
 
 const CHAIN = { namespace: "substrate", chainId: "vibly-solo" } as const;
 
@@ -20,6 +20,7 @@ function makeTestApp(store: CoordinatorStore) {
   const fastify = Fastify({ logger: false });
 
   // Minimal concord mock
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   fastify.decorate("concord", {
     governanceIndexQuery: null,
     governanceGateway: {
@@ -28,14 +29,14 @@ function makeTestApp(store: CoordinatorStore) {
     state: {
       events: { append: async () => {} },
     },
-  } as unknown as Parameters<typeof fastify.decorate<"concord">>[1]);
+  } as unknown as import("@concord/sdk").Concord);
 
   fastify.decorate("coordinatorStore", store);
-  fastify.decorate("eventBus", { publish: () => {} } as unknown as Parameters<typeof fastify.decorate<"eventBus">>[1]);
+  fastify.decorate("eventBus", { publish: () => {} } as unknown as import("../../services/eventBus.js").EventBus);
   fastify.decorate("config", {
     substrateChainId: "vibly-solo",
     nodeEnv: "test",
-  } as unknown as Parameters<typeof fastify.decorate<"config">>[1]);
+  } as unknown as import("../../config/env.js").CoordinatorConfig);
 
   void fastify.register(governanceRoutes);
   return fastify;
@@ -73,7 +74,7 @@ function makeStore(): CoordinatorStore {
 
 function makeConsumer(store: CoordinatorStore): GovernanceIndexConsumer {
   const projector = new GovernanceProjectorService();
-  const feed = { subscribeGovernanceEvents: async function* () {} } as Parameters<typeof GovernanceIndexConsumer>[0]["feed"];
+  const feed = { subscribeGovernanceEvents: async function* () {} } as GovernanceIndexFeedPort;
   return new GovernanceIndexConsumer({ store, feed, chain: CHAIN, projector });
 }
 
