@@ -91,7 +91,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const intent = fastify.coordinatorStore.getProjection<{
         id: string;
         kind: string;
@@ -117,7 +117,70 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
       await fastify.concord.state.events.append(evt);
       fastify.eventBus.publish(evt);
 
+      // Deprecated: use /governance/views for chain-indexed data
+      void reply.header("Deprecation", "true");
+      void reply.header("Sunset", "2026-12-31");
+
       return ok({ governanceIntent: updated, result });
+    },
+  );
+
+  // ── GET /governance/views ─────────────────────────────────────────────────
+  // List all governance views written by GovernanceIndexConsumer.
+  fastify.get(
+    "/governance/views",
+    {
+      schema: {
+        tags: ["Governance"],
+        summary: "List governance subject views (from chain indexer)",
+      },
+    },
+    async () => {
+      const items = fastify.coordinatorStore.listProjections("governance_view") as unknown[];
+      return ok({ items });
+    },
+  );
+
+  // ── GET /governance/views/:subjectId ──────────────────────────────────────
+  fastify.get<{ Params: { subjectId: string } }>(
+    "/governance/views/:subjectId",
+    {
+      schema: {
+        tags: ["Governance"],
+        summary: "Get a governance subject view by subjectId (chainId:referendumIndex)",
+        params: {
+          type: "object",
+          required: ["subjectId"],
+          properties: { subjectId: { type: "string" } },
+        },
+      },
+    },
+    async (request) => {
+      const view = fastify.coordinatorStore.getProjection("governance_view", request.params.subjectId);
+      if (!view) throw notFound("GovernanceView", request.params.subjectId);
+      return ok({ view });
+    },
+  );
+
+  // ── GET /governance/checkpoint ────────────────────────────────────────────
+  // Returns the latest indexed block checkpoint from GovernanceIndexQueryPort.
+  fastify.get(
+    "/governance/checkpoint",
+    {
+      schema: {
+        tags: ["Governance"],
+        summary: "Get the latest governance index checkpoint",
+      },
+    },
+    async () => {
+      const indexQuery = fastify.concord.governanceIndexQuery;
+      if (!indexQuery) {
+        return ok({ checkpoint: null, note: "governanceIndexQuery not configured" });
+      }
+      const chainId = fastify.config.substrateChainId ?? "substrate:vibly-solo";
+      const chain = { namespace: "substrate" as const, chainId };
+      const checkpoint = await indexQuery.getGovernanceCheckpoint({ chain });
+      return ok({ checkpoint });
     },
   );
 };

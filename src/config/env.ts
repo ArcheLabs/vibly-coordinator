@@ -14,6 +14,8 @@ const envSchema = z.object({
   TRACE_OUTPUT_DIR: z.string().default("./data/traces"),
   ENABLE_SWAGGER: z.string().transform((v) => v === "true").default("true"),
   ENABLE_DEV_ROUTES: z.string().transform((v) => v === "true").default("false"),
+  SUBSTRATE_INDEXER_URL: z.string().optional(),
+  SUBSTRATE_CHAIN_ID: z.string().default("substrate:vibly-solo"),
 });
 
 export interface CoordinatorConfig {
@@ -30,6 +32,8 @@ export interface CoordinatorConfig {
   traceOutputDir: string;
   enableSwagger: boolean;
   enableDevRoutes: boolean;
+  substrateIndexerUrl?: string;
+  substrateChainId: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorConfig {
@@ -48,5 +52,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     traceOutputDir: parsed.TRACE_OUTPUT_DIR,
     enableSwagger: parsed.ENABLE_SWAGGER,
     enableDevRoutes: parsed.ENABLE_DEV_ROUTES,
+    substrateIndexerUrl: parsed.SUBSTRATE_INDEXER_URL,
+    substrateChainId: parsed.SUBSTRATE_CHAIN_ID,
   };
 }
