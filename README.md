@@ -47,6 +47,8 @@ Swagger UI：`http://localhost:8787/docs`
 | `GOVERNANCE_BACKENDS` | — | 可选 allowlist，例如 `substrate-local,evm-fixture` |
 | `SUBSTRATE_INDEXER_URL` | — | SubQuery GraphQL endpoint（设置后启动链上读模型消费者）|
 | `SUBSTRATE_CHAIN_ID` | `substrate:vibly-solo` | 链标识符 |
+| `SUBSTRATE_RPC_URL` | `ws://127.0.0.1:9944` | Substrate OpenGov 写路径 RPC |
+| `SUBSTRATE_GOVERNANCE_TX_MODE` | `prepare-only` | `prepare-only`、`fixture` 或 `unsafe-papi` |
 | `EVM_GOVERNOR_FIXTURE` | `false` | 启用 EVM Governor fixture backend |
 | `EVM_CHAIN_ID` | `31337` | EVM fixture 的 EIP-155 chain id |
 
@@ -124,6 +126,9 @@ Swagger UI：`http://localhost:8787/docs`
 | `POST` | `/governance/intents` | 创建治理意图 |
 | `GET` | `/governance/intents/:id` | 获取治理意图 |
 | `POST` | `/governance/intents/:id/submit-mock` | Mock 提交（已废弃，设有 `Deprecation: true` 响应头） |
+| `POST` | `/governance/intents/:id/submit-opengov` | Phase E 主路径：通过 Substrate OpenGov action adapter 提交治理意图 |
+| `POST` | `/governance/intents/:id/reconcile-subject` | 将已提交 intent 与 indexer 回读到的 subject 关联 |
+| `POST` | `/governance/subjects/:subjectId/vote-opengov` | 通过 coordinator 提交 OpenGov vote，并等待 indexer 回读 |
 | `GET` | `/governance/views` | 列出链上 governance 读模型（由 SubQuery 消费者写入） |
 | `GET` | `/governance/views/:subjectId` | 获取单个链上治理主题（格式：`chainId:referendumIndex`） |
 | `GET` | `/governance/checkpoint?backend=...` | 最新链上索引 checkpoint，可按 backend/chain 过滤 |
@@ -163,6 +168,17 @@ pnpm dev
 - `evm-fixture`：`backend=evm-governor`，`chain.namespace=eip155`，`chainId=31337`。
 
 `/governance/backends` 会返回 backend-neutral `health` 字段，包含 `status`、`stale`、`reason`、`lastObservedAt` 与最新 checkpoint。health/freshness 按 backend chain 计算，不使用全局 checkpoint。
+
+Phase E 主路径使用 coordinator action API 写入 OpenGov，然后通过 indexer/projector 回读。`/governance/merged` 会返回 `actionReceipts`、`submitReceipt`、`voteReceipts` 与 `readback`，用于解释提交交易、pending indexer、linked subject 和 vote readback 状态。
+
+本地 smoke 可先用 fixture tx mode 验证 coordinator 闭环形状：
+
+```bash
+SUBSTRATE_GOVERNANCE_TX_MODE=fixture pnpm dev
+./scripts/phase-e-smoke.sh
+```
+
+真实链 smoke 需要启动 `vibly-chain` solo-node 与 `vibly-indexer`，并将 `SUBSTRATE_GOVERNANCE_TX_MODE` 切换为可提交的 PAPI signer/submitter 路径；indexer 看到 referendum 后，用 `SUBJECT_EXTERNAL_ID=<referendumIndex> ./scripts/phase-e-smoke.sh` 进行 reconcile。
 
 本地演示可使用 dev-only seed 路由稳定生成 Substrate + EVM 两类 merged 条目：
 

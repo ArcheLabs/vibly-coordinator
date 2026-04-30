@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@concord/adapter-evm-indexer": "workspace:*",
+    "@concord/adapter-substrate-actions": "workspace:*",
     "@concord/adapter-substrate-indexer": "workspace:*",
     "@concord/adapters": "workspace:*",
     "@concord/core": "workspace:*",

@@ -17,6 +17,8 @@ const envSchema = z.object({
   GOVERNANCE_BACKENDS: z.string().default(""),
   SUBSTRATE_INDEXER_URL: z.string().optional(),
   SUBSTRATE_CHAIN_ID: z.string().default("substrate:vibly-solo"),
+  SUBSTRATE_RPC_URL: z.string().default("ws://127.0.0.1:9944"),
+  SUBSTRATE_GOVERNANCE_TX_MODE: z.enum(["prepare-only", "fixture", "unsafe-papi"]).default("prepare-only"),
   EVM_GOVERNOR_FIXTURE: z.string().transform((v) => v === "true").default("false"),
   EVM_CHAIN_ID: z.string().default("31337"),
 });
@@ -38,6 +40,8 @@ export interface CoordinatorConfig {
   governanceBackends: string[];
   substrateIndexerUrl?: string;
   substrateChainId: string;
+  substrateRpcUrl: string;
+  substrateGovernanceTxMode: "prepare-only" | "fixture" | "unsafe-papi";
   evmGovernorFixture: boolean;
   evmChainId: string;
 }
@@ -61,6 +65,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     governanceBackends: parsed.GOVERNANCE_BACKENDS.split(",").map((name) => name.trim()).filter(Boolean),
     substrateIndexerUrl: parsed.SUBSTRATE_INDEXER_URL,
     substrateChainId: parsed.SUBSTRATE_CHAIN_ID,
+    substrateRpcUrl: parsed.SUBSTRATE_RPC_URL,
+    substrateGovernanceTxMode: parsed.SUBSTRATE_GOVERNANCE_TX_MODE,
     evmGovernorFixture: parsed.EVM_GOVERNOR_FIXTURE,
     evmChainId: parsed.EVM_CHAIN_ID,
   };

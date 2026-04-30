@@ -13,6 +13,8 @@ describe("loadConfig", () => {
     expect(config.substrateIndexerUrl).toBe("http://localhost:3010/graphql");
     expect(config.evmGovernorFixture).toBe(true);
     expect(config.substrateChainId).toBe("substrate:vibly-solo");
+    expect(config.substrateRpcUrl).toBe("ws://127.0.0.1:9944");
+    expect(config.substrateGovernanceTxMode).toBe("prepare-only");
     expect(config.evmChainId).toBe("31337");
   });
 
@@ -23,5 +25,16 @@ describe("loadConfig", () => {
     });
 
     expect(config.governanceBackends).toEqual(["substrate-local", "evm-fixture"]);
+  });
+
+  it("parses Phase E substrate OpenGov tx mode", () => {
+    const config = loadConfig({
+      NODE_ENV: "test",
+      SUBSTRATE_RPC_URL: "ws://localhost:9944",
+      SUBSTRATE_GOVERNANCE_TX_MODE: "fixture",
+    });
+
+    expect(config.substrateRpcUrl).toBe("ws://localhost:9944");
+    expect(config.substrateGovernanceTxMode).toBe("fixture");
   });
 });

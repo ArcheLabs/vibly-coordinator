@@ -7,6 +7,7 @@ import {
   GOVERNANCE_DELEGATION,
   GOVERNANCE_CHECKPOINT,
   GOVERNANCE_INTENT_CHAIN_LINK,
+  GOVERNANCE_TX_RECEIPT,
 } from "../../db/projectionKinds.js";
 import { buildMergedView, isCheckpointStale } from "./mergeBuilder.js";
 import type {
@@ -16,7 +17,9 @@ import type {
   GovernanceDelegationView,
   GovernanceCheckpointView,
   GovernanceIntentChainLink,
+  GovernanceVoteStance,
 } from "@concord/governance";
+import type { ChainRef, TxReceipt } from "@concord/core";
 
 type BackendHealthStatus = "healthy" | "stale" | "unavailable";
 
@@ -31,6 +34,21 @@ interface GovernanceBackendHealth {
 type GovernanceBackendReadModel = GovernanceBackendDescriptor & {
   health: GovernanceBackendHealth;
 };
+
+interface GovernanceTxReceiptProjection {
+  id: string;
+  intentId?: string;
+  subjectId?: string;
+  action: "submitProposal" | "castVote";
+  backend: "substrate-opengov";
+  chain: ChainRef;
+  actor: string;
+  tx: TxReceipt;
+  payloadSummary?: Record<string, unknown>;
+  readbackStatus: "pending_indexer" | "linked" | "failed";
+  createdAt: string;
+  updatedAt: string;
+}
 
 const governanceRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /governance/intents
@@ -83,6 +101,110 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
       await fastify.concord.state.events.append(evt);
       fastify.eventBus.publish(evt);
       return ok({ governanceIntent: intent });
+    },
+  );
+
+  // POST /governance/intents/:governanceIntentId/submit-opengov
+  fastify.post<{
+    Params: { governanceIntentId: string };
+    Body: {
+      actor: string;
+      payload?: unknown;
+      submitArgs?: unknown;
+      externalId?: string;
+      subjectId?: string;
+      metadata?: Record<string, unknown>;
+    };
+  }>(
+    "/governance/intents/:governanceIntentId/submit-opengov",
+    {
+      schema: {
+        tags: ["Governance"],
+        summary: "Submit a governance intent through the Substrate OpenGov action path",
+        params: {
+          type: "object",
+          required: ["governanceIntentId"],
+          properties: { governanceIntentId: { type: "string" } },
+        },
+        body: {
+          type: "object",
+          required: ["actor"],
+          properties: {
+            actor: { type: "string" },
+            payload: {},
+            submitArgs: {},
+            externalId: { type: "string" },
+            subjectId: { type: "string" },
+            metadata: { type: "object" },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const intent = fastify.coordinatorStore.getProjection<{
+        id: string;
+        projectId?: string;
+        kind: string;
+        title: string;
+        body?: string;
+        status: string;
+      }>("governance_intent", request.params.governanceIntentId);
+      if (!intent) throw notFound("GovernanceIntent", request.params.governanceIntentId);
+
+      const chain = { namespace: "substrate" as const, chainId: fastify.config.substrateChainId ?? "substrate:vibly-solo" };
+      const adapter = await createSubstrateGovernanceActionsAdapter(fastify);
+      const metadata: Record<string, unknown> = {
+        ...(request.body.metadata ?? {}),
+        governanceIntentId: intent.id,
+      };
+      if (request.body.submitArgs !== undefined) metadata["submitArgs"] = request.body.submitArgs;
+      const prepareInput = {
+        chain,
+        actor: request.body.actor,
+        title: intent.title,
+        metadata,
+      };
+      if (intent.body !== undefined) {
+        (prepareInput as typeof prepareInput & { description: string }).description = intent.body;
+      }
+      const prepared = await adapter.prepareProposal(prepareInput);
+      const tx = await adapter.submitProposal({
+        chain,
+        actor: request.body.actor,
+        payload: request.body.payload ?? prepared.payload,
+      });
+      const receipt = saveGovernanceTxReceipt(fastify, {
+        intentId: intent.id,
+        action: "submitProposal",
+        chain,
+        actor: request.body.actor,
+        tx,
+        payloadSummary: summarizePayload(prepared.payload),
+        readbackStatus: request.body.subjectId || request.body.externalId ? "linked" : "pending_indexer",
+      });
+
+      const updated = {
+        ...intent,
+        status: "submitted",
+        submitReceiptId: receipt.id,
+        readbackStatus: receipt.readbackStatus,
+        updatedAt: receipt.updatedAt,
+      };
+      fastify.coordinatorStore.saveProjection("governance_intent", intent.id, updated);
+
+      const link = maybeLinkSubmittedIntent(fastify, {
+        intentId: intent.id,
+        chain,
+        externalId: request.body.externalId,
+        subjectId: request.body.subjectId,
+        tx,
+      });
+      const { createEvent } = await import("@concord/foundation");
+      const evt = createEvent({ type: "GovernanceSubmittedOpenGov", payload: { governanceIntentId: intent.id, receipt, link } });
+      await fastify.concord.state.events.append(evt);
+      fastify.eventBus.publish(evt);
+
+      return ok({ governanceIntent: updated, receipt, link });
     },
   );
 
@@ -304,6 +426,87 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
+  // ── POST /governance/subjects/:subjectId/vote-opengov ─────────────────────
+  fastify.post<{
+    Params: { subjectId: string };
+    Body: {
+      voter: string;
+      stance: GovernanceVoteStance;
+      weight?: string;
+      reason?: string;
+      conviction?: string | number;
+      payload?: unknown;
+      metadata?: Record<string, unknown>;
+    };
+  }>(
+    "/governance/subjects/:subjectId/vote-opengov",
+    {
+      schema: {
+        tags: ["Governance"],
+        summary: "Cast a Substrate OpenGov vote for an indexed governance subject",
+        params: {
+          type: "object",
+          required: ["subjectId"],
+          properties: { subjectId: { type: "string" } },
+        },
+        body: {
+          type: "object",
+          required: ["voter", "stance"],
+          properties: {
+            voter: { type: "string" },
+            stance: { type: "string" },
+            weight: { type: "string" },
+            reason: { type: "string" },
+            conviction: {},
+            payload: {},
+            metadata: { type: "object" },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const subject = fastify.coordinatorStore.getProjection<GovernanceSubjectView>(
+        GOVERNANCE_SUBJECT_VIEW,
+        request.params.subjectId,
+      );
+      if (!subject) throw notFound("GovernanceSubjectView", request.params.subjectId);
+      if (subject.backend !== "substrate-opengov") {
+        throw forbidden("Only substrate-opengov subjects can use vote-opengov");
+      }
+
+      const adapter = await createSubstrateGovernanceActionsAdapter(fastify);
+      const metadata = { ...(request.body.metadata ?? {}) };
+      if (request.body.conviction !== undefined) metadata["conviction"] = request.body.conviction;
+      const prepared = await adapter.prepareVote({
+        subject: { chain: subject.chain, backend: subject.backend, externalId: subject.externalId },
+        voter: request.body.voter,
+        stance: request.body.stance,
+        weight: request.body.weight,
+        reason: request.body.reason,
+        metadata,
+      });
+      const tx = await adapter.castVote({
+        subject: prepared.subject,
+        voter: request.body.voter,
+        payload: request.body.payload ?? prepared.payload,
+      });
+      const receipt = saveGovernanceTxReceipt(fastify, {
+        subjectId: subject.id,
+        action: "castVote",
+        chain: subject.chain,
+        actor: request.body.voter,
+        tx,
+        payloadSummary: summarizePayload(prepared.payload),
+        readbackStatus: "pending_indexer",
+      });
+      const { createEvent } = await import("@concord/foundation");
+      const evt = createEvent({ type: "GovernanceVoteSubmittedOpenGov", payload: { subjectId: subject.id, receipt } });
+      await fastify.concord.state.events.append(evt);
+      fastify.eventBus.publish(evt);
+      return ok({ receipt });
+    },
+  );
+
   // ── GET /governance/delegations ───────────────────────────────────────────
   fastify.get<{ Querystring: { chainId?: string; limit?: number } }>(
     "/governance/delegations",
@@ -354,18 +557,24 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
       const subjects = fastify.coordinatorStore.listProjections<GovernanceSubjectView>(GOVERNANCE_SUBJECT_VIEW);
       const links = fastify.coordinatorStore.listProjections<GovernanceIntentChainLink>(GOVERNANCE_INTENT_CHAIN_LINK);
       const checkpoints = fastify.coordinatorStore.listProjections<GovernanceCheckpointView>(GOVERNANCE_CHECKPOINT);
+      const receipts = fastify.coordinatorStore.listProjections<GovernanceTxReceiptProjection>(GOVERNANCE_TX_RECEIPT);
 
       const merged = intents.slice(0, limit).map((intent) => {
         const link = links.find((l) => l.governanceIntentId === intent.id);
         const subject = link ? subjects.find((s) => s.id === link.subjectId) : undefined;
         const checkpoint = selectCheckpointForGovernanceView(checkpoints, subject, link);
-        return buildMergedView({
-          id: `merged:${intent.id}`,
-          projectId: intent.projectId,
-          intent: { id: intent.id, title: intent.title, status: intent.status, proposedBy: intent.proposedBy, createdAt: intent.createdAt },
-          subject,
-          link,
-          checkpoint,
+        return enrichMergedViewObservability({
+          base: buildMergedView({
+            id: `merged:${intent.id}`,
+            projectId: intent.projectId,
+            intent: { id: intent.id, title: intent.title, status: intent.status, proposedBy: intent.proposedBy, createdAt: intent.createdAt },
+            subject,
+            link,
+            checkpoint,
+          }),
+          receipts,
+          intentId: intent.id,
+          subjectId: subject?.id,
         });
       });
 
@@ -374,10 +583,14 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
       for (const subject of subjects) {
         if (!linkedSubjectIds.has(subject.id) && merged.length < limit) {
           const checkpoint = selectCheckpointForGovernanceView(checkpoints, subject);
-          merged.push(buildMergedView({
-            id: `merged:${subject.id}`,
-            subject,
-            checkpoint,
+          merged.push(enrichMergedViewObservability({
+            base: buildMergedView({
+              id: `merged:${subject.id}`,
+              subject,
+              checkpoint,
+            }),
+            receipts,
+            subjectId: subject.id,
           }));
         }
       }
@@ -462,18 +675,27 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
         ? fastify.coordinatorStore.listProjections<GovernanceVoteActivityView>(GOVERNANCE_VOTE_ACTIVITY)
             .filter((v) => v.subjectId === subject.id)
         : [];
+      const actionReceipts = fastify.coordinatorStore
+        .listProjections<GovernanceTxReceiptProjection>(GOVERNANCE_TX_RECEIPT)
+        .filter((receipt) => receipt.intentId === intent?.id || receipt.subjectId === subject?.id);
 
       const checkpoints = fastify.coordinatorStore.listProjections<GovernanceCheckpointView>(GOVERNANCE_CHECKPOINT);
       const checkpoint = selectCheckpointForGovernanceView(checkpoints, subject, link);
 
-      const merged = buildMergedView({
-        id: rawId,
-        projectId: intent?.projectId,
-        intent: intent ? { id: intent.id, title: intent.title, status: intent.status } : undefined,
-        subject,
+      const merged = enrichMergedViewObservability({
+        base: buildMergedView({
+          id: rawId,
+          projectId: intent?.projectId,
+          intent: intent ? { id: intent.id, title: intent.title, status: intent.status } : undefined,
+          subject,
+          votes,
+          link,
+          checkpoint,
+        }),
+        receipts: actionReceipts,
+        intentId: intent?.id,
+        subjectId: subject?.id,
         votes,
-        link,
-        checkpoint,
       });
 
       return ok({ merged });
@@ -539,9 +761,253 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
       return ok({ link });
     },
   );
+
+  // ── POST /governance/intents/:governanceIntentId/reconcile-subject ────────
+  fastify.post<{
+    Params: { governanceIntentId: string };
+    Body: { subjectId?: string; externalId?: string; metadata?: Record<string, unknown> };
+  }>(
+    "/governance/intents/:governanceIntentId/reconcile-subject",
+    {
+      schema: {
+        tags: ["Governance"],
+        summary: "Reconcile a submitted governance intent with an indexed OpenGov subject",
+        params: {
+          type: "object",
+          required: ["governanceIntentId"],
+          properties: { governanceIntentId: { type: "string" } },
+        },
+        body: {
+          type: "object",
+          properties: {
+            subjectId: { type: "string" },
+            externalId: { type: "string" },
+            metadata: { type: "object" },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const intent = fastify.coordinatorStore.getProjection<{
+        id: string;
+        status: string;
+        submitReceiptId?: string;
+        readbackStatus?: string;
+      }>("governance_intent", request.params.governanceIntentId);
+      if (!intent) throw notFound("GovernanceIntent", request.params.governanceIntentId);
+
+      const subject = findGovernanceSubjectForReconciliation(
+        fastify.coordinatorStore.listProjections<GovernanceSubjectView>(GOVERNANCE_SUBJECT_VIEW),
+        request.body,
+      );
+      if (!subject) {
+        throw notFound("GovernanceSubjectView", request.body.subjectId ?? request.body.externalId ?? "missing");
+      }
+
+      const now = new Date().toISOString();
+      const link: GovernanceIntentChainLink = {
+        id: `link:${intent.id}:${subject.id}`,
+        governanceIntentId: intent.id,
+        subjectId: subject.id,
+        chain: subject.chain,
+        backend: subject.backend,
+        externalId: subject.externalId,
+        linkSource: "metadata_match",
+        confidence: "high",
+        createdAt: now,
+        updatedAt: now,
+        metadata: {
+          ...(request.body.metadata ?? {}),
+          reconciledAt: now,
+          readbackStatus: "linked",
+        },
+      };
+      fastify.coordinatorStore.saveProjection(GOVERNANCE_INTENT_CHAIN_LINK, link.id, link);
+
+      const receipts = fastify.coordinatorStore
+        .listProjections<GovernanceTxReceiptProjection>(GOVERNANCE_TX_RECEIPT)
+        .filter((receipt) => receipt.intentId === intent.id);
+      for (const receipt of receipts) {
+        fastify.coordinatorStore.saveProjection(GOVERNANCE_TX_RECEIPT, receipt.id, {
+          ...receipt,
+          subjectId: subject.id,
+          readbackStatus: "linked",
+          updatedAt: now,
+        } satisfies GovernanceTxReceiptProjection);
+      }
+
+      const updated = {
+        ...intent,
+        status: subject.status,
+        readbackStatus: "linked",
+        updatedAt: now,
+      };
+      fastify.coordinatorStore.saveProjection("governance_intent", intent.id, updated);
+
+      return ok({ governanceIntent: updated, link, receipts: receipts.length });
+    },
+  );
 };
 
 export default governanceRoutes;
+
+async function createSubstrateGovernanceActionsAdapter(fastify: Parameters<FastifyPluginAsync>[0]) {
+  const { SubstrateGovernanceActionsAdapter } = await import("@concord/adapter-substrate-actions");
+  const config: ConstructorParameters<typeof SubstrateGovernanceActionsAdapter>[0] = {
+    rpcUrl: fastify.config.substrateRpcUrl,
+    chainId: fastify.config.substrateChainId,
+  };
+  if (fastify.config.substrateGovernanceTxMode === "fixture") {
+    config.submitter = async (input) => ({
+      txHash: `0xphasee_${input.call}_${Date.now().toString(16)}`,
+      chain: input.chain,
+      finality: "included" as const,
+    });
+  }
+  return new SubstrateGovernanceActionsAdapter(config);
+}
+
+function saveGovernanceTxReceipt(
+  fastify: Parameters<FastifyPluginAsync>[0],
+  input: {
+    intentId?: string;
+    subjectId?: string;
+    action: GovernanceTxReceiptProjection["action"];
+    chain: ChainRef;
+    actor: string;
+    tx: TxReceipt;
+    payloadSummary?: Record<string, unknown>;
+    readbackStatus: GovernanceTxReceiptProjection["readbackStatus"];
+  },
+): GovernanceTxReceiptProjection {
+  const now = new Date().toISOString();
+  const id = `governance-tx:${input.action}:${input.tx.txHash}`;
+  const receipt: GovernanceTxReceiptProjection = {
+    id,
+    action: input.action,
+    backend: "substrate-opengov",
+    chain: input.chain,
+    actor: input.actor,
+    tx: input.tx,
+    readbackStatus: input.readbackStatus,
+    createdAt: now,
+    updatedAt: now,
+  };
+  if (input.intentId !== undefined) receipt.intentId = input.intentId;
+  if (input.subjectId !== undefined) receipt.subjectId = input.subjectId;
+  if (input.payloadSummary !== undefined) receipt.payloadSummary = input.payloadSummary;
+  fastify.coordinatorStore.saveProjection(GOVERNANCE_TX_RECEIPT, id, receipt);
+  return receipt;
+}
+
+function maybeLinkSubmittedIntent(
+  fastify: Parameters<FastifyPluginAsync>[0],
+  input: {
+    intentId: string;
+    chain: ChainRef;
+    externalId?: string;
+    subjectId?: string;
+    tx: TxReceipt;
+  },
+): GovernanceIntentChainLink | null {
+  const externalId = input.externalId ?? input.subjectId;
+  if (!externalId) return null;
+  const now = new Date().toISOString();
+  const subjectId = input.subjectId ?? `${input.chain.namespace}:${input.chain.chainId}:${externalId}`;
+  const link: GovernanceIntentChainLink = {
+    id: `link:${input.intentId}:${subjectId}`,
+    governanceIntentId: input.intentId,
+    subjectId,
+    chain: input.chain,
+    backend: "substrate-opengov",
+    externalId,
+    linkSource: input.subjectId ? "explicit" : "tx_receipt",
+    confidence: input.subjectId ? "high" : "medium",
+    createdAt: now,
+    updatedAt: now,
+    metadata: { txHash: input.tx.txHash, readbackStatus: "pending_indexer" },
+  };
+  fastify.coordinatorStore.saveProjection(GOVERNANCE_INTENT_CHAIN_LINK, link.id, link);
+  return link;
+}
+
+function selectReceiptsForGovernanceView(
+  receipts: GovernanceTxReceiptProjection[],
+  intentId?: string,
+  subjectId?: string,
+): GovernanceTxReceiptProjection[] {
+  return receipts
+    .filter((receipt) => (
+      (intentId !== undefined && receipt.intentId === intentId) ||
+      (subjectId !== undefined && receipt.subjectId === subjectId)
+    ))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+function findGovernanceSubjectForReconciliation(
+  subjects: GovernanceSubjectView[],
+  input: { subjectId?: string; externalId?: string },
+): GovernanceSubjectView | undefined {
+  if (input.subjectId) {
+    return subjects.find((subject) => subject.id === input.subjectId);
+  }
+  if (input.externalId) {
+    return subjects.find((subject) => (
+      subject.backend === "substrate-opengov" &&
+      subject.externalId === input.externalId
+    ));
+  }
+  return undefined;
+}
+
+function enrichMergedViewObservability(input: {
+  base: ReturnType<typeof buildMergedView>;
+  receipts: GovernanceTxReceiptProjection[];
+  intentId?: string;
+  subjectId?: string;
+  votes?: GovernanceVoteActivityView[];
+}) {
+  const actionReceipts = selectReceiptsForGovernanceView(input.receipts, input.intentId, input.subjectId);
+  const submitReceipt = actionReceipts.find((receipt) => receipt.action === "submitProposal");
+  const voteReceipts = actionReceipts.filter((receipt) => receipt.action === "castVote");
+  const indexedVotes = input.votes ?? input.base.votes ?? [];
+  const linked = Boolean(input.base.subject && input.base.link);
+  const pendingReadback = actionReceipts.some((receipt) => receipt.readbackStatus === "pending_indexer") && !linked;
+  return {
+    ...input.base,
+    actionReceipts,
+    submitReceipt,
+    voteReceipts,
+    readbackStatus: linked ? "linked" : (actionReceipts[0]?.readbackStatus ?? "not_submitted"),
+    readback: {
+      pending: pendingReadback,
+      linked,
+      linkedSubjectId: input.base.subject?.id,
+      submitTxHash: submitReceipt?.tx.txHash,
+      voteReceiptCount: voteReceipts.length,
+      indexedVoteCount: indexedVotes.length,
+      voteReadbackStatus: computeVoteReadbackStatus(voteReceipts, indexedVotes),
+    },
+  };
+}
+
+function computeVoteReadbackStatus(
+  voteReceipts: GovernanceTxReceiptProjection[],
+  votes: GovernanceVoteActivityView[],
+): "not_submitted" | "pending_indexer" | "indexed" {
+  if (voteReceipts.length === 0) return "not_submitted";
+  if (votes.length > 0) return "indexed";
+  return "pending_indexer";
+}
+
+function summarizePayload(payload: unknown): Record<string, unknown> {
+  const record = asRecord(payload);
+  return {
+    type: record["type"],
+    pallet: record["pallet"],
+    call: record["call"],
+  };
+}
 
 function selectCheckpointForGovernanceView(
   checkpoints: GovernanceCheckpointView[],
@@ -688,4 +1154,8 @@ function chainsEqual(
   right: { namespace?: string; chainId?: string },
 ): boolean {
   return left.namespace === right.namespace && left.chainId === right.chainId;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? value as Record<string, unknown> : {};
 }

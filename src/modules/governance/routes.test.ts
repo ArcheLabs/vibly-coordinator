@@ -60,6 +60,8 @@ function makeTestApp(store: CoordinatorStore, config?: Partial<import("../../con
   fastify.decorate("eventBus", { publish: () => {} } as unknown as import("../../services/eventBus.js").EventBus);
   fastify.decorate("config", {
     substrateChainId: "vibly-solo",
+    substrateRpcUrl: "ws://127.0.0.1:9944",
+    substrateGovernanceTxMode: "prepare-only",
     evmChainId: "31337",
     enableDevRoutes: false,
     nodeEnv: "test",
@@ -262,6 +264,128 @@ describe("governance routes", () => {
     const body = mergedRes.json<{ data: { merged: { status: { merged: string }; link: { subjectId: string } } } }>();
     expect(body.data.merged.status.merged).toBe("active_on_chain");
     expect(body.data.merged.link?.subjectId).toBe(subjectId);
+  });
+
+  it("POST /governance/intents/:id/submit-opengov records receipt and optional pending link", async () => {
+    const localApp = makeTestApp(store, {
+      substrateChainId: "substrate:vibly-solo",
+      substrateGovernanceTxMode: "fixture",
+    });
+    await localApp.ready();
+    const intentRes = await localApp.inject({
+      method: "POST",
+      url: "/governance/intents",
+      payload: { kind: "governance", title: "Submit OpenGov" },
+    });
+    const intentId = intentRes.json<{ data: { governanceIntent: { id: string } } }>().data.governanceIntent.id;
+
+    const submitRes = await localApp.inject({
+      method: "POST",
+      url: `/governance/intents/${intentId}/submit-opengov`,
+      payload: {
+        actor: "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+        externalId: "123",
+        submitArgs: { proposal: "0xproposal", enactment: "After" },
+      },
+    });
+
+    expect(submitRes.statusCode).toBe(200);
+    const submitBody = submitRes.json<{
+      data: {
+        governanceIntent: { status: string; readbackStatus: string };
+        receipt: { tx: { txHash: string }; readbackStatus: string };
+        link: { externalId: string; linkSource: string };
+      };
+    }>();
+    expect(submitBody.data.governanceIntent.status).toBe("submitted");
+    expect(submitBody.data.receipt.tx.txHash).toMatch(/^0xphasee_submit_/);
+    expect(submitBody.data.receipt.readbackStatus).toBe("linked");
+    expect(submitBody.data.link).toMatchObject({ externalId: "123", linkSource: "tx_receipt" });
+
+    const mergedRes = await localApp.inject({ method: "GET", url: `/governance/merged/merged:${intentId}` });
+    const mergedBody = mergedRes.json<{ data: { merged: { actionReceipts: unknown[]; readbackStatus: string; readback: { pending: boolean; submitTxHash?: string } } } }>();
+    expect(mergedBody.data.merged.actionReceipts).toHaveLength(1);
+    expect(mergedBody.data.merged.readbackStatus).toBe("linked");
+    expect(mergedBody.data.merged.readback.pending).toBe(false);
+    expect(mergedBody.data.merged.readback.submitTxHash).toMatch(/^0xphasee_submit_/);
+
+    await localApp.close();
+  });
+
+  it("POST /governance/intents/:id/reconcile-subject links indexed subject and receipt", async () => {
+    const localApp = makeTestApp(store, {
+      substrateChainId: "substrate:vibly-solo",
+      substrateGovernanceTxMode: "fixture",
+    });
+    await localApp.ready();
+    const intentRes = await localApp.inject({
+      method: "POST",
+      url: "/governance/intents",
+      payload: { kind: "governance", title: "Reconcile OpenGov" },
+    });
+    const intentId = intentRes.json<{ data: { governanceIntent: { id: string } } }>().data.governanceIntent.id;
+    await localApp.inject({
+      method: "POST",
+      url: `/governance/intents/${intentId}/submit-opengov`,
+      payload: {
+        actor: "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+        submitArgs: { proposal: "0xproposal", enactment: "After" },
+      },
+    });
+    consumer.handleEvent(store, makeProposalEvent("GovernanceProposalDiscovered", "77"));
+
+    const reconcileRes = await localApp.inject({
+      method: "POST",
+      url: `/governance/intents/${intentId}/reconcile-subject`,
+      payload: { externalId: "77" },
+    });
+
+    expect(reconcileRes.statusCode).toBe(200);
+    const reconcileBody = reconcileRes.json<{
+      data: { governanceIntent: { readbackStatus: string; status: string }; link: { subjectId: string }; receipts: number };
+    }>();
+    expect(reconcileBody.data.governanceIntent.readbackStatus).toBe("linked");
+    expect(reconcileBody.data.governanceIntent.status).toBe("Deciding");
+    expect(reconcileBody.data.link.subjectId).toBe("substrate:vibly-solo:77");
+    expect(reconcileBody.data.receipts).toBe(1);
+
+    const mergedRes = await localApp.inject({ method: "GET", url: `/governance/merged/merged:${intentId}` });
+    const mergedBody = mergedRes.json<{ data: { merged: { subject?: { externalId: string }; readbackStatus: string; readback: { linked: boolean } } } }>();
+    expect(mergedBody.data.merged.subject?.externalId).toBe("77");
+    expect(mergedBody.data.merged.readbackStatus).toBe("linked");
+    expect(mergedBody.data.merged.readback.linked).toBe(true);
+
+    await localApp.close();
+  });
+
+  it("POST /governance/subjects/:id/vote-opengov records a pending vote receipt", async () => {
+    const localApp = makeTestApp(store, { substrateGovernanceTxMode: "fixture" });
+    await localApp.ready();
+    consumer.handleEvent(store, makeProposalEvent("GovernanceProposalDiscovered", "42"));
+    const subjectId = encodeURIComponent("substrate:vibly-solo:42");
+
+    const voteRes = await localApp.inject({
+      method: "POST",
+      url: `/governance/subjects/${subjectId}/vote-opengov`,
+      payload: {
+        voter: "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+        stance: "aye",
+        weight: "2000000000",
+        conviction: 1,
+      },
+    });
+
+    expect(voteRes.statusCode).toBe(200);
+    const body = voteRes.json<{ data: { receipt: { tx: { txHash: string }; readbackStatus: string } } }>();
+    expect(body.data.receipt.tx.txHash).toMatch(/^0xphasee_vote_/);
+    expect(body.data.receipt.readbackStatus).toBe("pending_indexer");
+
+    const mergedRes = await localApp.inject({ method: "GET", url: `/governance/merged/${subjectId}` });
+    const mergedBody = mergedRes.json<{ data: { merged: { readback: { voteReadbackStatus: string; voteReceiptCount: number } } } }>();
+    expect(mergedBody.data.merged.readback.voteReadbackStatus).toBe("pending_indexer");
+    expect(mergedBody.data.merged.readback.voteReceiptCount).toBe(1);
+
+    await localApp.close();
   });
 
   it("GET /governance/merged/:id returns 404 for unknown id", async () => {
