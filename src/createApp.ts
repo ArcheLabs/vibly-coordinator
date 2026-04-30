@@ -36,6 +36,7 @@ import tracesRoutes from "./modules/traces/routes.js";
 import assignmentsRoutes from "./modules/assignments/routes.js";
 import streamsRoutes from "./modules/streams/routes.js";
 import { GovernanceIndexConsumer } from "./services/governanceIndexConsumer.js";
+import { GovernanceProjectorService } from "./services/governanceProjector.js";
 
 // Extend FastifyInstance with our custom decorations
 declare module "fastify" {
@@ -103,6 +104,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   if (config.substrateIndexerUrl) {
     const { SubQueryGovernanceIndexAdapter } = await import("@concord/adapter-substrate-indexer");
     const indexerAdapter = new SubQueryGovernanceIndexAdapter(config.substrateIndexerUrl);
+    const projector = new GovernanceProjectorService();
     const consumer = new GovernanceIndexConsumer({
       store: coordinatorStore,
       feed: indexerAdapter.feed,
@@ -110,6 +112,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
         namespace: "substrate",
         chainId: config.substrateChainId,
       },
+      projector,
     });
     consumer.start();
     fastify.log.info({ indexerUrl: config.substrateIndexerUrl }, "GovernanceIndexConsumer started");
