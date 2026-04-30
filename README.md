@@ -102,6 +102,15 @@ Swagger UI：`http://localhost:8787/docs`
 | `GET` | `/phase-f/runs` | 列出 Phase F smoke run projection |
 | `GET` | `/guardian-requests` | 查询 Guardian/high-risk request read model |
 
+### Phase G Human-Observable Console
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/projects/:projectId/phase-g/overview` | 项目级可观察摘要：目标、Phase F run、Guardian request、timeline/live 状态 |
+| `GET` | `/projects/:projectId/phase-g/timeline` | 人类可读协作 timeline，用于 Console Dashboard 与 Timeline 页面 |
+
+Phase G 复用 `/projects/:projectId/stream` 作为实时主路径。Phase F smoke 会发布 `PhaseGTimelineUpdated`、Guardian、Trace、Work、Knowledge 与 `PhaseFSmokeCompleted` 相关事件，Console 可无需刷新地更新页面。
+
 ### 知识与状态
 
 | 方法 | 路径 | 说明 |

@@ -24,6 +24,22 @@ const AGENTS: PhaseFAgentSeed[] = [
   { key: "guardian", displayName: "Guardian Agent", role: "guardian", kind: "guardian", capability: "phase-f.guardian" },
 ];
 
+interface PhaseGTimelineEntry {
+  id: string;
+  projectId: string;
+  actionId?: string;
+  traceId?: string;
+  phase: string;
+  title: string;
+  status: string;
+  actorId?: string;
+  reason?: string;
+  evidence?: unknown;
+  eventType: string;
+  entityIds?: Record<string, string | undefined>;
+  timestamp?: string;
+}
+
 const phaseFRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post("/phase-f/smoke", async (_request, reply) => {
     if (!fastify.config.enableDevRoutes) {
@@ -62,6 +78,7 @@ const phaseFRoutes: FastifyPluginAsync = async (fastify) => {
       knowledgeVersion: result.knowledgeVersion,
       stateView: result.stateView,
       guardianRequest: result.guardianRequest,
+      timeline: result.timeline.map((entry) => ({ ...entry, traceId: trace.traceId })),
       trace,
       verification,
       replay,
@@ -74,7 +91,7 @@ const phaseFRoutes: FastifyPluginAsync = async (fastify) => {
     const completed = createEvent({
       type: "PhaseFSmokeCompleted",
       correlationId: result.action.id,
-      payload: { runId: run.id, traceId: trace.traceId, verificationOk: verification.ok, replayOk: replay.ok },
+      payload: { projectId: result.project.id, runId: run.id, traceId: trace.traceId, verificationOk: verification.ok, replayOk: replay.ok },
     });
     await fastify.concord.state.events.append(completed);
     fastify.eventBus.publish(completed);
@@ -118,6 +135,7 @@ async function runPhaseFSmoke(fastify: Parameters<FastifyPluginAsync>[0]) {
   const principals = new Map<PhaseFAgentSeed["key"] | "sponsor", Principal>();
   const agents = new Map<PhaseFAgentSeed["key"], Agent>();
   const runtimeBindings = new Map<PhaseFAgentSeed["key"], RuntimeBinding>();
+  const timeline: PhaseGTimelineEntry[] = [];
 
   const sponsor = await ensurePrincipal(fastify, "Phase F Sponsor", "human");
   principals.set("sponsor", sponsor);
@@ -179,12 +197,22 @@ async function runPhaseFSmoke(fastify: Parameters<FastifyPluginAsync>[0]) {
   });
   const contextReceipt = await fastify.concord.context.acceptBundle({ actorId: actors.observer.id, contextBundleId: contextBundle.id });
 
-  await fastify.concord.state.events.append(createEvent({
+  await appendAndPublish(fastify, createEvent({
     type: "StateObservationSubmitted",
     actorId: actors.observer.id,
     correlationId: goal.id,
     payload: { summary: "Observer identified that Phase F needs an auditable collaboration smoke.", projectId: project.id },
   }));
+  publishTimeline(fastify, timeline, {
+    projectId: project.id,
+    phase: "observe",
+    title: "Observer identified a collaboration smoke goal",
+    status: "observed",
+    actorId: actors.observer.id,
+    reason: "Phase F needs an auditable collaboration loop.",
+    eventType: "StateObservationSubmitted",
+    entityIds: { goalId: goal.id, objectiveId: objective.id },
+  });
 
   const action = await fastify.concord.actions.propose({
     type: "coordinate_agent_task",
@@ -198,6 +226,17 @@ async function runPhaseFSmoke(fastify: Parameters<FastifyPluginAsync>[0]) {
     expectedOutputs: [{ description: "Accepted work order, review aggregation, guardian request, and trace" }],
   });
   const policyDecision = await fastify.concord.actions.evaluate({ action, actor: actors.observer, context: contextBundle });
+  publishTimeline(fastify, timeline, {
+    projectId: project.id,
+    actionId: action.id,
+    phase: "action",
+    title: action.title,
+    status: policyDecision.result,
+    actorId: actors.observer.id,
+    reason: "High-risk action requires structured negotiation and Guardian visibility.",
+    eventType: "ActionPolicyEvaluated",
+    entityIds: { actionId: action.id, goalId: goal.id },
+  });
 
   const guardianRequest = {
     id: makeId("DecisionRecordId", `guardian-request-${action.id}`),
@@ -209,12 +248,24 @@ async function runPhaseFSmoke(fastify: Parameters<FastifyPluginAsync>[0]) {
     riskLevel: action.riskLevel,
     reason: "High-risk Phase F collaboration smoke requires Guardian visibility.",
   };
-  await fastify.concord.state.events.append(createEvent({
+  fastify.coordinatorStore.saveProjection(GUARDIAN_REQUEST_KIND, guardianRequest.id, guardianRequest);
+  await appendAndPublish(fastify, createEvent({
     type: "GuardianReviewRequested",
     actorId: actors.observer.id,
     correlationId: action.id,
     payload: guardianRequest,
   }));
+  publishTimeline(fastify, timeline, {
+    projectId: project.id,
+    actionId: action.id,
+    phase: "guardian",
+    title: "Guardian review requested",
+    status: guardianRequest.status,
+    actorId: actors.observer.id,
+    reason: guardianRequest.reason,
+    eventType: "GuardianReviewRequested",
+    entityIds: { actionId: action.id, guardianRequestId: guardianRequest.id },
+  });
 
   let negotiation = await fastify.concord.negotiation.create({
     action,
@@ -232,14 +283,38 @@ async function runPhaseFSmoke(fastify: Parameters<FastifyPluginAsync>[0]) {
     position: { actorId: actors.guardian.id, stance: "support", score: 0.8, rationale: "Risk is acceptable because the path remains scripted and observable.", evidence: [] },
   });
   const { decision: decisionRecord, instance: closedNegotiation } = await fastify.concord.negotiation.close({ negotiationId: negotiation.id, projectId: project.id });
+  publishTimeline(fastify, timeline, {
+    projectId: project.id,
+    actionId: action.id,
+    phase: "negotiate",
+    title: "Delegate and Guardian reached a structured decision",
+    status: closedNegotiation.status,
+    actorId: actors.delegate.id,
+    reason: decisionRecord.summary,
+    evidence: closedNegotiation,
+    eventType: "NegotiationClosed",
+    entityIds: { actionId: action.id, negotiationId: closedNegotiation.id, decisionRecordId: decisionRecord.id },
+  });
   const completedGuardianRequest = { ...guardianRequest, decisionRecordId: decisionRecord.id, status: "approved" };
 
-  await fastify.concord.state.events.append(createEvent({
+  fastify.coordinatorStore.saveProjection(GUARDIAN_REQUEST_KIND, completedGuardianRequest.id, completedGuardianRequest);
+  await appendAndPublish(fastify, createEvent({
     type: "GuardianReviewCompleted",
     actorId: actors.guardian.id,
     correlationId: action.id,
     payload: completedGuardianRequest,
   }));
+  publishTimeline(fastify, timeline, {
+    projectId: project.id,
+    actionId: action.id,
+    phase: "guardian",
+    title: "Guardian approved the high-risk collaboration action",
+    status: completedGuardianRequest.status,
+    actorId: actors.guardian.id,
+    reason: "Guardian accepted the scripted and observable risk path.",
+    eventType: "GuardianReviewCompleted",
+    entityIds: { actionId: action.id, guardianRequestId: completedGuardianRequest.id, decisionRecordId: decisionRecord.id },
+  });
 
   const workOrder = await fastify.concord.work.createWorkOrder({
     actionId: action.id,
@@ -252,6 +327,17 @@ async function runPhaseFSmoke(fastify: Parameters<FastifyPluginAsync>[0]) {
     contextBundleId: contextBundle.id,
   });
   await fastify.concord.work.claim({ actorId: actors.worker.id, workOrderId: workOrder.id });
+  publishTimeline(fastify, timeline, {
+    projectId: project.id,
+    actionId: action.id,
+    phase: "work",
+    title: workOrder.title,
+    status: "claimed",
+    actorId: actors.worker.id,
+    reason: "Worker claimed the deterministic Phase F work order.",
+    eventType: "WorkOrderClaimed",
+    entityIds: { actionId: action.id, workOrderId: workOrder.id },
+  });
   const execution = await fastify.concord.runtime.execute({ actorId: actors.worker.id, runtimeId: "mock-runtime", workOrder, context: contextBundle });
   const submission = await fastify.concord.work.submit({
     workOrderId: workOrder.id,
@@ -260,6 +346,18 @@ async function runPhaseFSmoke(fastify: Parameters<FastifyPluginAsync>[0]) {
     executionReceipt: execution.executionReceipt,
     artifacts: execution.submissionDraft.artifacts,
     summary: "Worker completed the scripted collaboration task and produced an auditable artifact.",
+  });
+  publishTimeline(fastify, timeline, {
+    projectId: project.id,
+    actionId: action.id,
+    phase: "work",
+    title: "Worker submitted the scripted collaboration artifact",
+    status: "submitted",
+    actorId: actors.worker.id,
+    reason: submission.summary,
+    evidence: submission.artifacts,
+    eventType: "WorkSubmitted",
+    entityIds: { actionId: action.id, workOrderId: workOrder.id, submissionId: submission.id },
   });
   await fastify.concord.review.requestReview({ target: { kind: "submission", submissionId: submission.id }, requestedBy: actors.worker.id });
   const review = await fastify.concord.review.submitReview({
@@ -272,6 +370,18 @@ async function runPhaseFSmoke(fastify: Parameters<FastifyPluginAsync>[0]) {
     contextReceipt,
   });
   const reviewAggregation = await fastify.concord.review.aggregate({ target: { kind: "submission", submissionId: submission.id } });
+  publishTimeline(fastify, timeline, {
+    projectId: project.id,
+    actionId: action.id,
+    phase: "review",
+    title: "Reviewer accepted the worker submission",
+    status: reviewAggregation.result,
+    actorId: actors.reviewer.id,
+    reason: review.rationale,
+    evidence: reviewAggregation,
+    eventType: "ReviewAggregated",
+    entityIds: { actionId: action.id, workOrderId: workOrder.id, submissionId: submission.id, reviewId: review.id },
+  });
   const acceptedWorkOrder = await fastify.concord.work.accept(workOrder.id);
   const parentKnowledgeVersion = await fastify.concord.knowledge.getLatestVersion();
   const knowledgeCandidate = {
@@ -283,7 +393,7 @@ async function runPhaseFSmoke(fastify: Parameters<FastifyPluginAsync>[0]) {
     context: contextReceipt,
   };
   await fastify.concord.knowledge.saveCandidate(knowledgeCandidate);
-  await fastify.concord.state.events.append(createEvent({
+  await appendAndPublish(fastify, createEvent({
     type: "KnowledgeCandidateCreated",
     actorId: actors.reviewer.id,
     correlationId: action.id,
@@ -296,7 +406,7 @@ async function runPhaseFSmoke(fastify: Parameters<FastifyPluginAsync>[0]) {
     parentVersionId: parentKnowledgeVersion.id,
     createdBy: actors.reviewer.id,
   });
-  await fastify.concord.state.events.append(createEvent({
+  await appendAndPublish(fastify, createEvent({
     type: "KnowledgeCommitted",
     actorId: actors.reviewer.id,
     correlationId: action.id,
@@ -307,12 +417,23 @@ async function runPhaseFSmoke(fastify: Parameters<FastifyPluginAsync>[0]) {
       parentVersionId: parentKnowledgeVersion.id,
     },
   }));
-  await fastify.concord.state.events.append(createEvent({
+  await appendAndPublish(fastify, createEvent({
     type: "KnowledgeVersionCreated",
     actorId: actors.reviewer.id,
     correlationId: action.id,
     payload: knowledgeVersion,
   }));
+  publishTimeline(fastify, timeline, {
+    projectId: project.id,
+    actionId: action.id,
+    phase: "knowledge",
+    title: "Reviewed work committed into knowledge state",
+    status: "committed",
+    actorId: actors.reviewer.id,
+    reason: "Accepted Phase F evidence became knowledge state.",
+    eventType: "KnowledgeVersionCreated",
+    entityIds: { actionId: action.id, knowledgeVersionId: knowledgeVersion.id },
+  });
   const stateView = await fastify.concord.state.refresh(knowledgeVersion.id);
 
   return {
@@ -327,6 +448,7 @@ async function runPhaseFSmoke(fastify: Parameters<FastifyPluginAsync>[0]) {
     action,
     policyDecision,
     guardianRequest: completedGuardianRequest,
+    timeline,
     negotiation: closedNegotiation,
     decisionRecord,
     workOrder: acceptedWorkOrder,
@@ -337,6 +459,27 @@ async function runPhaseFSmoke(fastify: Parameters<FastifyPluginAsync>[0]) {
     knowledgeVersion,
     stateView,
   };
+}
+
+async function appendAndPublish(fastify: Parameters<FastifyPluginAsync>[0], event: EventEnvelope<string, unknown>): Promise<void> {
+  await fastify.concord.state.events.append(event);
+  fastify.eventBus.publish(event);
+}
+
+function publishTimeline(fastify: Parameters<FastifyPluginAsync>[0], timeline: PhaseGTimelineEntry[], input: Omit<PhaseGTimelineEntry, "id" | "timestamp">): void {
+  const timestamp = new Date().toISOString();
+  const entry: PhaseGTimelineEntry = {
+    ...input,
+    id: makeId("EventId", `phase-g-${input.phase}-${timeline.length + 1}`),
+    timestamp,
+  };
+  timeline.push(entry);
+  fastify.eventBus.publish(createEvent({
+    type: "PhaseGTimelineUpdated",
+    actorId: input.actorId as never,
+    correlationId: input.actionId as never,
+    payload: entry,
+  }));
 }
 
 async function ensurePrincipal(fastify: Parameters<FastifyPluginAsync>[0], displayName: string, kind: Principal["kind"]): Promise<Principal> {

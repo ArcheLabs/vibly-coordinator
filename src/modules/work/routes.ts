@@ -251,6 +251,7 @@ const workRoutes: FastifyPluginAsync = async (fastify) => {
         workOrderId: request.params.workOrderId as never,
         reason: request.body.reason,
       });
+      fastify.eventBus.publish({ type: "WorkOrderCancelled", payload: { workOrderId: request.params.workOrderId, reason: request.body.reason } } as never);
       return ok({ cancelled: true });
     },
   );

@@ -34,6 +34,7 @@ import incentivesRoutes from "./modules/incentives/routes.js";
 import governanceRoutes from "./modules/governance/routes.js";
 import tracesRoutes from "./modules/traces/routes.js";
 import phaseFRoutes from "./modules/phase-f/routes.js";
+import phaseGRoutes from "./modules/phase-g/routes.js";
 import assignmentsRoutes from "./modules/assignments/routes.js";
 import streamsRoutes from "./modules/streams/routes.js";
 import { GovernanceIndexConsumer } from "./services/governanceIndexConsumer.js";
@@ -106,6 +107,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(governanceRoutes);
   await fastify.register(tracesRoutes);
   await fastify.register(phaseFRoutes);
+  await fastify.register(phaseGRoutes);
   await fastify.register(assignmentsRoutes);
   await fastify.register(streamsRoutes);
 
