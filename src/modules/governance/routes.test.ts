@@ -16,6 +16,27 @@ import type { NormalizedChainEvent } from "@concord/core";
 import type { GovernanceEventType, GovernanceProposalSummary, GovernanceIndexFeedPort } from "@concord/governance";
 
 const CHAIN = { namespace: "substrate", chainId: "vibly-solo" } as const;
+const EVM_CHAIN = { namespace: "evm", chainId: "31337" } as const;
+
+function makeEvmProposalEvent(externalId: string, status = "Deciding"): NormalizedChainEvent<GovernanceEventType> {
+  const payload: GovernanceProposalSummary = {
+    ref: { chain: EVM_CHAIN, backend: "evm-governor", externalId },
+    title: `EVM Proposal ${externalId}`,
+    status,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T01:00:00Z",
+  };
+  return {
+    id: `evt:evm:${externalId}:GovernanceProposalDiscovered`,
+    chain: EVM_CHAIN,
+    type: "GovernanceProposalDiscovered",
+    payload,
+    blockNumber: 200n,
+    blockHash: "0xdef",
+    observedAt: "2026-01-01T01:00:00Z",
+    finality: "finalized",
+  };
+}
 
 function makeTestApp(store: CoordinatorStore) {
   const fastify = Fastify({ logger: false });
@@ -79,6 +100,12 @@ function makeConsumer(store: CoordinatorStore): GovernanceIndexConsumer {
   const projector = new GovernanceProjectorService();
   const feed = { subscribeGovernanceEvents: async function* () {} } as GovernanceIndexFeedPort;
   return new GovernanceIndexConsumer({ store, feed, chain: CHAIN, projector });
+}
+
+function makeEvmConsumer(store: CoordinatorStore): GovernanceIndexConsumer {
+  const projector = new GovernanceProjectorService();
+  const feed = { subscribeGovernanceEvents: async function* () {} } as GovernanceIndexFeedPort;
+  return new GovernanceIndexConsumer({ store, feed, chain: EVM_CHAIN, projector });
 }
 
 describe("governance routes", () => {
@@ -284,5 +311,88 @@ describe("governance routes", () => {
     const entry = body.data.items.find((i) => i.id === `merged:${intentId}`);
     expect(entry).toBeDefined();
     expect(entry?.freshness.stale).toBe(true);
+  });
+
+  // ── D5: backend filter + /governance/backends ──────────────────────────────
+
+  it("GET /governance/subjects?backend= filters by backend", async () => {
+    const evmConsumer = makeEvmConsumer(store);
+    consumer.handleEvent(store, makeProposalEvent("GovernanceProposalDiscovered", "sub-1"));
+    evmConsumer.handleEvent(store, makeEvmProposalEvent("evm-1"));
+
+    const subRes = await app.inject({ method: "GET", url: "/governance/subjects?backend=substrate-opengov" });
+    const subBody = subRes.json<{ data: { items: { backend: string }[] } }>();
+    expect(subBody.data.items).toHaveLength(1);
+    expect(subBody.data.items[0].backend).toBe("substrate-opengov");
+
+    const evmRes = await app.inject({ method: "GET", url: "/governance/subjects?backend=evm-governor" });
+    const evmBody = evmRes.json<{ data: { items: { backend: string }[] } }>();
+    expect(evmBody.data.items).toHaveLength(1);
+    expect(evmBody.data.items[0].backend).toBe("evm-governor");
+
+    const allRes = await app.inject({ method: "GET", url: "/governance/subjects" });
+    const allBody = allRes.json<{ data: { items: unknown[] } }>();
+    expect(allBody.data.items).toHaveLength(2);
+  });
+
+  it("GET /governance/merged?backend= filters by subject backend", async () => {
+    const evmConsumer = makeEvmConsumer(store);
+    consumer.handleEvent(store, makeProposalEvent("GovernanceProposalDiscovered", "sub-2"));
+    evmConsumer.handleEvent(store, makeEvmProposalEvent("evm-2"));
+
+    const evmRes = await app.inject({ method: "GET", url: "/governance/merged?backend=evm-governor" });
+    const evmBody = evmRes.json<{ data: { items: { subject?: { backend: string } }[] } }>();
+    expect(evmBody.data.items).toHaveLength(1);
+    expect(evmBody.data.items[0].subject?.backend).toBe("evm-governor");
+
+    const allRes = await app.inject({ method: "GET", url: "/governance/merged" });
+    const allBody = allRes.json<{ data: { items: unknown[] } }>();
+    expect(allBody.data.items).toHaveLength(2);
+  });
+
+  it("GET /governance/backends returns empty array when no backends registered", async () => {
+    const res = await app.inject({ method: "GET", url: "/governance/backends" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{ data: { backends: unknown[] } }>();
+    expect(body.data.backends).toHaveLength(0);
+  });
+
+  it("GET /governance/backends returns registered descriptors", async () => {
+    const { GovernanceBackendRegistry: Registry } = await import("../../services/governanceBackendRegistry.js");
+    const registry = new Registry();
+    registry.register(
+      {
+        id: "substrate:vibly-solo",
+        backend: "substrate-opengov",
+        chain: CHAIN,
+        displayName: "Vibly Solo",
+        source: { kind: "subquery" },
+        capabilities: {
+          readSubjects: true, readVotes: true, readDelegations: true, checkpoint: true,
+          prepareProposal: true, submitProposal: true, castVote: true, delegate: true,
+          queueExecution: false, executeProposal: false, requiresWallet: false,
+          supportsReason: true, supportsWeightedVote: true,
+        },
+      },
+      { start: () => {} } as unknown as import("../../services/governanceIndexConsumer.js").GovernanceIndexConsumer,
+    );
+
+    const localApp = Fastify({ logger: false });
+    localApp.decorate("concord", app.concord);
+    localApp.decorate("coordinatorStore", store);
+    localApp.decorate("eventBus", { publish: () => {} } as unknown as import("../../services/eventBus.js").EventBus);
+    localApp.decorate("config", { substrateChainId: "vibly-solo", nodeEnv: "test" } as unknown as import("../../config/env.js").CoordinatorConfig);
+    localApp.decorate("governanceBackendRegistry", registry);
+    void localApp.register(governanceRoutes);
+    await localApp.ready();
+
+    const res = await localApp.inject({ method: "GET", url: "/governance/backends" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{ data: { backends: { id: string; backend: string }[] } }>();
+    expect(body.data.backends).toHaveLength(1);
+    expect(body.data.backends[0].id).toBe("substrate:vibly-solo");
+    expect(body.data.backends[0].backend).toBe("substrate-opengov");
+
+    await localApp.close();
   });
 });

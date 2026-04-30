@@ -200,7 +200,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   // ── GET /governance/subjects ───────────────────────────────────────────────
-  fastify.get<{ Querystring: { chainId?: string; status?: string; limit?: number } }>(
+  fastify.get<{ Querystring: { chainId?: string; status?: string; backend?: string; limit?: number } }>(
     "/governance/subjects",
     {
       schema: {
@@ -211,16 +211,18 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
           properties: {
             chainId: { type: "string" },
             status: { type: "string" },
+            backend: { type: "string" },
             limit: { type: "integer", default: 50 },
           },
         },
       },
     },
     async (request) => {
-      const { chainId, status, limit = 50 } = request.query;
+      const { chainId, status, backend, limit = 50 } = request.query;
       let items = fastify.coordinatorStore.listProjections<GovernanceSubjectView>(GOVERNANCE_SUBJECT_VIEW);
       if (chainId) items = items.filter((s) => s.chain?.chainId === chainId);
       if (status) items = items.filter((s) => s.status === status);
+      if (backend) items = items.filter((s) => s.backend === backend);
       return ok({ items: items.slice(0, limit) });
     },
   );
@@ -295,7 +297,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   // ── GET /governance/merged ─────────────────────────────────────────────────
-  fastify.get<{ Querystring: { projectId?: string; limit?: number } }>(
+  fastify.get<{ Querystring: { projectId?: string; backend?: string; limit?: number } }>(
     "/governance/merged",
     {
       schema: {
@@ -305,13 +307,14 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
           type: "object",
           properties: {
             projectId: { type: "string" },
+            backend: { type: "string" },
             limit: { type: "integer", default: 50 },
           },
         },
       },
     },
     async (request) => {
-      const { projectId, limit = 50 } = request.query;
+      const { projectId, backend, limit = 50 } = request.query;
       const intents = fastify.coordinatorStore
         .listProjections<{ id: string; projectId?: string; title?: string; status?: string; proposedBy?: string; createdAt?: string }>("governance_intent")
         .filter((i) => !projectId || i.projectId === projectId);
@@ -346,7 +349,23 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
-      return ok({ items: merged });
+      const result = backend ? merged.filter((m) => m.subject?.backend === backend) : merged;
+      return ok({ items: result });
+    },
+  );
+
+  // ── GET /governance/backends ──────────────────────────────────────────────
+  fastify.get(
+    "/governance/backends",
+    {
+      schema: {
+        tags: ["Governance"],
+        summary: "List registered governance backends",
+      },
+    },
+    async () => {
+      const backends = fastify.governanceBackendRegistry.listDescriptors();
+      return ok({ backends });
     },
   );
 
