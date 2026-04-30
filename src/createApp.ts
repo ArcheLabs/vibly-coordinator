@@ -37,6 +37,7 @@ import assignmentsRoutes from "./modules/assignments/routes.js";
 import streamsRoutes from "./modules/streams/routes.js";
 import { GovernanceIndexConsumer } from "./services/governanceIndexConsumer.js";
 import { GovernanceProjectorService } from "./services/governanceProjector.js";
+import { GovernanceBackendRegistry } from "./services/governanceBackendRegistry.js";
 
 // Extend FastifyInstance with our custom decorations
 declare module "fastify" {
@@ -45,6 +46,7 @@ declare module "fastify" {
     coordinatorStore: CoordinatorStore;
     eventBus: EventBus;
     config: CoordinatorConfig;
+    governanceBackendRegistry: GovernanceBackendRegistry;
   }
 }
 
@@ -64,11 +66,15 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
     disableRequestLogging: config.nodeEnv === "test",
   });
 
+  // Governance backend registry (always created, may be empty)
+  const governanceBackendRegistry = new GovernanceBackendRegistry();
+
   // Decorate with core services
   fastify.decorate("concord", concord);
   fastify.decorate("coordinatorStore", coordinatorStore);
   fastify.decorate("eventBus", eventBus);
   fastify.decorate("config", config);
+  fastify.decorate("governanceBackendRegistry", governanceBackendRegistry);
 
   // Plugins (order matters)
   await fastify.register(errorHandlerPlugin);
@@ -100,9 +106,10 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(assignmentsRoutes);
   await fastify.register(streamsRoutes);
 
-  // Start governance index consumer if SUBSTRATE_INDEXER_URL is configured
+  // ─── Register Substrate backend ─────────────────────────────────────────────
   if (config.substrateIndexerUrl) {
     const { SubQueryGovernanceIndexAdapter } = await import("@concord/adapter-substrate-indexer");
+    const { defaultSubstrateCapabilities } = await import("@concord/governance");
     const indexerAdapter = new SubQueryGovernanceIndexAdapter(config.substrateIndexerUrl);
     const projector = new GovernanceProjectorService();
     const consumer = new GovernanceIndexConsumer({
@@ -114,9 +121,55 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
       },
       projector,
     });
-    consumer.start();
-    fastify.log.info({ indexerUrl: config.substrateIndexerUrl }, "GovernanceIndexConsumer started");
+    governanceBackendRegistry.register(
+      {
+        id: `substrate:${config.substrateChainId}`,
+        backend: "substrate-opengov",
+        chain: { namespace: "substrate", chainId: config.substrateChainId },
+        displayName: `Substrate OpenGov (${config.substrateChainId})`,
+        source: { kind: "subquery", endpoint: config.substrateIndexerUrl },
+        capabilities: defaultSubstrateCapabilities(),
+      },
+      consumer,
+    );
+    fastify.log.info(
+      { indexerUrl: config.substrateIndexerUrl },
+      "Registered Substrate governance backend",
+    );
   }
+
+  // ─── Register EVM fixture backend ───────────────────────────────────────────
+  if (config.evmGovernorFixture) {
+    const { EvmFixtureGovernanceIndexAdapter } = await import("@concord/adapter-evm-indexer");
+    const { defaultEvmCapabilities } = await import("@concord/governance");
+    const evmChain = { namespace: "evm", chainId: config.evmChainId };
+    const evmAdapter = new EvmFixtureGovernanceIndexAdapter();
+    const projector = new GovernanceProjectorService();
+    const consumer = new GovernanceIndexConsumer({
+      store: coordinatorStore,
+      feed: evmAdapter.feed,
+      chain: evmChain,
+      projector,
+    });
+    governanceBackendRegistry.register(
+      {
+        id: `evm:${config.evmChainId}`,
+        backend: "evm-governor",
+        chain: evmChain,
+        displayName: `EVM Governor (fixture, chainId=${config.evmChainId})`,
+        source: { kind: "fixture" },
+        capabilities: defaultEvmCapabilities(),
+      },
+      consumer,
+    );
+    fastify.log.info(
+      { evmChainId: config.evmChainId },
+      "Registered EVM fixture governance backend",
+    );
+  }
+
+  // Start all registered backends
+  governanceBackendRegistry.startAll();
 
   return fastify;
 }

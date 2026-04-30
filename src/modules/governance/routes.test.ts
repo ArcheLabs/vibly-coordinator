@@ -10,6 +10,7 @@ import { CoordinatorStore } from "../../db/coordinatorStore.js";
 import { runMigrations } from "../../db/migrations.js";
 import { GovernanceProjectorService } from "../../services/governanceProjector.js";
 import { GovernanceIndexConsumer } from "../../services/governanceIndexConsumer.js";
+import { GovernanceBackendRegistry } from "../../services/governanceBackendRegistry.js";
 import governanceRoutes from "./routes.js";
 import type { NormalizedChainEvent } from "@concord/core";
 import type { GovernanceEventType, GovernanceProposalSummary, GovernanceIndexFeedPort } from "@concord/governance";
@@ -37,6 +38,8 @@ function makeTestApp(store: CoordinatorStore) {
     substrateChainId: "vibly-solo",
     nodeEnv: "test",
   } as unknown as import("../../config/env.js").CoordinatorConfig);
+
+  fastify.decorate("governanceBackendRegistry", new GovernanceBackendRegistry());
 
   void fastify.register(governanceRoutes);
   return fastify;

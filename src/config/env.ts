@@ -16,6 +16,8 @@ const envSchema = z.object({
   ENABLE_DEV_ROUTES: z.string().transform((v) => v === "true").default("false"),
   SUBSTRATE_INDEXER_URL: z.string().optional(),
   SUBSTRATE_CHAIN_ID: z.string().default("substrate:vibly-solo"),
+  EVM_GOVERNOR_FIXTURE: z.string().transform((v) => v === "true").default("false"),
+  EVM_CHAIN_ID: z.string().default("31337"),
 });
 
 export interface CoordinatorConfig {
@@ -34,6 +36,8 @@ export interface CoordinatorConfig {
   enableDevRoutes: boolean;
   substrateIndexerUrl?: string;
   substrateChainId: string;
+  evmGovernorFixture: boolean;
+  evmChainId: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorConfig {
@@ -54,5 +58,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     enableDevRoutes: parsed.ENABLE_DEV_ROUTES,
     substrateIndexerUrl: parsed.SUBSTRATE_INDEXER_URL,
     substrateChainId: parsed.SUBSTRATE_CHAIN_ID,
+    evmGovernorFixture: parsed.EVM_GOVERNOR_FIXTURE,
+    evmChainId: parsed.EVM_CHAIN_ID,
   };
 }
