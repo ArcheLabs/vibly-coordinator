@@ -59,6 +59,41 @@ const workRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
+  fastify.get<{ Querystring: { projectId?: string; status?: string; limit?: string; cursor?: string } }>(
+    "/work-orders",
+    {
+      schema: {
+        tags: ["Work"],
+        summary: "List work orders",
+        querystring: {
+          type: "object",
+          properties: {
+            projectId: { type: "string" },
+            status: { type: "string" },
+            limit: { type: "string" },
+            cursor: { type: "string" },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const { projectId, status, limit: limitStr, cursor } = request.query;
+      const limit = Math.min(Number(limitStr) || 50, 200);
+      let orders = await fastify.concord.work.listWorkOrders();
+      if (projectId) orders = orders.filter((o) => String((o as unknown as { projectId?: string }).projectId) === projectId);
+      if (status) orders = orders.filter((o) => o.status === status);
+
+      let startIdx = 0;
+      if (cursor) {
+        const idx = orders.findIndex((o) => o.id === cursor);
+        if (idx !== -1) startIdx = idx + 1;
+      }
+      const page = orders.slice(startIdx, startIdx + limit);
+      const nextCursor = page.length === limit ? (page[page.length - 1]?.id ?? null) : null;
+      return okList(page, { limit, nextCursor });
+    },
+  );
+
   // GET /work-orders/open
   fastify.get<{ Querystring: { projectId?: string; limit?: string; cursor?: string } }>(
     "/work-orders/open",

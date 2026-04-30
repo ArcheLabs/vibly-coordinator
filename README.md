@@ -44,6 +44,7 @@ Swagger UI：`http://localhost:8787/docs`
 | `API_AUTH_MODE` | `static-token` | `none` 或 `static-token` |
 | `API_TOKENS` | `dev-token` | 逗号分隔的有效 token |
 | `ENABLE_SWAGGER` | `true` | 启用 Swagger UI |
+| `ENABLE_DEV_ROUTES` | `false` | 启用本地 dev-only seed/smoke 路由 |
 | `GOVERNANCE_BACKENDS` | — | 可选 allowlist，例如 `substrate-local,evm-fixture` |
 | `SUBSTRATE_INDEXER_URL` | — | SubQuery GraphQL endpoint（设置后启动链上读模型消费者）|
 | `SUBSTRATE_CHAIN_ID` | `substrate:vibly-solo` | 链标识符 |
@@ -92,6 +93,14 @@ Swagger UI：`http://localhost:8787/docs`
 | `POST` | `/work-orders/:id/claim\|submit\|cancel` | 工作单操作 |
 | `POST/GET` | `/reviews/requests\|/reviews` | 评审请求/评审 |
 | `POST` | `/reviews/aggregate` | 评审聚合 |
+
+### Phase F Test Agent Collaboration
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/phase-f/smoke` | dev-only：运行 Observer/Delegate/Worker/Reviewer/Guardian 协作 smoke |
+| `GET` | `/phase-f/runs` | 列出 Phase F smoke run projection |
+| `GET` | `/guardian-requests` | 查询 Guardian/high-risk request read model |
 
 ### 知识与状态
 
@@ -186,6 +195,16 @@ SUBSTRATE_GOVERNANCE_TX_MODE=fixture pnpm dev
 curl -X POST -H "Authorization: Bearer dev-token" http://localhost:8787/governance/dev/seed-demo
 curl -H "Authorization: Bearer dev-token" http://localhost:8787/governance/merged
 ```
+
+Phase F 本地协作 smoke 需要启用 dev routes：
+
+```bash
+ENABLE_DEV_ROUTES=true pnpm dev
+curl -X POST -H "Authorization: Bearer dev-token" http://localhost:8787/phase-f/smoke
+curl -H "Authorization: Bearer dev-token" http://localhost:8787/phase-f/runs
+```
+
+该 smoke 会写入五个测试 Agent、high-risk action、Guardian request、structured negotiation、accepted work order、review aggregation，并生成可 verify/replay 的 trace。
 
 ## 开发命令
 
