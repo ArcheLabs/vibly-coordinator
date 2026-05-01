@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok } from "../../domain/apiTypes.js";
 import { forbidden, notFound } from "../../domain/errors.js";
+import { envelope, envelopeKey, envelopeKeyArray, errorEnvelope } from "../../domain/schemas.js";
 import {
   GOVERNANCE_SUBJECT_VIEW,
   GOVERNANCE_VOTE_ACTIVITY,
@@ -79,6 +80,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
             body: { type: "string" },
           },
         },
+        response: { 200: envelopeKey("governanceIntent") },
       },
     },
     async (request) => {
@@ -138,6 +140,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
             metadata: { type: "object" },
           },
         },
+        response: { 200: envelope() },
       },
     },
     async (request) => {
@@ -220,6 +223,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["governanceIntentId"],
           properties: { governanceIntentId: { type: "string" } },
         },
+        response: { 200: envelopeKey("governanceIntent") },
       },
     },
     async (request) => {
@@ -241,6 +245,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["governanceIntentId"],
           properties: { governanceIntentId: { type: "string" } },
         },
+        response: { 200: envelope() },
       },
     },
     async (request, reply) => {
@@ -285,6 +290,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ["Governance"],
         summary: "List governance subject views (from chain indexer)",
+        response: { 200: envelopeKeyArray("items") },
       },
     },
     async () => {
@@ -305,6 +311,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["subjectId"],
           properties: { subjectId: { type: "string" } },
         },
+        response: { 200: envelopeKey("view") },
       },
     },
     async (request) => {
@@ -322,6 +329,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ["Governance"],
         summary: "Get the latest governance index checkpoint",
+        response: { 200: envelope() },
       },
     },
     async (request) => {
@@ -369,6 +377,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
             limit: { type: "integer", default: 50 },
           },
         },
+        response: { 200: envelopeKeyArray("items") },
       },
     },
     async (request) => {
@@ -393,6 +402,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["subjectId"],
           properties: { subjectId: { type: "string" } },
         },
+        response: { 200: envelopeKey("subject") },
       },
     },
     async (request) => {
@@ -417,6 +427,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["subjectId"],
           properties: { subjectId: { type: "string" } },
         },
+        response: { 200: envelopeKeyArray("items") },
       },
     },
     async (request) => {
@@ -462,6 +473,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
             metadata: { type: "object" },
           },
         },
+        response: { 200: envelopeKey("receipt") },
       },
     },
     async (request) => {
@@ -521,6 +533,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
             limit: { type: "integer", default: 50 },
           },
         },
+        response: { 200: envelopeKeyArray("items") },
       },
     },
     async (request) => {
@@ -546,6 +559,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
             limit: { type: "integer", default: 50 },
           },
         },
+        response: { 200: envelopeKeyArray("items") },
       },
     },
     async (request) => {
@@ -607,6 +621,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ["Governance"],
         summary: "List registered governance backends",
+        response: { 200: envelopeKeyArray("backends") },
       },
     },
     async () => {
@@ -626,6 +641,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ["Governance"],
         summary: "Seed Phase D.5 demo governance projections (dev only)",
+        response: { 200: envelope(), 403: errorEnvelope },
       },
     },
     async () => {
@@ -650,6 +666,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["id"],
           properties: { id: { type: "string" } },
         },
+        response: { 200: envelopeKey("merged") },
       },
     },
     async (request) => {
@@ -729,6 +746,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
             metadata: { type: "object" },
           },
         },
+        response: { 200: envelopeKey("link") },
       },
     },
     async (request) => {
@@ -785,6 +803,7 @@ const governanceRoutes: FastifyPluginAsync = async (fastify) => {
             metadata: { type: "object" },
           },
         },
+        response: { 200: envelope() },
       },
     },
     async (request) => {

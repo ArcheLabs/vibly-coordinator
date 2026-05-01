@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
-import { listEnvelope } from "../../domain/schemas.js";
+import { envelopeKey, listEnvelope } from "../../domain/schemas.js";
 
 const agentsRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /agents
@@ -32,6 +32,7 @@ const agentsRoutes: FastifyPluginAsync = async (fastify) => {
             metadata: { type: "object" },
           },
         },
+        response: { 200: envelopeKey("agent") },
       },
     },
     async (request) => {
@@ -92,6 +93,7 @@ const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Agents"],
         summary: "Get an agent",
         params: { type: "object", required: ["agentId"], properties: { agentId: { type: "string" } } },
+        response: { 200: envelopeKey("agent") },
       },
     },
     async (request) => {
@@ -120,6 +122,7 @@ const agentsRoutes: FastifyPluginAsync = async (fastify) => {
             reason: { type: "string" },
           },
         },
+        response: { 200: envelopeKey("agent") },
       },
     },
     async (request) => {
@@ -160,6 +163,7 @@ const agentsRoutes: FastifyPluginAsync = async (fastify) => {
             endpoint: { type: "object" },
           },
         },
+        response: { 200: envelopeKey("runtimeBinding") },
       },
     },
     async (request) => {
@@ -183,6 +187,7 @@ const agentsRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Agents"],
         summary: "List runtime bindings for agent",
         params: { type: "object", required: ["agentId"], properties: { agentId: { type: "string" } } },
+        response: { 200: listEnvelope() },
       },
     },
     async (request) => {
@@ -211,6 +216,7 @@ const agentsRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["reason"],
           properties: { reason: { type: "string" } },
         },
+        response: { 200: envelopeKey("runtimeBinding") },
       },
     },
     async (request) => {

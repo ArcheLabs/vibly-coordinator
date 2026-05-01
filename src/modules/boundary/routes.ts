@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
+import { envelopeKey } from "../../domain/schemas.js";
 import { v4 as uuidv4 } from "uuid";
 
 const boundaryRoutes: FastifyPluginAsync = async (fastify) => {
@@ -36,6 +37,7 @@ const boundaryRoutes: FastifyPluginAsync = async (fastify) => {
             defaultRiskLevel: { type: "string" },
           },
         },
+        response: { 200: envelopeKey("boundary") },
       },
     },
     async (request) => {
@@ -87,6 +89,7 @@ const boundaryRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Boundary"],
         summary: "Get active boundary for a project",
         params: { type: "object", required: ["projectId"], properties: { projectId: { type: "string" } } },
+        response: { 200: envelopeKey("boundary") },
       },
     },
     async (request) => {
@@ -108,6 +111,7 @@ const boundaryRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["projectId", "boundaryId"],
           properties: { projectId: { type: "string" }, boundaryId: { type: "string" } },
         },
+        response: { 200: envelopeKey("boundary") },
       },
     },
     async (request) => {
@@ -138,6 +142,7 @@ const boundaryRoutes: FastifyPluginAsync = async (fastify) => {
             metadata: { type: "object" },
           },
         },
+        response: { 200: envelopeKey("evaluation") },
       },
     },
     async (request) => {
@@ -182,6 +187,7 @@ const boundaryRoutes: FastifyPluginAsync = async (fastify) => {
             riskRules: { type: "array" },
           },
         },
+        response: { 200: envelopeKey("boundary") },
       },
     },
     async (request) => {

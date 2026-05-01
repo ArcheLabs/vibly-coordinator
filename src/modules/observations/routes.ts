@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
+import { envelopeKey, listEnvelope } from "../../domain/schemas.js";
 import { v4 as uuidv4 } from "uuid";
 
 interface ObservationRecord {
@@ -52,6 +53,7 @@ const observationsRoutes: FastifyPluginAsync = async (fastify) => {
             suggestedActions: { type: "array", items: { type: "object" } },
           },
         },
+        response: { 200: envelopeKey("observation") },
       },
     },
     async (request) => {
@@ -93,6 +95,7 @@ const observationsRoutes: FastifyPluginAsync = async (fastify) => {
           type: "object",
           properties: { limit: { type: "string" }, cursor: { type: "string" } },
         },
+        response: { 200: listEnvelope() },
       },
     },
     async (request) => {
@@ -120,6 +123,7 @@ const observationsRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Observations"],
         summary: "Get an observation",
         params: { type: "object", required: ["observationId"], properties: { observationId: { type: "string" } } },
+        response: { 200: envelopeKey("observation") },
       },
     },
     async (request) => {

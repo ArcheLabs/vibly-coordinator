@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { createEvent, makeId } from "@concord/foundation";
 import { ok, okList } from "../../domain/apiTypes.js";
+import { envelopeKey, errorEnvelope, listEnvelope } from "../../domain/schemas.js";
 import { GUARDIAN_REQUEST, PROJECT_TIMELINE_ENTRY, REPUTATION_EVIDENCE, REWARD_INTENT, SCENARIO_RUN, SLASH_REQUEST } from "../../db/projectionKinds.js";
 import { AGENT_COLLABORATION_SCENARIO_ID, runAgentCollaborationScenario } from "../agent-collaboration/routes.js";
 
@@ -75,7 +76,13 @@ interface IncentiveRiskRun {
 }
 
 const incentiveRiskScenarioRoutes: FastifyPluginAsync = async (fastify) => {
-  fastify.post("/dev/scenarios/incentive-risk/runs", async (_request, reply) => {
+  fastify.post("/dev/scenarios/incentive-risk/runs", {
+    schema: {
+      tags: ["Scenarios"],
+      summary: "Run incentive-risk dev scenario",
+      response: { 200: envelopeKey("run"), 403: errorEnvelope },
+    },
+  }, async (_request, reply) => {
     if (!fastify.config.enableDevRoutes) {
       return reply.code(403).send({ ok: false, error: { code: "FORBIDDEN", message: "Dev routes disabled" }, meta: { requestId: "req_" + Date.now() } });
     }
@@ -85,7 +92,21 @@ const incentiveRiskScenarioRoutes: FastifyPluginAsync = async (fastify) => {
     return ok({ run });
   });
 
-  fastify.get<{ Querystring: { projectId?: string; limit?: string; cursor?: string } }>("/dev/scenarios/incentive-risk/runs", async (request) => {
+  fastify.get<{ Querystring: { projectId?: string; limit?: string; cursor?: string } }>("/dev/scenarios/incentive-risk/runs", {
+    schema: {
+      tags: ["Scenarios"],
+      summary: "List incentive-risk scenario runs",
+      querystring: {
+        type: "object",
+        properties: {
+          projectId: { type: "string" },
+          limit: { type: "string" },
+          cursor: { type: "string" },
+        },
+      },
+      response: { 200: listEnvelope() },
+    },
+  }, async (request) => {
     const { projectId, limit: limitStr, cursor } = request.query;
     const limit = Math.min(Number(limitStr) || 50, 200);
     let runs = fastify.coordinatorStore

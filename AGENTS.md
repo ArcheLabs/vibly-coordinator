@@ -18,7 +18,7 @@ src/generated/types.ts            ← consumed by vibly-client and vibly-console
 
 ## Invariants
 
-1. **Every route MUST declare `schema.response[200]`.** Use the helpers in `src/domain/schemas.ts` (`envelope`, `envelopeKey`, `listEnvelope`). Body/querystring/params schemas alone are not enough; openapi-fetch consumers cannot type the response without it. CI runs `pnpm check:response-schemas`; coverage must trend toward 100% and never regress beyond the configured `--max-missing` threshold.
+1. **Every route MUST declare `schema.response[200]` — 100% coverage is a hard constraint.** Use the helpers in `src/domain/schemas.ts` (`envelope`, `envelopeKey`, `listEnvelope`, `errorEnvelope`). For SSE streams, declare `200` with `content["text/event-stream"]` (see `streams/routes.ts`). Body/querystring/params schemas alone are not enough; openapi-fetch consumers cannot type the response without it. Local/CI `pnpm lint` runs `verify:openapi`, `verify:contract-types` (sibling `vibly-coordinator-http-contract` 脚本), `check:response-schemas` (default `--max-missing 0`), then `tsc`.
 2. **Adding/changing a route MUST refresh `openapi.json`.** Run `pnpm dump:openapi` and commit the result in the same PR. CI runs `pnpm verify:openapi` to detect drift.
 3. **Adding/changing a route MUST refresh contract types.** Run `pnpm --filter @vibly/coordinator-http-contract gen` and commit the new `src/generated/types.ts`. CI runs `verify:types` to detect drift.
 4. **Do not edit `openapi.json` or `src/generated/types.ts` by hand.** Both are generated; if you need to influence them, change the route schema and re-run the generators.

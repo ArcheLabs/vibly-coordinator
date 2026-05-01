@@ -1,7 +1,8 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../domain/apiTypes.js";
+import { notFound } from "../../domain/errors.js";
 import type { EventEnvelope } from "@concord/foundation";
-import { envelope, listEnvelope } from "../../domain/schemas.js";
+import { envelope, errorEnvelope, listEnvelope } from "../../domain/schemas.js";
 
 const eventsRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /events — query event log
@@ -70,9 +71,7 @@ const eventsRoutes: FastifyPluginAsync = async (fastify) => {
       const { eventId } = request.params;
       const allEvents = await fastify.concord.state.events.query();
       const event = allEvents.find((e) => e.id === eventId);
-      if (!event) {
-        return { ok: false, error: { code: "NOT_FOUND", message: `Event not found: ${eventId}` }, meta: { requestId: "req_" + Date.now() } };
-      }
+      if (!event) throw notFound("Event", eventId);
       return ok(event);
     },
   );
@@ -89,6 +88,7 @@ const eventsRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["event"],
           properties: { event: { type: "object" } },
         },
+        response: { 200: envelope(), 403: errorEnvelope },
       },
     },
     async (request, reply) => {

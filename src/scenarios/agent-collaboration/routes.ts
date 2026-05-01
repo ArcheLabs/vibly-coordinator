@@ -4,6 +4,7 @@ import type { EventEnvelope } from "@concord/foundation";
 import type { Agent, Principal, Project, Objective, RuntimeBinding } from "@concord/project";
 import { createEvent, makeId, sha256, withDeterministicMode } from "@concord/foundation";
 import { ok, okList } from "../../domain/apiTypes.js";
+import { envelopeKey, errorEnvelope, listEnvelope } from "../../domain/schemas.js";
 import { GUARDIAN_REQUEST, PROJECT_TIMELINE_ENTRY, SCENARIO_RUN, TRACE } from "../../db/projectionKinds.js";
 
 interface AgentCollaborationSeed {
@@ -41,7 +42,13 @@ export interface ProjectTimelineEntry {
 }
 
 const agentCollaborationScenarioRoutes: FastifyPluginAsync = async (fastify) => {
-  fastify.post("/dev/scenarios/agent-collaboration/runs", async (_request, reply) => {
+  fastify.post("/dev/scenarios/agent-collaboration/runs", {
+    schema: {
+      tags: ["Scenarios"],
+      summary: "Run agent-collaboration dev scenario",
+      response: { 200: envelopeKey("run"), 403: errorEnvelope },
+    },
+  }, async (_request, reply) => {
     if (!fastify.config.enableDevRoutes) {
       return reply.code(403).send({ ok: false, error: { code: "FORBIDDEN", message: "Dev routes disabled" }, meta: { requestId: "req_" + Date.now() } });
     }
@@ -50,7 +57,17 @@ const agentCollaborationScenarioRoutes: FastifyPluginAsync = async (fastify) => 
     return ok({ run });
   });
 
-  fastify.get<{ Querystring: { limit?: string; cursor?: string } }>("/dev/scenarios/agent-collaboration/runs", async (request) => {
+  fastify.get<{ Querystring: { limit?: string; cursor?: string } }>("/dev/scenarios/agent-collaboration/runs", {
+    schema: {
+      tags: ["Scenarios"],
+      summary: "List agent-collaboration scenario runs",
+      querystring: {
+        type: "object",
+        properties: { limit: { type: "string" }, cursor: { type: "string" } },
+      },
+      response: { 200: listEnvelope() },
+    },
+  }, async (request) => {
     const { limit: limitStr, cursor } = request.query;
     const limit = Math.min(Number(limitStr) || 50, 200);
     const runs = fastify.coordinatorStore

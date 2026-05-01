@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
+import { envelope, envelopeKey } from "../../domain/schemas.js";
 
 const contextRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /context/bundles
@@ -25,6 +26,7 @@ const contextRoutes: FastifyPluginAsync = async (fastify) => {
             artifacts: { type: "array" },
           },
         },
+        response: { 200: envelopeKey("contextBundle") },
       },
     },
     async (request) => {
@@ -48,6 +50,7 @@ const contextRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Context"],
         summary: "Get a context bundle",
         params: { type: "object", required: ["bundleId"], properties: { bundleId: { type: "string" } } },
+        response: { 200: envelopeKey("contextBundle") },
       },
     },
     async (request) => {
@@ -77,6 +80,7 @@ const contextRoutes: FastifyPluginAsync = async (fastify) => {
             contextBundleId: { type: "string" },
           },
         },
+        response: { 200: envelopeKey("receipt") },
       },
     },
     async (request) => {
@@ -100,6 +104,7 @@ const contextRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["receipt"],
           properties: { receipt: { type: "object" } },
         },
+        response: { 200: envelope() },
       },
     },
     async (request) => {

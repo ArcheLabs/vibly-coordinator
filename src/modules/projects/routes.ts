@@ -118,6 +118,7 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["actorId"],
           properties: { actorId: { type: "string" }, reason: { type: "string" } },
         },
+        response: { 200: envelopeKey("project") },
       },
     },
     async (request) => {
@@ -146,6 +147,7 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["actorId", "reason"],
           properties: { actorId: { type: "string" }, reason: { type: "string" } },
         },
+        response: { 200: envelopeKey("project") },
       },
     },
     async (request) => {
@@ -174,6 +176,7 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["actorId", "reason"],
           properties: { actorId: { type: "string" }, reason: { type: "string" } },
         },
+        response: { 200: envelopeKey("project") },
       },
     },
     async (request) => {

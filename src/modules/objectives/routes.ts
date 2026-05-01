@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
-import { listEnvelope } from "../../domain/schemas.js";
+import { envelopeKey, listEnvelope } from "../../domain/schemas.js";
 
 const objectivesRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /projects/:projectId/objectives
@@ -38,6 +38,7 @@ const objectivesRoutes: FastifyPluginAsync = async (fastify) => {
             priority: { type: "number" },
           },
         },
+        response: { 200: envelopeKey("objective") },
       },
     },
     async (request) => {
@@ -105,6 +106,7 @@ const objectivesRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Objectives"],
         summary: "Get an objective",
         params: { type: "object", required: ["objectiveId"], properties: { objectiveId: { type: "string" } } },
+        response: { 200: envelopeKey("objective") },
       },
     },
     async (request) => {
@@ -127,6 +129,7 @@ const objectivesRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["actorId"],
           properties: { actorId: { type: "string" } },
         },
+        response: { 200: envelopeKey("objective") },
       },
     },
     async (request) => {
@@ -158,6 +161,7 @@ const objectivesRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["actorId"],
           properties: { actorId: { type: "string" } },
         },
+        response: { 200: envelopeKey("project") },
       },
     },
     async (request) => {
@@ -190,6 +194,7 @@ const objectivesRoutes: FastifyPluginAsync = async (fastify) => {
             reason: { type: "string" },
           },
         },
+        response: { 200: envelopeKey("objective") },
       },
     },
     async (request) => {

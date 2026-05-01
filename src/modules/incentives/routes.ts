@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
+import { envelope, envelopeKey, listEnvelope } from "../../domain/schemas.js";
 import { v4 as uuidv4 } from "uuid";
 import { REWARD_INTENT } from "../../db/projectionKinds.js";
 
@@ -36,6 +37,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
             cursor: { type: "string" },
           },
         },
+        response: { 200: listEnvelope() },
       },
     },
     async (request) => {
@@ -64,6 +66,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Incentives"],
         summary: "Get a reward intent",
         params: { type: "object", required: ["rewardIntentId"], properties: { rewardIntentId: { type: "string" } } },
+        response: { 200: envelopeKey("rewardIntent") },
       },
     },
     async (request) => {
@@ -94,6 +97,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
             recipient: { type: "string" },
           },
         },
+        response: { 200: envelopeKey("rewardIntent") },
       },
     },
     async (request) => {
@@ -128,6 +132,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Incentives"],
         summary: "Mock reserve reward",
         params: { type: "object", required: ["rewardIntentId"], properties: { rewardIntentId: { type: "string" } } },
+        response: { 200: envelope() },
       },
     },
     async (request) => {
@@ -169,6 +174,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["actorId"],
           properties: { actorId: { type: "string" } },
         },
+        response: { 200: envelope() },
       },
     },
     async (request) => {
@@ -199,6 +205,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ["Incentives"],
         summary: "View mock ledger summary",
+        response: { 200: envelope() },
       },
     },
     async () => {

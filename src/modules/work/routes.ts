@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../domain/apiTypes.js";
-import { notFound, badRequest } from "../../domain/errors.js";
+import { notFound } from "../../domain/errors.js";
+import { envelope, envelopeKey, listEnvelope } from "../../domain/schemas.js";
 
 const workRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /work-orders
@@ -37,6 +38,7 @@ const workRoutes: FastifyPluginAsync = async (fastify) => {
             reward: { type: "object" },
           },
         },
+        response: { 200: envelopeKey("workOrder") },
       },
     },
     async (request) => {
@@ -74,6 +76,7 @@ const workRoutes: FastifyPluginAsync = async (fastify) => {
             cursor: { type: "string" },
           },
         },
+        response: { 200: listEnvelope() },
       },
     },
     async (request) => {
@@ -109,6 +112,7 @@ const workRoutes: FastifyPluginAsync = async (fastify) => {
             cursor: { type: "string" },
           },
         },
+        response: { 200: listEnvelope() },
       },
     },
     async (request) => {
@@ -136,6 +140,7 @@ const workRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Work"],
         summary: "Get a work order",
         params: { type: "object", required: ["workOrderId"], properties: { workOrderId: { type: "string" } } },
+        response: { 200: envelopeKey("workOrder") },
       },
     },
     async (request) => {
@@ -164,6 +169,7 @@ const workRoutes: FastifyPluginAsync = async (fastify) => {
             leaseMs: { type: "number" },
           },
         },
+        response: { 200: envelopeKey("claim") },
       },
     },
     async (request) => {
@@ -207,6 +213,7 @@ const workRoutes: FastifyPluginAsync = async (fastify) => {
             executionReceipt: { type: "object" },
           },
         },
+        response: { 200: envelopeKey("submission") },
       },
     },
     async (request) => {
@@ -244,6 +251,7 @@ const workRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["reason"],
           properties: { reason: { type: "string" } },
         },
+        response: { 200: envelope() },
       },
     },
     async (request) => {

@@ -55,6 +55,11 @@ export function envelopeKey(key: string, valueSchema: object = OPEN_OBJECT) {
   });
 }
 
+/** `{ ok, data: { [key]: T[] }, meta }` — use when the named field is an array (not a single object). */
+export function envelopeKeyArray(key: string, itemSchema: object = OPEN_OBJECT) {
+  return envelopeKey(key, { type: "array" as const, items: itemSchema });
+}
+
 /**
  * `{ ok: true, data: T[], page, meta }` list envelope.
  */

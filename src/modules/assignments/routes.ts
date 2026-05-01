@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
+import { envelope, envelopeKey, errorEnvelope, listEnvelope } from "../../domain/schemas.js";
 import { v4 as uuidv4 } from "uuid";
 
 interface Assignment {
@@ -44,6 +45,7 @@ const assignmentsRoutes: FastifyPluginAsync = async (fastify) => {
             reason: { type: "string" },
           },
         },
+        response: { 200: envelopeKey("assignment") },
       },
     },
     async (request) => {
@@ -98,6 +100,7 @@ const assignmentsRoutes: FastifyPluginAsync = async (fastify) => {
             strategy: { type: "string", enum: ["first_available", "round_robin", "random"] },
           },
         },
+        response: { 200: envelope() },
       },
     },
     async (request) => {
@@ -165,6 +168,7 @@ const assignmentsRoutes: FastifyPluginAsync = async (fastify) => {
             cursor: { type: "string" },
           },
         },
+        response: { 200: listEnvelope() },
       },
     },
     async (request) => {
@@ -201,6 +205,7 @@ const assignmentsRoutes: FastifyPluginAsync = async (fastify) => {
           type: "object",
           properties: { ttlSeconds: { type: "number" } },
         },
+        response: { 200: envelopeKey("lease") },
       },
     },
     async (request) => {
@@ -219,6 +224,7 @@ const assignmentsRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Assignments"],
         summary: "Release a lease",
         params: { type: "object", required: ["leaseId"], properties: { leaseId: { type: "string" } } },
+        response: { 200: envelope() },
       },
     },
     async (request) => {
@@ -234,6 +240,7 @@ const assignmentsRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ["Assignments"],
         summary: "Sweep expired leases (dev/admin)",
+        response: { 200: envelope(), 403: errorEnvelope },
       },
     },
     async (_request, reply) => {

@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { GUARDIAN_REQUEST, PROJECT_TIMELINE_ENTRY, REPUTATION_EVIDENCE, REWARD_INTENT, SCENARIO_RUN, SLASH_REQUEST, TRACE } from "../../db/projectionKinds.js";
 import { ok } from "../../domain/apiTypes.js";
+import { envelopeKey, envelopeKeyArray } from "../../domain/schemas.js";
 
 interface ScenarioRun {
   id: string;
@@ -27,7 +28,17 @@ interface ProjectScoped {
 }
 
 const projectReadModelRoutes: FastifyPluginAsync = async (fastify) => {
-  fastify.get<{ Params: { projectId: string } }>("/projects/:projectId/overview", async (request) => {
+  fastify.get<{ Params: { projectId: string } }>(
+    "/projects/:projectId/overview",
+    {
+      schema: {
+        tags: ["Project read models"],
+        summary: "Project overview (aggregated read model)",
+        params: { type: "object", required: ["projectId"], properties: { projectId: { type: "string" } } },
+        response: { 200: envelopeKey("overview") },
+      },
+    },
+    async (request) => {
     const { projectId } = request.params;
     const [project, objectives, workOrders, events] = await Promise.all([
       fastify.concord.projects.getProject(projectId as never),
@@ -83,13 +94,25 @@ const projectReadModelRoutes: FastifyPluginAsync = async (fastify) => {
         },
       },
     });
-  });
+  },
+  );
 
-  fastify.get<{ Params: { projectId: string } }>("/projects/:projectId/timeline", async (request) => {
+  fastify.get<{ Params: { projectId: string } }>(
+    "/projects/:projectId/timeline",
+    {
+      schema: {
+        tags: ["Project read models"],
+        summary: "Project timeline (merged from runs and projections)",
+        params: { type: "object", required: ["projectId"], properties: { projectId: { type: "string" } } },
+        response: { 200: envelopeKeyArray("timeline") },
+      },
+    },
+    async (request) => {
     const { projectId } = request.params;
     const runs = scenarioRunsForProject(fastify, projectId);
     return ok({ timeline: buildTimeline(fastify, runs, projectId) });
-  });
+  },
+  );
 };
 
 function scenarioRunsForProject(fastify: Parameters<FastifyPluginAsync>[0], projectId: string): ScenarioRun[] {

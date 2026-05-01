@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../domain/apiTypes.js";
-import { notFound, badRequest } from "../../domain/errors.js";
+import { notFound } from "../../domain/errors.js";
+import { envelope, envelopeKey, listEnvelope } from "../../domain/schemas.js";
 
 const negotiationsRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /negotiations
@@ -27,6 +28,7 @@ const negotiationsRoutes: FastifyPluginAsync = async (fastify) => {
             contextBundleId: { type: "string" },
           },
         },
+        response: { 200: envelopeKey("negotiation") },
       },
     },
     async (request) => {
@@ -67,6 +69,7 @@ const negotiationsRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Negotiations"],
         summary: "Get a negotiation",
         params: { type: "object", required: ["negotiationId"], properties: { negotiationId: { type: "string" } } },
+        response: { 200: envelopeKey("negotiation") },
       },
     },
     async (request) => {
@@ -92,6 +95,7 @@ const negotiationsRoutes: FastifyPluginAsync = async (fastify) => {
             cursor: { type: "string" },
           },
         },
+        response: { 200: listEnvelope() },
       },
     },
     async (request) => {
@@ -140,6 +144,7 @@ const negotiationsRoutes: FastifyPluginAsync = async (fastify) => {
             proposedRevisions: { type: "array", items: { type: "string" } },
           },
         },
+        response: { 200: envelopeKey("negotiation") },
       },
     },
     async (request) => {
@@ -181,6 +186,7 @@ const negotiationsRoutes: FastifyPluginAsync = async (fastify) => {
             rationale: { type: "string" },
           },
         },
+        response: { 200: envelopeKey("negotiation") },
       },
     },
     async (request) => {
@@ -215,6 +221,7 @@ const negotiationsRoutes: FastifyPluginAsync = async (fastify) => {
             projectId: { type: "string" },
           },
         },
+        response: { 200: envelope() },
       },
     },
     async (request) => {
@@ -259,6 +266,7 @@ const negotiationsRoutes: FastifyPluginAsync = async (fastify) => {
             convergenceThreshold: { type: "number" },
           },
         },
+        response: { 200: envelopeKey("negotiation") },
       },
     },
     async (request) => {

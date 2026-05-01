@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
+import { envelope, envelopeKey, listEnvelope } from "../../domain/schemas.js";
 
 const reviewsRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /reviews/requests
@@ -23,6 +24,7 @@ const reviewsRoutes: FastifyPluginAsync = async (fastify) => {
             requestedBy: { type: "string" },
           },
         },
+        response: { 200: envelope() },
       },
     },
     async (request) => {
@@ -64,6 +66,7 @@ const reviewsRoutes: FastifyPluginAsync = async (fastify) => {
             contextBundleId: { type: "string" },
           },
         },
+        response: { 200: envelopeKey("review") },
       },
     },
     async (request) => {
@@ -103,6 +106,7 @@ const reviewsRoutes: FastifyPluginAsync = async (fastify) => {
             cursor: { type: "string" },
           },
         },
+        response: { 200: listEnvelope() },
       },
     },
     async (request) => {
@@ -139,6 +143,7 @@ const reviewsRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["target"],
           properties: { target: { type: "object" } },
         },
+        response: { 200: envelopeKey("aggregation") },
       },
     },
     async (request) => {

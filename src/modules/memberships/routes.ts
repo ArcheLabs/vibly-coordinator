@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
+import { envelopeKey, listEnvelope } from "../../domain/schemas.js";
 
 const membershipsRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /projects/:projectId/members
@@ -29,6 +30,7 @@ const membershipsRoutes: FastifyPluginAsync = async (fastify) => {
             source: { type: "string" },
           },
         },
+        response: { 200: envelopeKey("membership") },
       },
     },
     async (request) => {
@@ -63,6 +65,7 @@ const membershipsRoutes: FastifyPluginAsync = async (fastify) => {
             cursor: { type: "string" },
           },
         },
+        response: { 200: listEnvelope() },
       },
     },
     async (request) => {
@@ -106,6 +109,7 @@ const membershipsRoutes: FastifyPluginAsync = async (fastify) => {
             reason: { type: "string" },
           },
         },
+        response: { 200: envelopeKey("membership") },
       },
     },
     async (request) => {

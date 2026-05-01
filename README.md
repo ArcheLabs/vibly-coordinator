@@ -30,9 +30,12 @@ vibly-indexer (SubQuery)   (链上事件索引, GraphQL :3010)
 pnpm install
 cp .env.example .env          # 或直接依赖默认值
 pnpm dev                      # ts-node 开发模式
-pnpm dump:openapi             # 刷新 packages/coordinator-http-contract/openapi.json
+pnpm dump:openapi             # 刷新 ../vibly-coordinator-http-contract/openapi.json
+pnpm --filter @vibly/coordinator-http-contract gen  # 由 OpenAPI 再生契约 TS 类型
 pnpm verify:openapi           # CI 风味的契约工件 drift 检查
-pnpm check:response-schemas   # 报告 schema.response 覆盖率
+pnpm verify:contract-types   # 类型工件 drift（调用契约包内脚本；亦可在 monorepo 根用 `pnpm --filter @vibly/coordinator-http-contract verify:types`）
+pnpm check:response-schemas   # 200 响应 schema 覆盖率（默认缺失为 0 即失败）
+pnpm lint                     # verify:openapi + verify:types + check:response-schemas + tsc
 ```
 
 默认监听：`http://localhost:8787`  

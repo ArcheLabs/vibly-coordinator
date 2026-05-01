@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
+import { envelope, envelopeKey } from "../../domain/schemas.js";
 
 const stateRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /projects/:projectId/state/latest
@@ -11,6 +12,7 @@ const stateRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["State"],
         summary: "Get latest state view for a project",
         params: { type: "object", required: ["projectId"], properties: { projectId: { type: "string" } } },
+        response: { 200: envelope() },
       },
     },
     async (request) => {
@@ -27,6 +29,7 @@ const stateRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["State"],
         summary: "Get a state view",
         params: { type: "object", required: ["stateViewId"], properties: { stateViewId: { type: "string" } } },
+        response: { 200: envelopeKey("stateView") },
       },
     },
     async (request) => {
@@ -49,6 +52,7 @@ const stateRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["knowledgeVersionId"],
           properties: { knowledgeVersionId: { type: "string" } },
         },
+        response: { 200: envelopeKey("stateView") },
       },
     },
     async (request) => {

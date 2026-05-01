@@ -1,12 +1,12 @@
 /**
  * CI gate: walks `openapi.json` and reports any route whose 200 response
- * does not have a `schema.response` (= no `responses[200].content` in the
- * dumped OpenAPI). At Phase 4 the goal is 100% coverage; until then we
- * track the count and fail on regression beyond a configured threshold.
+ * does not declare `responses[200].content` (any media type). JSON routes
+ * should use envelope helpers in Fastify `schema.response`; SSE routes use
+ * `text/event-stream`.
  *
  * Usage:
  *   pnpm --filter vibly-coordinator check:response-schemas
- *   pnpm --filter vibly-coordinator check:response-schemas --max-missing 30
+ *   pnpm --filter vibly-coordinator check:response-schemas --max-missing 5
  */
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -21,6 +21,11 @@ const openApi = JSON.parse(
 
 const HTTP_METHODS = new Set(["get", "post", "put", "patch", "delete"]);
 
+function hasResponseContent(op: { responses?: Record<string, { content?: Record<string, unknown> }> }): boolean {
+  const content = op.responses?.["200"]?.content;
+  return Boolean(content && typeof content === "object" && Object.keys(content).length > 0);
+}
+
 const missing: string[] = [];
 const total: string[] = [];
 for (const [routePath, methods] of Object.entries(openApi.paths)) {
@@ -28,14 +33,13 @@ for (const [routePath, methods] of Object.entries(openApi.paths)) {
     if (!HTTP_METHODS.has(method)) continue;
     const id = `${method.toUpperCase()} ${routePath}`;
     total.push(id);
-    const ok = op.responses?.["200"]?.content?.["application/json"];
-    if (!ok) missing.push(id);
+    if (!hasResponseContent(op)) missing.push(id);
   }
 }
 
 const args = process.argv.slice(2);
 const flagIdx = args.indexOf("--max-missing");
-const maxMissing = flagIdx >= 0 ? Number(args[flagIdx + 1] ?? "0") : 200;
+const maxMissing = flagIdx >= 0 ? Number(args[flagIdx + 1] ?? "0") : 0;
 
 const coverage = total.length === 0 ? 1 : (total.length - missing.length) / total.length;
 console.log(

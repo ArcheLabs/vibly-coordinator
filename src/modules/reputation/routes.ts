@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { REPUTATION_EVIDENCE } from "../../db/projectionKinds.js";
 import { okList } from "../../domain/apiTypes.js";
+import { listEnvelope } from "../../domain/schemas.js";
 
 interface ReputationEvidence {
   id: string;
@@ -10,7 +11,26 @@ interface ReputationEvidence {
 }
 
 const reputationRoutes: FastifyPluginAsync = async (fastify) => {
-  fastify.get<{ Querystring: { projectId?: string; actorId?: string; kind?: string; limit?: string; cursor?: string } }>("/reputation/evidence", async (request) => {
+  fastify.get<{ Querystring: { projectId?: string; actorId?: string; kind?: string; limit?: string; cursor?: string } }>(
+    "/reputation/evidence",
+    {
+      schema: {
+        tags: ["Reputation"],
+        summary: "List reputation evidence projections",
+        querystring: {
+          type: "object",
+          properties: {
+            projectId: { type: "string" },
+            actorId: { type: "string" },
+            kind: { type: "string" },
+            limit: { type: "string" },
+            cursor: { type: "string" },
+          },
+        },
+        response: { 200: listEnvelope() },
+      },
+    },
+    async (request) => {
     const { projectId, actorId, kind, limit: limitStr, cursor } = request.query;
     const limit = Math.min(Number(limitStr) || 50, 200);
     let items = fastify.coordinatorStore.listProjections<ReputationEvidence>(REPUTATION_EVIDENCE);
@@ -25,7 +45,8 @@ const reputationRoutes: FastifyPluginAsync = async (fastify) => {
     const page = items.slice(startIdx, startIdx + limit);
     const nextCursor = page.length === limit ? (page[page.length - 1]?.id ?? null) : null;
     return okList(page, { limit, nextCursor });
-  });
+  },
+  );
 };
 
 export default reputationRoutes;

@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
+import { envelopeKey, listEnvelope } from "../../domain/schemas.js";
 
 const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /knowledge/latest
@@ -10,6 +11,7 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ["Knowledge"],
         summary: "Get the latest knowledge version",
+        response: { 200: envelopeKey("knowledgeVersion") },
       },
     },
     async () => {
@@ -26,6 +28,7 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Knowledge"],
         summary: "Get a knowledge version",
         params: { type: "object", required: ["versionId"], properties: { versionId: { type: "string" } } },
+        response: { 200: envelopeKey("knowledgeVersion") },
       },
     },
     async (request) => {
@@ -46,6 +49,7 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
           type: "object",
           properties: { limit: { type: "string" }, cursor: { type: "string" } },
         },
+        response: { 200: listEnvelope() },
       },
     },
     async (request) => {
@@ -91,6 +95,7 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
             contextBundleId: { type: "string" },
           },
         },
+        response: { 200: envelopeKey("candidate") },
       },
     },
     async (request) => {
@@ -124,6 +129,7 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Knowledge"],
         summary: "Get a knowledge candidate",
         params: { type: "object", required: ["candidateId"], properties: { candidateId: { type: "string" } } },
+        response: { 200: envelopeKey("candidate") },
       },
     },
     async (request) => {
@@ -157,6 +163,7 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
             createdBy: { type: "string" },
           },
         },
+        response: { 200: envelopeKey("knowledgeVersion") },
       },
     },
     async (request) => {

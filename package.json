@@ -9,11 +9,12 @@
     "start": "node dist/main.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "tsc -p tsconfig.json --noEmit",
+    "lint": "pnpm verify:openapi && pnpm verify:contract-types && pnpm check:response-schemas && tsc -p tsconfig.json --noEmit",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:reset": "tsx src/db/reset.ts",
     "dump:openapi": "tsx scripts/dump-openapi.ts",
     "verify:openapi": "tsx scripts/verify-openapi.ts",
+    "verify:contract-types": "node ../vibly-coordinator-http-contract/scripts/verify-types.mjs",
     "check:response-schemas": "tsx scripts/check-response-schemas.ts"
   },
   "dependencies": {

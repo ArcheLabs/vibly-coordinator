@@ -4,6 +4,13 @@ import EventEmitter from "node:events";
 // Re-use the same raw emitter bound to the eventBus for SSE
 // We create a bridge from the EventBus abstraction to a raw EventEmitter for the SSE plugin
 
+const sseResponse200 = {
+  description: "Server-Sent Events stream of EventEnvelope frames",
+  content: {
+    "text/event-stream": { schema: { type: "string" } },
+  },
+} as const;
+
 const streamsRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /streams/events — global SSE event stream
   fastify.get<{
@@ -22,6 +29,7 @@ const streamsRoutes: FastifyPluginAsync = async (fastify) => {
             actorId: { type: "string" },
           },
         },
+        response: { 200: sseResponse200 },
       },
     },
     async (request, reply) => {
@@ -79,6 +87,7 @@ const streamsRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Streams"],
         summary: "Project-scoped SSE event stream",
         params: { type: "object", required: ["projectId"], properties: { projectId: { type: "string" } } },
+        response: { 200: sseResponse200 },
       },
     },
     async (request, reply) => {

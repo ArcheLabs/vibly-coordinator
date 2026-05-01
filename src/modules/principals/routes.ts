@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
-import { listEnvelope } from "../../domain/schemas.js";
+import { envelopeKey, listEnvelope } from "../../domain/schemas.js";
 
 const principalsRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /principals
@@ -30,6 +30,7 @@ const principalsRoutes: FastifyPluginAsync = async (fastify) => {
             addressBindings: { type: "array" },
           },
         },
+        response: { 200: envelopeKey("principal") },
       },
     },
     async (request) => {
@@ -89,6 +90,7 @@ const principalsRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Principals"],
         summary: "Get a principal",
         params: { type: "object", required: ["principalId"], properties: { principalId: { type: "string" } } },
+        response: { 200: envelopeKey("principal") },
       },
     },
     async (request) => {
@@ -126,6 +128,7 @@ const principalsRoutes: FastifyPluginAsync = async (fastify) => {
             status: { type: "string" },
           },
         },
+        response: { 200: envelopeKey("addressBinding") },
       },
     },
     async (request) => {
@@ -160,6 +163,7 @@ const principalsRoutes: FastifyPluginAsync = async (fastify) => {
             reason: { type: "string" },
           },
         },
+        response: { 200: envelopeKey("principal") },
       },
     },
     async (request) => {

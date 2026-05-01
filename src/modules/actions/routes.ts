@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
+import { envelopeKey, listEnvelope } from "../../domain/schemas.js";
 import type { ActionIntent } from "@concord/core";
 
 const actionsRoutes: FastifyPluginAsync = async (fastify) => {
@@ -40,6 +41,7 @@ const actionsRoutes: FastifyPluginAsync = async (fastify) => {
             inputs: { type: "array" },
           },
         },
+        response: { 200: envelopeKey("action") },
       },
     },
     async (request) => {
@@ -75,6 +77,7 @@ const actionsRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Actions"],
         summary: "Get an action",
         params: { type: "object", required: ["actionId"], properties: { actionId: { type: "string" } } },
+        response: { 200: envelopeKey("action") },
       },
     },
     async (request) => {
@@ -104,6 +107,7 @@ const actionsRoutes: FastifyPluginAsync = async (fastify) => {
             cursor: { type: "string" },
           },
         },
+        response: { 200: listEnvelope() },
       },
     },
     async (request) => {
@@ -146,6 +150,7 @@ const actionsRoutes: FastifyPluginAsync = async (fastify) => {
             contextBundleId: { type: "string" },
           },
         },
+        response: { 200: envelopeKey("policyDecision") },
       },
     },
     async (request) => {
