@@ -14,35 +14,42 @@ import corsPlugin from "./plugins/cors.js";
 import swaggerPlugin from "./plugins/swagger.js";
 import ssePlugin from "./plugins/sse.js";
 
-// Module route imports
-import healthRoutes from "./modules/health/routes.js";
-import metricsRoutes from "./modules/metrics/routes.js";
-import eventsRoutes from "./modules/events/routes.js";
-import projectsRoutes from "./modules/projects/routes.js";
-import objectivesRoutes from "./modules/objectives/routes.js";
-import boundaryRoutes from "./modules/boundary/routes.js";
-import principalsRoutes from "./modules/principals/routes.js";
-import agentsRoutes from "./modules/agents/routes.js";
-import membershipsRoutes from "./modules/memberships/routes.js";
-import contextRoutes from "./modules/context/routes.js";
-import stateRoutes from "./modules/state/routes.js";
-import knowledgeRoutes from "./modules/knowledge/routes.js";
-import observationsRoutes from "./modules/observations/routes.js";
-import actionsRoutes from "./modules/actions/routes.js";
-import negotiationsRoutes from "./modules/negotiations/routes.js";
-import workRoutes from "./modules/work/routes.js";
-import reviewsRoutes from "./modules/reviews/routes.js";
-import incentivesRoutes from "./modules/incentives/routes.js";
-import governanceRoutes from "./modules/governance/routes.js";
-import tracesRoutes from "./modules/traces/routes.js";
-import guardianRoutes from "./modules/guardian/routes.js";
-import reputationRoutes from "./modules/reputation/routes.js";
-import riskRoutes from "./modules/risk/routes.js";
-import projectReadModelRoutes from "./modules/project-read-models/routes.js";
-import assignmentsRoutes from "./modules/assignments/routes.js";
-import streamsRoutes from "./modules/streams/routes.js";
-import agentCollaborationScenarioRoutes from "./scenarios/agent-collaboration/routes.js";
-import incentiveRiskScenarioRoutes from "./scenarios/incentive-risk/routes.js";
+// Domain module route imports (see modules/<domain>/… layout in AGENTS.md)
+import healthRoutes from "./modules/platform/health/routes.js";
+import metricsRoutes from "./modules/platform/metrics/routes.js";
+import eventsRoutes from "./modules/platform/events/routes.js";
+import streamsRoutes from "./modules/platform/streams/routes.js";
+import contextRoutes from "./modules/platform/context/routes.js";
+import stateRoutes from "./modules/platform/state/routes.js";
+import knowledgeRoutes from "./modules/platform/knowledge/routes.js";
+
+import principalsRoutes from "./modules/identity/principals/routes.js";
+import agentsRoutes from "./modules/identity/agents/routes.js";
+import membershipsRoutes from "./modules/identity/memberships/routes.js";
+
+import projectsRoutes from "./modules/project/projects/routes.js";
+import objectivesRoutes from "./modules/project/objectives/routes.js";
+import boundaryRoutes from "./modules/project/boundary/routes.js";
+import projectReadModelRoutes from "./modules/project/project-read-models/routes.js";
+
+import actionsRoutes from "./modules/workflow/actions/routes.js";
+import negotiationsRoutes from "./modules/workflow/negotiations/routes.js";
+import workRoutes from "./modules/workflow/work/routes.js";
+import reviewsRoutes from "./modules/workflow/reviews/routes.js";
+import tracesRoutes from "./modules/workflow/traces/routes.js";
+import assignmentsRoutes from "./modules/workflow/assignments/routes.js";
+import observationsRoutes from "./modules/workflow/observations/routes.js";
+
+import incentivesRoutes from "./modules/incentives/rewards/routes.js";
+import reputationRoutes from "./modules/incentives/reputation/routes.js";
+import riskRoutes from "./modules/incentives/risk/routes.js";
+import guardianRoutes from "./modules/incentives/guardian/routes.js";
+
+import governanceRoutes from "./modules/governance/intents-subjects-merged-backends/routes.js";
+
+import agentCollaborationScenarioRoutes from "./modules/dev/scenarios/agent-collaboration/routes.js";
+import incentiveRiskScenarioRoutes from "./modules/dev/scenarios/incentive-risk/routes.js";
+
 import { GovernanceIndexConsumer } from "./services/governanceIndexConsumer.js";
 import { GovernanceProjectorService } from "./services/governanceProjector.js";
 import { GovernanceBackendRegistry } from "./services/governanceBackendRegistry.js";
