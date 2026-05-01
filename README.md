@@ -2,6 +2,8 @@
 
 vibly-coordinator 是 Vibly / Concord 协调网络的服务端节点。基于 Fastify + SQLite，封装 `@concord/sdk` 提供的协议内核，对外暴露 REST API，并可选地通过 **GovernanceIndexConsumer** 持续索引链上 OpenGov 状态。
 
+> **唯一 HTTP/SSE 契约来源。** Vibly 协调节点的对外 HTTP/SSE 契约以本仓库的 Fastify 路由为唯一事实来源；`concord` 仓库不提供任何对外 HTTP 服务，`vibly-client` / `vibly-console` 等消费方均以这里的路由与响应信封为准。
+
 ## 依赖关系
 
 ```
