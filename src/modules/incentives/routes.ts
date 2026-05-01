@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
 import { v4 as uuidv4 } from "uuid";
+import { REWARD_INTENT } from "../../db/projectionKinds.js";
 
 interface RewardIntent {
   id: string;
@@ -40,7 +41,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const { projectId, status, limit: limitStr, cursor } = request.query;
       const limit = Math.min(Number(limitStr) || 50, 200);
-      let intents = fastify.coordinatorStore.listProjections<RewardIntent>("reward_intent");
+      let intents = fastify.coordinatorStore.listProjections<RewardIntent>(REWARD_INTENT);
       if (projectId) intents = intents.filter((r) => r.projectId === projectId);
       if (status) intents = intents.filter((r) => r.status === status);
 
@@ -66,7 +67,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-      const intent = fastify.coordinatorStore.getProjection<RewardIntent>("reward_intent", request.params.rewardIntentId);
+      const intent = fastify.coordinatorStore.getProjection<RewardIntent>(REWARD_INTENT, request.params.rewardIntentId);
       if (!intent) throw notFound("RewardIntent", request.params.rewardIntentId);
       return ok({ rewardIntent: intent });
     },
@@ -108,7 +109,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
         createdAt: now,
         updatedAt: now,
       };
-      fastify.coordinatorStore.saveProjection("reward_intent", intent.id, intent);
+      fastify.coordinatorStore.saveProjection(REWARD_INTENT, intent.id, intent);
 
       const { createEvent } = await import("@concord/foundation");
       const event = createEvent({ type: "RewardIntentCreated", payload: intent });
@@ -130,7 +131,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-      const intent = fastify.coordinatorStore.getProjection<RewardIntent>("reward_intent", request.params.rewardIntentId);
+      const intent = fastify.coordinatorStore.getProjection<RewardIntent>(REWARD_INTENT, request.params.rewardIntentId);
       if (!intent) throw notFound("RewardIntent", request.params.rewardIntentId);
 
       const fundingReceipt = await fastify.concord.fundingGateway.reserve({
@@ -141,7 +142,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
       const updated: RewardIntent = { ...intent, status: "reserved", fundingReceipt, updatedAt: new Date().toISOString() };
-      fastify.coordinatorStore.saveProjection("reward_intent", intent.id, updated);
+      fastify.coordinatorStore.saveProjection(REWARD_INTENT, intent.id, updated);
 
       const { createEvent } = await import("@concord/foundation");
       const event = createEvent({ type: "FundingReserved", payload: { projectId: updated.projectId, rewardIntentId: intent.id, fundingReceipt } });
@@ -171,7 +172,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-      const intent = fastify.coordinatorStore.getProjection<RewardIntent>("reward_intent", request.params.rewardIntentId);
+      const intent = fastify.coordinatorStore.getProjection<RewardIntent>(REWARD_INTENT, request.params.rewardIntentId);
       if (!intent) throw notFound("RewardIntent", request.params.rewardIntentId);
 
       const settlementReceipt = await fastify.concord.fundingGateway.claim({
@@ -180,7 +181,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
       const updated: RewardIntent = { ...intent, status: "claimed", settlementReceipt, updatedAt: new Date().toISOString() };
-      fastify.coordinatorStore.saveProjection("reward_intent", intent.id, updated);
+      fastify.coordinatorStore.saveProjection(REWARD_INTENT, intent.id, updated);
 
       const { createEvent } = await import("@concord/foundation");
       const event = createEvent({ type: "RewardClaimed", payload: { projectId: updated.projectId, rewardIntentId: intent.id, settlementReceipt } });
@@ -201,7 +202,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async () => {
-      const intents = fastify.coordinatorStore.listProjections<RewardIntent>("reward_intent");
+      const intents = fastify.coordinatorStore.listProjections<RewardIntent>(REWARD_INTENT);
       const summary = {
         total: intents.length,
         byStatus: {

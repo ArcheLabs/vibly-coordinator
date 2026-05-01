@@ -5,8 +5,9 @@ import type { EventEnvelope } from "@concord/foundation";
 import { loadConfig } from "../../config/env.js";
 import type { CoordinatorStore } from "../../db/coordinatorStore.js";
 import type { EventBus } from "../../services/eventBus.js";
-import phaseFRoutes from "./routes.js";
-import phaseGRoutes from "../phase-g/routes.js";
+import agentCollaborationScenarioRoutes from "./routes.js";
+import guardianRoutes from "../../modules/guardian/routes.js";
+import projectReadModelRoutes from "../../modules/project-read-models/routes.js";
 
 function makeStore() {
   const projections = new Map<string, Map<string, unknown>>();
@@ -21,7 +22,7 @@ function makeStore() {
   };
 }
 
-describe("Phase F smoke route", () => {
+describe("agent collaboration scenario routes", () => {
   it("runs the test-agent collaboration loop and records traceable read models", async () => {
     const fastify = Fastify({ logger: false });
     const store = makeStore();
@@ -36,10 +37,11 @@ describe("Phase F smoke route", () => {
       ENABLE_DEV_ROUTES: "true",
     }));
 
-    await fastify.register(phaseFRoutes);
-    await fastify.register(phaseGRoutes);
+    await fastify.register(agentCollaborationScenarioRoutes);
+    await fastify.register(guardianRoutes);
+    await fastify.register(projectReadModelRoutes);
 
-    const response = await fastify.inject({ method: "POST", url: "/phase-f/smoke" });
+    const response = await fastify.inject({ method: "POST", url: "/dev/scenarios/agent-collaboration/runs" });
     expect(response.statusCode).toBe(200);
 
     const body = response.json<{
@@ -90,23 +92,42 @@ describe("Phase F smoke route", () => {
     expect(guardianResponse.statusCode).toBe(200);
     expect(guardianResponse.json<{ data: unknown[] }>().data).toHaveLength(1);
 
-    const overviewResponse = await fastify.inject({ method: "GET", url: `/projects/${run.guardianRequest.projectId}/phase-g/overview` });
+    const listResponse = await fastify.inject({ method: "GET", url: "/dev/scenarios/agent-collaboration/runs" });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json<{ data: unknown[] }>().data).toHaveLength(1);
+
+    const overviewResponse = await fastify.inject({ method: "GET", url: `/projects/${run.guardianRequest.projectId}/overview` });
     expect(overviewResponse.statusCode).toBe(200);
-    expect(overviewResponse.json<{ data: { overview: { counts: { phaseFRuns: number; timelineEvents: number } } } }>().data.overview.counts).toMatchObject({
-      phaseFRuns: 1,
+    expect(overviewResponse.json<{ data: { overview: { counts: { scenarioRuns: number; timelineEvents: number } } } }>().data.overview.counts).toMatchObject({
+      scenarioRuns: 1,
       timelineEvents: run.timeline.length,
     });
 
-    const timelineResponse = await fastify.inject({ method: "GET", url: `/projects/${run.guardianRequest.projectId}/phase-g/timeline` });
+    const timelineResponse = await fastify.inject({ method: "GET", url: `/projects/${run.guardianRequest.projectId}/timeline` });
     expect(timelineResponse.statusCode).toBe(200);
     expect(timelineResponse.json<{ data: { timeline: unknown[] } }>().data.timeline).toHaveLength(run.timeline.length);
+
+    await expectOldPhaseRoutesToBeGone(fastify, run.guardianRequest.projectId);
     expect(published.map((event) => event.type)).toEqual(expect.arrayContaining([
-      "PhaseGTimelineUpdated",
+      "ProjectTimelineUpdated",
       "GuardianReviewRequested",
       "GuardianReviewCompleted",
-      "PhaseFSmokeCompleted",
+      "AgentCollaborationScenarioCompleted",
     ]));
 
     await fastify.close();
   });
 });
+
+async function expectOldPhaseRoutesToBeGone(fastify: ReturnType<typeof Fastify>, projectId: string): Promise<void> {
+  const oldRoutes = [
+    "/phase-f/smoke",
+    "/phase-f/runs",
+    `/projects/${projectId}/phase-g/overview`,
+    "/phase-h/smoke",
+  ];
+  for (const url of oldRoutes) {
+    const response = await fastify.inject({ method: url.endsWith("/smoke") ? "POST" : "GET", url });
+    expect(response.statusCode).toBe(404);
+  }
+}

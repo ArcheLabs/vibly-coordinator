@@ -94,34 +94,22 @@ Swagger UI：`http://localhost:8787/docs`
 | `POST/GET` | `/reviews/requests\|/reviews` | 评审请求/评审 |
 | `POST` | `/reviews/aggregate` | 评审聚合 |
 
-### Phase F Test Agent Collaboration
+### 可观察项目视图
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `POST` | `/phase-f/smoke` | dev-only：运行 Observer/Delegate/Worker/Reviewer/Guardian 协作 smoke |
-| `GET` | `/phase-f/runs` | 列出 Phase F smoke run projection |
+| `GET` | `/projects/:projectId/overview` | 项目级可观察摘要：目标、scenario run、Guardian、timeline、reward、risk、reputation、trace 状态 |
+| `GET` | `/projects/:projectId/timeline` | 人类可读协作 timeline，用于 Console Dashboard 与 Timeline 页面 |
+
+项目实时主路径是 `/projects/:projectId/stream`。协作流程会发布 `ProjectTimelineUpdated`、Guardian、Trace、Work、Knowledge、Reward 与 Risk 相关事件，Console 可无需刷新地更新页面。
+
+### Guardian 与风险
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
 | `GET` | `/guardian-requests` | 查询 Guardian/high-risk request read model |
-
-### Phase G Human-Observable Console
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| `GET` | `/projects/:projectId/phase-g/overview` | 项目级可观察摘要：目标、Phase F run、Guardian request、timeline/live 状态 |
-| `GET` | `/projects/:projectId/phase-g/timeline` | 人类可读协作 timeline，用于 Console Dashboard 与 Timeline 页面 |
-
-Phase G 复用 `/projects/:projectId/stream` 作为实时主路径。Phase F smoke 会发布 `PhaseGTimelineUpdated`、Guardian、Trace、Work、Knowledge 与 `PhaseFSmokeCompleted` 相关事件，Console 可无需刷新地更新页面。
-
-### Phase H Minimal Incentive / Risk Loop
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| `POST` | `/phase-h/smoke` | dev-only：在 Phase F accepted work 基础上跑通 mock ledger、reputation、slash、Guardian 风险 smoke |
-| `GET` | `/phase-h/runs` | 列出 Phase H run projection |
-| `GET` | `/projects/:projectId/phase-h/overview` | 项目级激励/风险摘要：reward、claimable、ledger、reputation evidence、slash、Guardian |
 | `GET` | `/reputation/evidence` | 查询 typed reputation evidence read model |
 | `GET` | `/slash-requests` | 查询 slash/risk request read model |
-
-Phase H 默认使用 mock ledger。真实 Vibly chain settlement 不在本阶段主路径内。
 
 ### 知识与状态
 
@@ -217,15 +205,16 @@ curl -X POST -H "Authorization: Bearer dev-token" http://localhost:8787/governan
 curl -H "Authorization: Bearer dev-token" http://localhost:8787/governance/merged
 ```
 
-Phase F 本地协作 smoke 需要启用 dev routes：
+本地 dev scenario 需要启用 dev routes：
 
 ```bash
 ENABLE_DEV_ROUTES=true pnpm dev
-curl -X POST -H "Authorization: Bearer dev-token" http://localhost:8787/phase-f/smoke
-curl -H "Authorization: Bearer dev-token" http://localhost:8787/phase-f/runs
+curl -X POST -H "Authorization: Bearer dev-token" http://localhost:8787/dev/scenarios/agent-collaboration/runs
+curl -X POST -H "Authorization: Bearer dev-token" http://localhost:8787/dev/scenarios/incentive-risk/runs
+curl -H "Authorization: Bearer dev-token" http://localhost:8787/dev/scenarios/agent-collaboration/runs
 ```
 
-该 smoke 会写入五个测试 Agent、high-risk action、Guardian request、structured negotiation、accepted work order、review aggregation，并生成可 verify/replay 的 trace。
+`agent-collaboration` 会写入五个测试 Agent、high-risk action、Guardian request、structured negotiation、accepted work order、review aggregation，并生成可 verify/replay 的 trace。`incentive-risk` 会在协作 run 基础上写入 mock reward、reputation evidence、slash request 与 Guardian 风险审查读模型。真实 Vibly chain settlement 不在 dev scenario 主路径内。
 
 ## 开发命令
 

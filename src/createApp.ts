@@ -33,11 +33,14 @@ import reviewsRoutes from "./modules/reviews/routes.js";
 import incentivesRoutes from "./modules/incentives/routes.js";
 import governanceRoutes from "./modules/governance/routes.js";
 import tracesRoutes from "./modules/traces/routes.js";
-import phaseFRoutes from "./modules/phase-f/routes.js";
-import phaseGRoutes from "./modules/phase-g/routes.js";
-import phaseHRoutes from "./modules/phase-h/routes.js";
+import guardianRoutes from "./modules/guardian/routes.js";
+import reputationRoutes from "./modules/reputation/routes.js";
+import riskRoutes from "./modules/risk/routes.js";
+import projectReadModelRoutes from "./modules/project-read-models/routes.js";
 import assignmentsRoutes from "./modules/assignments/routes.js";
 import streamsRoutes from "./modules/streams/routes.js";
+import agentCollaborationScenarioRoutes from "./scenarios/agent-collaboration/routes.js";
+import incentiveRiskScenarioRoutes from "./scenarios/incentive-risk/routes.js";
 import { GovernanceIndexConsumer } from "./services/governanceIndexConsumer.js";
 import { GovernanceProjectorService } from "./services/governanceProjector.js";
 import { GovernanceBackendRegistry } from "./services/governanceBackendRegistry.js";
@@ -107,11 +110,14 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(incentivesRoutes);
   await fastify.register(governanceRoutes);
   await fastify.register(tracesRoutes);
-  await fastify.register(phaseFRoutes);
-  await fastify.register(phaseGRoutes);
-  await fastify.register(phaseHRoutes);
+  await fastify.register(guardianRoutes);
+  await fastify.register(reputationRoutes);
+  await fastify.register(riskRoutes);
+  await fastify.register(projectReadModelRoutes);
   await fastify.register(assignmentsRoutes);
   await fastify.register(streamsRoutes);
+  await fastify.register(agentCollaborationScenarioRoutes);
+  await fastify.register(incentiveRiskScenarioRoutes);
 
   // ─── Register Substrate backend ─────────────────────────────────────────────
   if (isGovernanceBackendEnabled(config, "substrate-local", Boolean(config.substrateIndexerUrl)) && config.substrateIndexerUrl) {

@@ -5,9 +5,12 @@ import type { EventEnvelope } from "@concord/foundation";
 import { loadConfig } from "../../config/env.js";
 import type { CoordinatorStore } from "../../db/coordinatorStore.js";
 import type { EventBus } from "../../services/eventBus.js";
-import phaseFRoutes from "../phase-f/routes.js";
-import phaseGRoutes from "../phase-g/routes.js";
-import phaseHRoutes from "./routes.js";
+import agentCollaborationScenarioRoutes from "../agent-collaboration/routes.js";
+import guardianRoutes from "../../modules/guardian/routes.js";
+import projectReadModelRoutes from "../../modules/project-read-models/routes.js";
+import reputationRoutes from "../../modules/reputation/routes.js";
+import riskRoutes from "../../modules/risk/routes.js";
+import incentiveRiskScenarioRoutes from "./routes.js";
 
 function makeStore() {
   const projections = new Map<string, Map<string, unknown>>();
@@ -22,7 +25,7 @@ function makeStore() {
   };
 }
 
-describe("Phase H smoke route", () => {
+describe("incentive risk scenario routes", () => {
   it("creates reward, reputation, slash, guardian, and overview read models", async () => {
     const fastify = Fastify({ logger: false });
     const store = makeStore();
@@ -37,11 +40,14 @@ describe("Phase H smoke route", () => {
       ENABLE_DEV_ROUTES: "true",
     }));
 
-    await fastify.register(phaseFRoutes);
-    await fastify.register(phaseGRoutes);
-    await fastify.register(phaseHRoutes);
+    await fastify.register(agentCollaborationScenarioRoutes);
+    await fastify.register(guardianRoutes);
+    await fastify.register(projectReadModelRoutes);
+    await fastify.register(reputationRoutes);
+    await fastify.register(riskRoutes);
+    await fastify.register(incentiveRiskScenarioRoutes);
 
-    const response = await fastify.inject({ method: "POST", url: "/phase-h/smoke" });
+    const response = await fastify.inject({ method: "POST", url: "/dev/scenarios/incentive-risk/runs" });
     expect(response.statusCode).toBe(200);
 
     const run = response.json<{
@@ -71,10 +77,14 @@ describe("Phase H smoke route", () => {
       expect.objectContaining({ phase: "risk", eventType: "SlashRequested" }),
     ]));
 
-    const overviewResponse = await fastify.inject({ method: "GET", url: `/projects/${run.projectId}/phase-h/overview` });
+    const listResponse = await fastify.inject({ method: "GET", url: "/dev/scenarios/incentive-risk/runs" });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json<{ data: unknown[] }>().data).toHaveLength(1);
+
+    const overviewResponse = await fastify.inject({ method: "GET", url: `/projects/${run.projectId}/overview` });
     expect(overviewResponse.statusCode).toBe(200);
-    expect(overviewResponse.json<{ data: { overview: { counts: { phaseHRuns: number; claimableRewards: number; reputationEvidence: number; slashRequests: number } } } }>().data.overview.counts).toMatchObject({
-      phaseHRuns: 1,
+    expect(overviewResponse.json<{ data: { overview: { counts: { scenarioRuns: number; claimableRewards: number; reputationEvidence: number; slashRequests: number } } } }>().data.overview.counts).toMatchObject({
+      scenarioRuns: 2,
       claimableRewards: 1,
       reputationEvidence: 2,
       slashRequests: 1,
@@ -94,8 +104,8 @@ describe("Phase H smoke route", () => {
       "RewardClaimable",
       "ReputationEvidenceCreated",
       "SlashRequested",
-      "PhaseHSmokeCompleted",
-      "PhaseHTimelineUpdated",
+      "IncentiveRiskScenarioCompleted",
+      "ProjectTimelineUpdated",
     ]));
 
     await fastify.close();
