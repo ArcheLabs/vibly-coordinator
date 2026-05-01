@@ -3,18 +3,20 @@ import type { FastifyInstance } from "fastify";
 import type { CoordinatorConfig } from "./config/env.js";
 import type { Logger } from "./config/logger.js";
 import type { Concord } from "@concord/sdk";
-import type { CoordinatorStore } from "./db/coordinatorStore.js";
+import type { CoordinatorStorePort } from "./db/coordinatorStorePort.js";
 import type { EventBus } from "./services/eventBus.js";
 
 // Plugin imports
 import errorHandlerPlugin from "./plugins/error-handler.js";
 import authPlugin from "./plugins/auth.js";
+import authorizationPlugin from "./plugins/authorization.js";
 import corsPlugin from "./plugins/cors.js";
 import swaggerPlugin from "./plugins/swagger.js";
 import ssePlugin from "./plugins/sse.js";
 
 // Module route imports
 import healthRoutes from "./modules/health/routes.js";
+import metricsRoutes from "./modules/metrics/routes.js";
 import eventsRoutes from "./modules/events/routes.js";
 import projectsRoutes from "./modules/projects/routes.js";
 import objectivesRoutes from "./modules/objectives/routes.js";
@@ -45,11 +47,10 @@ import { GovernanceIndexConsumer } from "./services/governanceIndexConsumer.js";
 import { GovernanceProjectorService } from "./services/governanceProjector.js";
 import { GovernanceBackendRegistry } from "./services/governanceBackendRegistry.js";
 
-// Extend FastifyInstance with our custom decorations
 declare module "fastify" {
   interface FastifyInstance {
     concord: Concord;
-    coordinatorStore: CoordinatorStore;
+    coordinatorStore: CoordinatorStorePort;
     eventBus: EventBus;
     config: CoordinatorConfig;
     governanceBackendRegistry: GovernanceBackendRegistry;
@@ -60,38 +61,48 @@ export interface CreateAppOptions {
   config: CoordinatorConfig;
   logger: Logger;
   concord: Concord;
-  coordinatorStore: CoordinatorStore;
+  coordinatorStore: CoordinatorStorePort;
   eventBus: EventBus;
   startGovernanceConsumers?: boolean;
+  readinessProbe?: () => Promise<void>;
+  requestIdGenerator?: () => string;
 }
 
 export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance> {
-  const { config, logger, concord, coordinatorStore, eventBus, startGovernanceConsumers = true } = opts;
+  const {
+    config,
+    logger,
+    concord,
+    coordinatorStore,
+    eventBus,
+    startGovernanceConsumers = true,
+    readinessProbe,
+    requestIdGenerator,
+  } = opts;
 
   const fastify = Fastify({
     loggerInstance: logger,
     disableRequestLogging: config.nodeEnv === "test",
+    genReqId: requestIdGenerator,
   });
 
-  // Governance backend registry (always created, may be empty)
   const governanceBackendRegistry = new GovernanceBackendRegistry();
 
-  // Decorate with core services
   fastify.decorate("concord", concord);
   fastify.decorate("coordinatorStore", coordinatorStore);
   fastify.decorate("eventBus", eventBus);
   fastify.decorate("config", config);
   fastify.decorate("governanceBackendRegistry", governanceBackendRegistry);
 
-  // Plugins (order matters)
   await fastify.register(errorHandlerPlugin);
   await fastify.register(corsPlugin, { config });
   await fastify.register(swaggerPlugin, { config });
   await fastify.register(authPlugin, { config });
+  await fastify.register(authorizationPlugin, { config });
   await fastify.register(ssePlugin, { heartbeatMs: config.sseHeartbeatMs });
 
-  // Routes
-  await fastify.register(healthRoutes, { config });
+  await fastify.register(healthRoutes, { config, readinessProbe });
+  await fastify.register(metricsRoutes);
   await fastify.register(eventsRoutes);
   await fastify.register(projectsRoutes);
   await fastify.register(objectivesRoutes);
@@ -116,10 +127,12 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(projectReadModelRoutes);
   await fastify.register(assignmentsRoutes);
   await fastify.register(streamsRoutes);
-  await fastify.register(agentCollaborationScenarioRoutes);
-  await fastify.register(incentiveRiskScenarioRoutes);
 
-  // ─── Register Substrate backend ─────────────────────────────────────────────
+  if (config.enableDevRoutes) {
+    await fastify.register(agentCollaborationScenarioRoutes);
+    await fastify.register(incentiveRiskScenarioRoutes);
+  }
+
   if (isGovernanceBackendEnabled(config, "substrate-local", Boolean(config.substrateIndexerUrl)) && config.substrateIndexerUrl) {
     const { SubQueryGovernanceIndexAdapter } = await import("@concord/adapter-substrate-indexer");
     const { defaultSubstrateCapabilities } = await import("@concord/governance");
@@ -156,7 +169,6 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
     );
   }
 
-  // ─── Register EVM fixture backend ───────────────────────────────────────────
   if (isGovernanceBackendEnabled(config, "evm-fixture", config.evmGovernorFixture)) {
     const { EvmFixtureGovernanceIndexAdapter } = await import("@concord/adapter-evm-indexer");
     const { defaultEvmCapabilities } = await import("@concord/governance");
@@ -186,7 +198,6 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
     );
   }
 
-  // Start all registered backends
   if (startGovernanceConsumers) {
     governanceBackendRegistry.startAll();
   }

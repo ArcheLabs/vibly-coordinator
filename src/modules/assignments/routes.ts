@@ -62,7 +62,7 @@ const assignmentsRoutes: FastifyPluginAsync = async (fastify) => {
       };
 
       if (request.body.leaseSeconds) {
-        const lease = fastify.coordinatorStore.createLease({
+        const lease = await fastify.coordinatorStore.createLease({
           kind: `role:${request.body.role}`,
           resourceId: `${request.body.projectId ?? "global"}:${request.body.scope?.objectiveId ?? "all"}`,
           holderId: request.body.actorId,
@@ -71,7 +71,7 @@ const assignmentsRoutes: FastifyPluginAsync = async (fastify) => {
         assignment.leaseId = lease.id;
       }
 
-      fastify.coordinatorStore.saveProjection("assignment", assignment.id, assignment);
+      await fastify.coordinatorStore.saveProjection("assignment", assignment.id, assignment);
 
       const { createEvent } = await import("@concord/foundation");
       const evt = createEvent({ type: "RoleAssigned", payload: assignment });
@@ -133,14 +133,14 @@ const assignmentsRoutes: FastifyPluginAsync = async (fastify) => {
         createdAt: now,
       };
 
-      const lease = fastify.coordinatorStore.createLease({
+      const lease = await fastify.coordinatorStore.createLease({
         kind: "role:observer",
         resourceId: `${request.params.projectId}:${request.body.objectiveId ?? "all"}`,
         holderId: selected.id,
         ttlMs: 3600 * 1000,
       });
       assignment.leaseId = lease.id;
-      fastify.coordinatorStore.saveProjection("assignment", assignment.id, assignment);
+      await fastify.coordinatorStore.saveProjection("assignment", assignment.id, assignment);
 
       const { createEvent } = await import("@concord/foundation");
       const evt = createEvent({ type: "RoleAssigned", payload: assignment });
@@ -174,8 +174,8 @@ const assignmentsRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const { role, actorId, limit: limitStr, cursor } = request.query;
       const limit = Math.min(Number(limitStr) || 50, 200);
-      let assignments = fastify.coordinatorStore.listProjections<Assignment>("assignment")
-        .filter((a) => a.projectId === request.params.projectId);
+      const allAssignments = await fastify.coordinatorStore.listProjections<Assignment>("assignment");
+      let assignments = allAssignments.filter((a) => a.projectId === request.params.projectId);
       if (role) assignments = assignments.filter((a) => a.role === role);
       if (actorId) assignments = assignments.filter((a) => a.actorId === actorId);
 
@@ -210,7 +210,7 @@ const assignmentsRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const ttlMs = (request.body?.ttlSeconds ?? 3600) * 1000;
-      const lease = fastify.coordinatorStore.renewLease(request.params.leaseId, ttlMs);
+      const lease = await fastify.coordinatorStore.renewLease(request.params.leaseId, ttlMs);
       if (!lease) throw notFound("Lease", request.params.leaseId);
       return ok({ lease });
     },
@@ -228,7 +228,7 @@ const assignmentsRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-      fastify.coordinatorStore.releaseLease(request.params.leaseId);
+      await fastify.coordinatorStore.releaseLease(request.params.leaseId);
       return ok({ released: true });
     },
   );
@@ -247,7 +247,7 @@ const assignmentsRoutes: FastifyPluginAsync = async (fastify) => {
       if (!fastify.config.enableDevRoutes) {
         return reply.code(403).send({ ok: false, error: { code: "FORBIDDEN", message: "Dev routes disabled" }, meta: { requestId: "" } });
       }
-      const expired = fastify.coordinatorStore.sweepExpiredLeases();
+      const expired = await fastify.coordinatorStore.sweepExpiredLeases();
       const { createEvent } = await import("@concord/foundation");
       for (const lease of expired) {
         const evt = createEvent({ type: "LeaseExpired", payload: lease });

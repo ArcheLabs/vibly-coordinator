@@ -10,7 +10,7 @@
 
 import type { ChainRef } from "@concord/core";
 import type { GovernanceIndexQueryPort } from "@concord/governance";
-import type { CoordinatorStore } from "../db/coordinatorStore.js";
+import type { CoordinatorStorePort } from "../db/coordinatorStorePort.js";
 import { GovernanceProjectorService } from "./governanceProjector.js";
 import {
   GOVERNANCE_SUBJECT_VIEW,
@@ -34,7 +34,7 @@ export class GovernanceBackfillService {
 
   constructor(
     private readonly indexQuery: GovernanceIndexQueryPort,
-    private readonly store: CoordinatorStore,
+    private readonly store: CoordinatorStorePort,
     projector?: GovernanceProjectorService,
   ) {
     this.projector = projector ?? new GovernanceProjectorService();
@@ -72,7 +72,7 @@ export class GovernanceBackfillService {
         const patches = this.projector.project(event);
         for (const patch of patches) {
           if (patch.kind === "subject") {
-            this.store.saveProjection(GOVERNANCE_SUBJECT_VIEW, patch.id, patch.value);
+            await this.store.saveProjection(GOVERNANCE_SUBJECT_VIEW, patch.id, patch.value);
           }
           // Skip checkpoint patches from synthetic events — they would overwrite real ones
         }
@@ -98,7 +98,7 @@ export class GovernanceBackfillService {
         projector: "GovernanceBackfillService",
       },
     };
-    this.store.saveProjection(GOVERNANCE_CHECKPOINT, checkpointId, checkpoint);
+    await this.store.saveProjection(GOVERNANCE_CHECKPOINT, checkpointId, checkpoint);
 
     return { projected, checkpoint };
   }

@@ -39,62 +39,61 @@ const projectReadModelRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-    const { projectId } = request.params;
-    const [project, objectives, workOrders, events] = await Promise.all([
-      fastify.concord.projects.getProject(projectId as never),
-      fastify.concord.objectives.listObjectives(projectId as never),
-      fastify.concord.work.listWorkOrders(),
-      fastify.concord.state.events.query(),
-    ]);
-    const runs = scenarioRunsForProject(fastify, projectId);
-    const guardianRequests = projectionsForProject<ProjectScoped>(fastify, GUARDIAN_REQUEST, projectId);
-    const rewards = projectionsForProject<ProjectScoped>(fastify, REWARD_INTENT, projectId);
-    const reputationEvidence = projectionsForProject<ProjectScoped>(fastify, REPUTATION_EVIDENCE, projectId);
-    const slashRequests = projectionsForProject<ProjectScoped>(fastify, SLASH_REQUEST, projectId);
-    const runTraceIds = new Set(runs.map((run) => run.trace?.traceId).filter(Boolean));
-    const traces = fastify.coordinatorStore
-      .listProjections<{ traceId?: string }>(TRACE)
-      .filter((trace) => trace.traceId && runTraceIds.has(trace.traceId));
-    const timeline = buildTimeline(fastify, runs, projectId);
-    const openWorkOrders = workOrders.filter((workOrder) => {
-      const candidate = workOrder as unknown as { projectId?: string; status?: string };
-      return candidate.projectId === projectId && candidate.status !== "accepted" && candidate.status !== "cancelled" && candidate.status !== "expired";
-    });
-    const recentEvents = events
-      .filter((event) => {
-        const payload = event.payload as { projectId?: string } | undefined;
-        return payload?.projectId === projectId;
-      })
-      .slice(-20)
-      .reverse();
+      const { projectId } = request.params;
+      const [project, objectives, workOrders, events] = await Promise.all([
+        fastify.concord.projects.getProject(projectId as never),
+        fastify.concord.objectives.listObjectives(projectId as never),
+        fastify.concord.work.listWorkOrders(),
+        fastify.concord.state.events.query(),
+      ]);
+      const runs = await scenarioRunsForProject(fastify, projectId);
+      const guardianRequests = await projectionsForProject<ProjectScoped>(fastify, GUARDIAN_REQUEST, projectId);
+      const rewards = await projectionsForProject<ProjectScoped>(fastify, REWARD_INTENT, projectId);
+      const reputationEvidence = await projectionsForProject<ProjectScoped>(fastify, REPUTATION_EVIDENCE, projectId);
+      const slashRequests = await projectionsForProject<ProjectScoped>(fastify, SLASH_REQUEST, projectId);
+      const runTraceIds = new Set(runs.map((run) => run.trace?.traceId).filter(Boolean));
+      const traceRows = await fastify.coordinatorStore.listProjections<{ traceId?: string }>(TRACE);
+      const traces = traceRows.filter((trace) => trace.traceId && runTraceIds.has(trace.traceId));
+      const timeline = await buildTimeline(fastify, runs, projectId);
+      const openWorkOrders = workOrders.filter((workOrder) => {
+        const candidate = workOrder as unknown as { projectId?: string; status?: string };
+        return candidate.projectId === projectId && candidate.status !== "accepted" && candidate.status !== "cancelled" && candidate.status !== "expired";
+      });
+      const recentEvents = events
+        .filter((event) => {
+          const payload = event.payload as { projectId?: string } | undefined;
+          return payload?.projectId === projectId;
+        })
+        .slice(-20)
+        .reverse();
 
-    return ok({
-      overview: {
-        project,
-        primaryObjective: objectives.find((objective) => objective.id === project?.primaryObjectiveId) ?? objectives[0] ?? null,
-        counts: {
-          objectives: objectives.length,
-          scenarioRuns: runs.length,
-          openWorkOrders: openWorkOrders.length,
-          guardianRequests: guardianRequests.length,
-          rewards: rewards.length,
-          claimableRewards: rewards.filter((reward) => reward.status === "claimable" || reward.status === "approved").length,
-          reputationEvidence: reputationEvidence.length,
-          slashRequests: slashRequests.length,
-          traces: traces.length,
-          timelineEvents: timeline.length,
-          recentEvents: recentEvents.length,
+      return ok({
+        overview: {
+          project,
+          primaryObjective: objectives.find((objective) => objective.id === project?.primaryObjectiveId) ?? objectives[0] ?? null,
+          counts: {
+            objectives: objectives.length,
+            scenarioRuns: runs.length,
+            openWorkOrders: openWorkOrders.length,
+            guardianRequests: guardianRequests.length,
+            rewards: rewards.length,
+            claimableRewards: rewards.filter((reward) => reward.status === "claimable" || reward.status === "approved").length,
+            reputationEvidence: reputationEvidence.length,
+            slashRequests: slashRequests.length,
+            traces: traces.length,
+            timelineEvents: timeline.length,
+            recentEvents: recentEvents.length,
+          },
+          latestRun: runs.at(-1) ?? null,
+          ledger: ledgerSummary(rewards),
+          live: {
+            streamPath: `/projects/${projectId}/stream`,
+            source: "coordinator_event_bus",
+            fallback: "manual_refresh_or_light_polling",
+          },
         },
-        latestRun: runs.at(-1) ?? null,
-        ledger: ledgerSummary(rewards),
-        live: {
-          streamPath: `/projects/${projectId}/stream`,
-          source: "coordinator_event_bus",
-          fallback: "manual_refresh_or_light_polling",
-        },
-      },
-    });
-  },
+      });
+    },
   );
 
   fastify.get<{ Params: { projectId: string } }>(
@@ -108,29 +107,34 @@ const projectReadModelRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-    const { projectId } = request.params;
-    const runs = scenarioRunsForProject(fastify, projectId);
-    return ok({ timeline: buildTimeline(fastify, runs, projectId) });
-  },
+      const { projectId } = request.params;
+      const runs = await scenarioRunsForProject(fastify, projectId);
+      return ok({ timeline: await buildTimeline(fastify, runs, projectId) });
+    },
   );
 };
 
-function scenarioRunsForProject(fastify: Parameters<FastifyPluginAsync>[0], projectId: string): ScenarioRun[] {
-  return fastify.coordinatorStore
-    .listProjections<ScenarioRun>(SCENARIO_RUN)
-    .filter((run) => run.projectId === projectId);
+async function scenarioRunsForProject(fastify: Parameters<FastifyPluginAsync>[0], projectId: string): Promise<ScenarioRun[]> {
+  const rows = await fastify.coordinatorStore.listProjections<ScenarioRun>(SCENARIO_RUN);
+  return rows.filter((run) => run.projectId === projectId);
 }
 
-function projectionsForProject<T extends ProjectScoped>(fastify: Parameters<FastifyPluginAsync>[0], kind: string, projectId: string): T[] {
-  return fastify.coordinatorStore
-    .listProjections<T>(kind)
-    .filter((item) => item.projectId === projectId);
+async function projectionsForProject<T extends ProjectScoped>(
+  fastify: Parameters<FastifyPluginAsync>[0],
+  kind: string,
+  projectId: string,
+): Promise<T[]> {
+  const rows = await fastify.coordinatorStore.listProjections<T>(kind);
+  return rows.filter((item) => item.projectId === projectId);
 }
 
-function buildTimeline(fastify: Parameters<FastifyPluginAsync>[0], runs: ScenarioRun[], projectId: string): ProjectTimelineEntry[] {
-  const projectedEntries = fastify.coordinatorStore
-    .listProjections<ProjectTimelineEntry>(PROJECT_TIMELINE_ENTRY)
-    .filter((entry) => entry.projectId === projectId);
+async function buildTimeline(
+  fastify: Parameters<FastifyPluginAsync>[0],
+  runs: ScenarioRun[],
+  projectId: string,
+): Promise<ProjectTimelineEntry[]> {
+  const projectedRows = await fastify.coordinatorStore.listProjections<ProjectTimelineEntry>(PROJECT_TIMELINE_ENTRY);
+  const projectedEntries = projectedRows.filter((entry) => entry.projectId === projectId);
   const embeddedEntries = runs.flatMap((run) => {
     const traceId = run.trace?.traceId;
     return (run.timeline ?? []).map((entry) => ({

@@ -33,7 +33,7 @@ const riskRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
     const { projectId, actorId, status, limit: limitStr, cursor } = request.query;
     const limit = Math.min(Number(limitStr) || 50, 200);
-    let items = fastify.coordinatorStore.listProjections<SlashRequest>(SLASH_REQUEST);
+    let items = await fastify.coordinatorStore.listProjections<SlashRequest>(SLASH_REQUEST);
     if (projectId) items = items.filter((item) => item.projectId === projectId);
     if (actorId) items = items.filter((item) => item.actorId === actorId);
     if (status) items = items.filter((item) => item.status === status);

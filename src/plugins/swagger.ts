@@ -30,6 +30,9 @@ const swaggerPlugin: FastifyPluginAsync<SwaggerPluginOptions> = async (fastify, 
           bearerAuth: {
             type: "http",
             scheme: "bearer",
+            bearerFormat: "JWT",
+            description:
+              "Production: OIDC access token (JWT) validated via JWKS. Development: static API token when API_AUTH_MODE=static-token.",
           },
         },
       },

@@ -8,7 +8,6 @@ export function getOrCreateConcord(config: CoordinatorConfig): Concord {
   if (concordInstance) return concordInstance;
 
   if (config.storageMode === "sqlite") {
-    // Strip "file:" prefix for the SDK (it expects a raw filesystem path)
     const filename = config.databaseUrl.startsWith("file:")
       ? config.databaseUrl.slice(5)
       : config.databaseUrl;

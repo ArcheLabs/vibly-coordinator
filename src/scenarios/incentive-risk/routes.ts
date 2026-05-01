@@ -109,9 +109,8 @@ const incentiveRiskScenarioRoutes: FastifyPluginAsync = async (fastify) => {
   }, async (request) => {
     const { projectId, limit: limitStr, cursor } = request.query;
     const limit = Math.min(Number(limitStr) || 50, 200);
-    let runs = fastify.coordinatorStore
-      .listProjections<IncentiveRiskRun>(SCENARIO_RUN)
-      .filter((run) => run.scenarioId === INCENTIVE_RISK_SCENARIO_ID);
+    const allIncentiveRuns = await fastify.coordinatorStore.listProjections<IncentiveRiskRun>(SCENARIO_RUN);
+    let runs = allIncentiveRuns.filter((run) => run.scenarioId === INCENTIVE_RISK_SCENARIO_ID);
     if (projectId) runs = runs.filter((run) => run.projectId === projectId);
     let startIdx = 0;
     if (cursor) {
@@ -125,10 +124,8 @@ const incentiveRiskScenarioRoutes: FastifyPluginAsync = async (fastify) => {
 };
 
 async function ensureAgentCollaborationRun(fastify: Parameters<FastifyPluginAsync>[0]): Promise<Record<string, unknown>> {
-  const existing = fastify.coordinatorStore
-    .listProjections<Record<string, unknown>>(SCENARIO_RUN)
-    .filter((run) => run.scenarioId === AGENT_COLLABORATION_SCENARIO_ID)
-    .at(-1);
+  const collabRuns = await fastify.coordinatorStore.listProjections<Record<string, unknown>>(SCENARIO_RUN);
+  const existing = collabRuns.filter((run) => run.scenarioId === AGENT_COLLABORATION_SCENARIO_ID).at(-1);
   if (existing) return existing;
   return runAgentCollaborationScenario(fastify);
 }
@@ -155,7 +152,7 @@ async function createIncentiveRiskRun(fastify: Parameters<FastifyPluginAsync>[0]
     createdAt: now,
     updatedAt: now,
   };
-  fastify.coordinatorStore.saveProjection(REWARD_INTENT, rewardIntent.id, rewardIntent);
+  await fastify.coordinatorStore.saveProjection(REWARD_INTENT, rewardIntent.id, rewardIntent);
   await appendAndPublish(fastify, "RewardIntentCreated", rewardIntent, workerId, projectId, timeline, "reward", "Reward intent created for accepted work", "draft");
 
   const fundingReceipt = await fastify.concord.fundingGateway.reserve({
@@ -165,14 +162,14 @@ async function createIncentiveRiskRun(fastify: Parameters<FastifyPluginAsync>[0]
     referenceId: rewardIntent.id,
   });
   const claimableReward: RewardIntent = { ...rewardIntent, status: "claimable", fundingReceipt, updatedAt: new Date().toISOString() };
-  fastify.coordinatorStore.saveProjection(REWARD_INTENT, claimableReward.id, claimableReward);
+  await fastify.coordinatorStore.saveProjection(REWARD_INTENT, claimableReward.id, claimableReward);
   await appendAndPublish(fastify, "FundingReserved", { projectId, rewardIntentId: claimableReward.id, fundingReceipt }, workerId, projectId, timeline, "ledger", "Mock funding reserved", "reserved");
   await appendAndPublish(fastify, "RewardClaimable", claimableReward, reviewerId, projectId, timeline, "reward", "Accepted review made the reward claimable", "claimable");
 
   const positiveEvidence = makeReputationEvidence(projectId, workerId, "positive", 0.2, "Accepted collaboration work produced auditable evidence.", { workOrderId: String(workOrder.id ?? ""), rewardIntentId: claimableReward.id });
   const negativeEvidence = makeReputationEvidence(projectId, workerId, "slash", -0.3, "Injected incentive-risk sample: missing follow-up artifact would justify slash review.", { workOrderId: String(workOrder.id ?? ""), rewardIntentId: claimableReward.id });
   for (const evidence of [positiveEvidence, negativeEvidence]) {
-    fastify.coordinatorStore.saveProjection(REPUTATION_EVIDENCE, evidence.id, evidence);
+    await fastify.coordinatorStore.saveProjection(REPUTATION_EVIDENCE, evidence.id, evidence);
     await appendAndPublish(fastify, "ReputationEvidenceCreated", evidence, evidence.actorId, projectId, timeline, "reputation", evidence.reason, evidence.kind);
   }
 
@@ -187,7 +184,7 @@ async function createIncentiveRiskRun(fastify: Parameters<FastifyPluginAsync>[0]
     reason: "Slash request requires Guardian visibility before it affects reputation.",
     evidenceIds: [negativeEvidence.id],
   };
-  fastify.coordinatorStore.saveProjection(GUARDIAN_REQUEST, String(guardianRequest.id), guardianRequest);
+  await fastify.coordinatorStore.saveProjection(GUARDIAN_REQUEST, String(guardianRequest.id), guardianRequest);
   await appendAndPublish(fastify, "GuardianReviewRequested", { ...guardianRequest, status: "pending" }, reviewerId, projectId, timeline, "guardian", guardianRequest.reason, "pending");
   await appendAndPublish(fastify, "GuardianReviewCompleted", guardianRequest, guardianId, projectId, timeline, "guardian", "Guardian approved the minimal slash evidence path.", "approved");
 
@@ -203,7 +200,7 @@ async function createIncentiveRiskRun(fastify: Parameters<FastifyPluginAsync>[0]
     createdAt: now,
     updatedAt: new Date().toISOString(),
   };
-  fastify.coordinatorStore.saveProjection(SLASH_REQUEST, slashRequest.id, slashRequest);
+  await fastify.coordinatorStore.saveProjection(SLASH_REQUEST, slashRequest.id, slashRequest);
   await appendAndPublish(fastify, "SlashRequested", slashRequest, reviewerId, projectId, timeline, "risk", slashRequest.reason, slashRequest.status);
 
   const run: IncentiveRiskRun = {
@@ -216,11 +213,11 @@ async function createIncentiveRiskRun(fastify: Parameters<FastifyPluginAsync>[0]
     negativeEvidence,
     slashRequest,
     guardianRequest,
-    ledger: ledgerSummary(rewardsForProject(fastify, projectId)),
+    ledger: ledgerSummary(await rewardsForProject(fastify, projectId)),
     timeline,
     createdAt: now,
   };
-  fastify.coordinatorStore.saveProjection(SCENARIO_RUN, run.id, run);
+  await fastify.coordinatorStore.saveProjection(SCENARIO_RUN, run.id, run);
   await appendAndPublish(fastify, "IncentiveRiskScenarioCompleted", { projectId, runId: run.id, rewardIntentId: claimableReward.id, slashRequestId: slashRequest.id }, guardianId, projectId, timeline, "scenario", "Incentive-risk scenario completed", "completed");
   return { ...run, timeline };
 }
@@ -257,7 +254,7 @@ async function appendAndPublish(
     timestamp: new Date().toISOString(),
   };
   timeline.push(entry);
-  fastify.coordinatorStore.saveProjection(PROJECT_TIMELINE_ENTRY, entry.id, entry);
+  await fastify.coordinatorStore.saveProjection(PROJECT_TIMELINE_ENTRY, entry.id, entry);
   const timelineEvent = createEvent({ type: "ProjectTimelineUpdated", actorId: actorId as never, correlationId: projectId as never, payload: entry });
   fastify.eventBus.publish(timelineEvent);
 }
@@ -275,8 +272,9 @@ function makeReputationEvidence(projectId: string, actorId: string, kind: Reputa
   };
 }
 
-function rewardsForProject(fastify: Parameters<FastifyPluginAsync>[0], projectId: string): RewardIntent[] {
-  return fastify.coordinatorStore.listProjections<RewardIntent>(REWARD_INTENT).filter((reward) => reward.projectId === projectId);
+async function rewardsForProject(fastify: Parameters<FastifyPluginAsync>[0], projectId: string): Promise<RewardIntent[]> {
+  const rows = await fastify.coordinatorStore.listProjections<RewardIntent>(REWARD_INTENT);
+  return rows.filter((reward) => reward.projectId === projectId);
 }
 
 function ledgerSummary(intents: RewardIntent[]) {

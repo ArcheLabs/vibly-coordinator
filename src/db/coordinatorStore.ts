@@ -1,29 +1,14 @@
 import type { DatabaseSync } from "node:sqlite";
 import { v4 as uuidv4 } from "uuid";
+import type { CoordinatorStorePort, CreateLeaseInput, Lease } from "./coordinatorStorePort.js";
 
-export interface Lease {
-  id: string;
-  kind: string;
-  resourceId: string;
-  holderId: string;
-  expiresAt: string;
-  createdAt: string;
-  renewedAt?: string;
-}
+export type { CoordinatorStorePort, CreateLeaseInput, Lease } from "./coordinatorStorePort.js";
 
-export interface CreateLeaseInput {
-  kind: string;
-  resourceId: string;
-  holderId: string;
-  ttlMs: number;
-}
-
-export class CoordinatorStore {
+/** SQLite-backed store for local development and tests. */
+export class SqliteCoordinatorStore implements CoordinatorStorePort {
   constructor(private readonly db: DatabaseSync) {}
 
-  // --- Leases ---
-
-  createLease(input: CreateLeaseInput): Lease {
+  async createLease(input: CreateLeaseInput): Promise<Lease> {
     const id = `lease_${uuidv4().replace(/-/g, "").slice(0, 16)}`;
     const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + input.ttlMs).toISOString();
@@ -36,7 +21,7 @@ export class CoordinatorStore {
     return { id, kind: input.kind, resourceId: input.resourceId, holderId: input.holderId, expiresAt, createdAt: now };
   }
 
-  getLease(id: string): Lease | undefined {
+  async getLease(id: string): Promise<Lease | undefined> {
     const row = this.db.prepare(`SELECT * FROM leases WHERE id = ?`).get(id) as
       | { id: string; kind: string; resource_id: string; holder_id: string; expires_at: string; created_at: string; renewed_at?: string }
       | undefined;
@@ -44,7 +29,7 @@ export class CoordinatorStore {
     return this.rowToLease(row);
   }
 
-  getActiveLease(kind: string, resourceId: string): Lease | undefined {
+  async getActiveLease(kind: string, resourceId: string): Promise<Lease | undefined> {
     const now = new Date().toISOString();
     const row = this.db
       .prepare(`SELECT * FROM leases WHERE kind = ? AND resource_id = ? AND expires_at > ? LIMIT 1`)
@@ -55,7 +40,7 @@ export class CoordinatorStore {
     return this.rowToLease(row);
   }
 
-  renewLease(id: string, ttlMs: number): Lease | undefined {
+  async renewLease(id: string, ttlMs: number): Promise<Lease | undefined> {
     const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + ttlMs).toISOString();
     const result = this.db
@@ -67,11 +52,11 @@ export class CoordinatorStore {
     return this.rowToLease(result);
   }
 
-  releaseLease(id: string): void {
+  async releaseLease(id: string): Promise<void> {
     this.db.prepare(`DELETE FROM leases WHERE id = ?`).run(id);
   }
 
-  sweepExpiredLeases(now: Date = new Date()): Lease[] {
+  async sweepExpiredLeases(now: Date = new Date()): Promise<Lease[]> {
     const nowIso = now.toISOString();
     const expired = this.db
       .prepare(`SELECT * FROM leases WHERE expires_at <= ?`)
@@ -82,9 +67,7 @@ export class CoordinatorStore {
     return expired.map((r) => this.rowToLease(r));
   }
 
-  // --- Projections ---
-
-  saveProjection(kind: string, id: string, data: unknown, version?: string): void {
+  async saveProjection(kind: string, id: string, data: unknown, version?: string): Promise<void> {
     const now = new Date().toISOString();
     this.db
       .prepare(
@@ -95,7 +78,7 @@ export class CoordinatorStore {
       .run(kind, id, version ?? null, JSON.stringify(data), now);
   }
 
-  getProjection<T = unknown>(kind: string, id: string): T | undefined {
+  async getProjection<T = unknown>(kind: string, id: string): Promise<T | undefined> {
     const row = this.db.prepare(`SELECT data_json FROM projections WHERE kind = ? AND id = ?`).get(kind, id) as
       | { data_json: string }
       | undefined;
@@ -103,12 +86,12 @@ export class CoordinatorStore {
     return JSON.parse(row.data_json) as T;
   }
 
-  listProjections<T = unknown>(kind: string): T[] {
+  async listProjections<T = unknown>(kind: string): Promise<T[]> {
     const rows = this.db.prepare(`SELECT data_json FROM projections WHERE kind = ?`).all(kind) as { data_json: string }[];
     return rows.map((r) => JSON.parse(r.data_json) as T);
   }
 
-  deleteProjection(kind: string, id: string): void {
+  async deleteProjection(kind: string, id: string): Promise<void> {
     this.db.prepare(`DELETE FROM projections WHERE kind = ? AND id = ?`).run(kind, id);
   }
 
@@ -132,3 +115,6 @@ export class CoordinatorStore {
     };
   }
 }
+
+/** @deprecated Prefer {@link SqliteCoordinatorStore} or {@link CoordinatorStorePort}. */
+export type CoordinatorStore = CoordinatorStorePort;

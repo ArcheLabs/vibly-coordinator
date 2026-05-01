@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import Fastify from "fastify";
-import { CoordinatorStore } from "../../db/coordinatorStore.js";
+import type { CoordinatorStorePort } from "../../db/coordinatorStorePort.js";
 import { GovernanceProjectorService } from "../../services/governanceProjector.js";
 import { GovernanceIndexConsumer } from "../../services/governanceIndexConsumer.js";
 import { GovernanceBackendRegistry } from "../../services/governanceBackendRegistry.js";
@@ -41,7 +41,7 @@ function makeEvmProposalEvent(externalId: string, status = "Deciding"): Normaliz
   };
 }
 
-function makeTestApp(store: CoordinatorStore, config?: Partial<import("../../config/env.js").CoordinatorConfig>) {
+function makeTestApp(store: CoordinatorStorePort, config?: Partial<import("../../config/env.js").CoordinatorConfig>) {
   const fastify = Fastify({ logger: false });
 
   // Minimal concord mock
@@ -98,33 +98,56 @@ function makeProposalEvent(
   };
 }
 
-function makeStore(): CoordinatorStore {
+function makeStore(): CoordinatorStorePort {
   const projections = new Map<string, Map<string, unknown>>();
   return {
-    saveProjection: (kind: string, id: string, value: unknown) => {
+    async saveProjection(kind: string, id: string, value: unknown) {
       const bucket = projections.get(kind) ?? new Map<string, unknown>();
       bucket.set(id, value);
       projections.set(kind, bucket);
     },
-    getProjection: (_kind: string, id: string) => projections.get(_kind)?.get(id) ?? null,
-    listProjections: (kind: string) => Array.from(projections.get(kind)?.values() ?? []),
-  } as unknown as CoordinatorStore;
+    async getProjection(_kind: string, id: string) {
+      return (projections.get(_kind)?.get(id) ?? undefined) as never;
+    },
+    async listProjections(kind: string) {
+      return Array.from(projections.get(kind)?.values() ?? []) as never;
+    },
+    async deleteProjection(kind: string, id: string) {
+      projections.get(kind)?.delete(id);
+    },
+    async createLease() {
+      throw new Error("not implemented");
+    },
+    async getLease() {
+      return undefined;
+    },
+    async getActiveLease() {
+      return undefined;
+    },
+    async renewLease() {
+      return undefined;
+    },
+    async releaseLease() {},
+    async sweepExpiredLeases() {
+      return [];
+    },
+  };
 }
 
-function makeConsumer(store: CoordinatorStore): GovernanceIndexConsumer {
+function makeConsumer(store: CoordinatorStorePort): GovernanceIndexConsumer {
   const projector = new GovernanceProjectorService();
   const feed = { subscribeGovernanceEvents: async function* () {} } as GovernanceIndexFeedPort;
   return new GovernanceIndexConsumer({ store, feed, chain: CHAIN, projector });
 }
 
-function makeEvmConsumer(store: CoordinatorStore): GovernanceIndexConsumer {
+function makeEvmConsumer(store: CoordinatorStorePort): GovernanceIndexConsumer {
   const projector = new GovernanceProjectorService();
   const feed = { subscribeGovernanceEvents: async function* () {} } as GovernanceIndexFeedPort;
   return new GovernanceIndexConsumer({ store, feed, chain: EVM_CHAIN, projector });
 }
 
 describe("governance routes", () => {
-  let store: CoordinatorStore;
+  let store: CoordinatorStorePort;
   let app: ReturnType<typeof makeTestApp>;
   let consumer: GovernanceIndexConsumer;
 
@@ -146,7 +169,7 @@ describe("governance routes", () => {
 
   it("Subject event → GET /governance/subjects returns GovernanceSubjectView", async () => {
     const event = makeProposalEvent("GovernanceProposalDiscovered", "42");
-    consumer.handleEvent(store, event);
+    await consumer.handleEvent(store, event);
 
     const res = await app.inject({ method: "GET", url: "/governance/subjects" });
     expect(res.statusCode).toBe(200);
@@ -159,8 +182,8 @@ describe("governance routes", () => {
 
   it("replaying same event → only one subject in /governance/subjects (idempotent)", async () => {
     const event = makeProposalEvent("GovernanceProposalDiscovered", "42");
-    consumer.handleEvent(store, event);
-    consumer.handleEvent(store, event);
+    await consumer.handleEvent(store, event);
+    await consumer.handleEvent(store, event);
 
     const res = await app.inject({ method: "GET", url: "/governance/subjects" });
     const body = res.json<{ data: { items: unknown[] } }>();
@@ -169,7 +192,7 @@ describe("governance routes", () => {
 
   it("GET /governance/subjects/:subjectId returns single subject", async () => {
     const event = makeProposalEvent("GovernanceProposalDiscovered", "42");
-    consumer.handleEvent(store, event);
+    await consumer.handleEvent(store, event);
     const subjectId = "substrate:vibly-solo:42";
 
     const res = await app.inject({ method: "GET", url: `/governance/subjects/${encodeURIComponent(subjectId)}` });
@@ -187,7 +210,7 @@ describe("governance routes", () => {
 
   it("Subject and vote events → GET /governance/subjects/:subjectId/votes", async () => {
     const subjectEvent = makeProposalEvent("GovernanceProposalDiscovered", "42");
-    consumer.handleEvent(store, subjectEvent);
+    await consumer.handleEvent(store, subjectEvent);
 
     const votePayload = {
       ref: { chain: CHAIN, backend: "substrate-opengov" as const, externalId: "42" },
@@ -206,7 +229,7 @@ describe("governance routes", () => {
       observedAt: "2026-01-01T02:00:00Z",
       finality: "finalized",
     };
-    consumer.handleEvent(store, voteEvent);
+    await consumer.handleEvent(store, voteEvent);
 
     const subjectId = encodeURIComponent("substrate:vibly-solo:42");
     const res = await app.inject({ method: "GET", url: `/governance/subjects/${subjectId}/votes` });
@@ -247,7 +270,7 @@ describe("governance routes", () => {
 
     // Feed subject event to create a GovernanceSubjectView
     const event = makeProposalEvent("GovernanceProposalDiscovered", "99", "Deciding");
-    consumer.handleEvent(store, event);
+    await consumer.handleEvent(store, event);
     const subjectId = "substrate:vibly-solo:99";
 
     // Link intent to subject
@@ -332,7 +355,7 @@ describe("governance routes", () => {
         submitArgs: { proposal: "0xproposal", enactment: "After" },
       },
     });
-    consumer.handleEvent(store, makeProposalEvent("GovernanceProposalDiscovered", "77"));
+    await consumer.handleEvent(store, makeProposalEvent("GovernanceProposalDiscovered", "77"));
 
     const reconcileRes = await localApp.inject({
       method: "POST",
@@ -361,7 +384,7 @@ describe("governance routes", () => {
   it("POST /governance/subjects/:id/vote-opengov records a pending vote receipt", async () => {
     const localApp = makeTestApp(store, { substrateGovernanceTxMode: "fixture" });
     await localApp.ready();
-    consumer.handleEvent(store, makeProposalEvent("GovernanceProposalDiscovered", "42"));
+    await consumer.handleEvent(store, makeProposalEvent("GovernanceProposalDiscovered", "42"));
     const subjectId = encodeURIComponent("substrate:vibly-solo:42");
 
     const voteRes = await localApp.inject({
@@ -411,7 +434,7 @@ describe("governance routes", () => {
       observedAt: "2026-01-02T00:00:00Z",
       finality: "finalized",
     };
-    consumer.handleEvent(store, event);
+    await consumer.handleEvent(store, event);
 
     const res = await app.inject({ method: "GET", url: "/governance/delegations" });
     expect(res.statusCode).toBe(200);
@@ -441,7 +464,7 @@ describe("governance routes", () => {
       source: { adapter: "subquery" },
       projection: { version: "1", hash: "h1", projectedAt: new Date().toISOString(), projector: "test" },
     };
-    store.saveProjection("governance_checkpoint", staleCheckpoint.id, staleCheckpoint);
+    await store.saveProjection("governance_checkpoint", staleCheckpoint.id, staleCheckpoint);
 
     const mergedRes = await app.inject({ method: "GET", url: "/governance/merged" });
     const body = mergedRes.json<{ data: { items: { id: string; freshness: { stale: boolean } }[] } }>();
@@ -452,8 +475,8 @@ describe("governance routes", () => {
 
   it("GET /governance/merged uses the checkpoint for each subject chain", async () => {
     const evmConsumer = makeEvmConsumer(store);
-    consumer.handleEvent(store, makeProposalEvent("GovernanceProposalDiscovered", "sub-stale"));
-    evmConsumer.handleEvent(store, makeEvmProposalEvent("evm-fresh"));
+    await consumer.handleEvent(store, makeProposalEvent("GovernanceProposalDiscovered", "sub-stale"));
+    await evmConsumer.handleEvent(store, makeEvmProposalEvent("evm-fresh"));
 
     const staleSubstrateCheckpoint: GovernanceCheckpointView = {
       id: "checkpoint:substrate:vibly-solo",
@@ -471,8 +494,8 @@ describe("governance routes", () => {
       source: { adapter: "evm-fixture" },
       projection: { version: "1", hash: "evm-new", projectedAt: new Date().toISOString(), projector: "test" },
     };
-    store.saveProjection("governance_checkpoint", staleSubstrateCheckpoint.id, staleSubstrateCheckpoint);
-    store.saveProjection("governance_checkpoint", freshEvmCheckpoint.id, freshEvmCheckpoint);
+    await store.saveProjection("governance_checkpoint", staleSubstrateCheckpoint.id, staleSubstrateCheckpoint);
+    await store.saveProjection("governance_checkpoint", freshEvmCheckpoint.id, freshEvmCheckpoint);
 
     const res = await app.inject({ method: "GET", url: "/governance/merged" });
     const body = res.json<{
@@ -517,7 +540,7 @@ describe("governance routes", () => {
       source: { adapter: "evm-fixture" },
       projection: { version: "1", hash: "evm-checkpoint", projectedAt: new Date().toISOString(), projector: "test" },
     };
-    store.saveProjection("governance_checkpoint", evmCheckpoint.id, evmCheckpoint);
+    await store.saveProjection("governance_checkpoint", evmCheckpoint.id, evmCheckpoint);
 
     const res = await app.inject({ method: "GET", url: "/governance/checkpoint?backend=evm-governor" });
     expect(res.statusCode).toBe(200);
@@ -530,8 +553,8 @@ describe("governance routes", () => {
 
   it("GET /governance/subjects?backend= filters by backend", async () => {
     const evmConsumer = makeEvmConsumer(store);
-    consumer.handleEvent(store, makeProposalEvent("GovernanceProposalDiscovered", "sub-1"));
-    evmConsumer.handleEvent(store, makeEvmProposalEvent("evm-1"));
+    await consumer.handleEvent(store, makeProposalEvent("GovernanceProposalDiscovered", "sub-1"));
+    await evmConsumer.handleEvent(store, makeEvmProposalEvent("evm-1"));
 
     const subRes = await app.inject({ method: "GET", url: "/governance/subjects?backend=substrate-opengov" });
     const subBody = subRes.json<{ data: { items: { backend: string }[] } }>();
@@ -550,8 +573,8 @@ describe("governance routes", () => {
 
   it("GET /governance/merged?backend= filters by subject backend", async () => {
     const evmConsumer = makeEvmConsumer(store);
-    consumer.handleEvent(store, makeProposalEvent("GovernanceProposalDiscovered", "sub-2"));
-    evmConsumer.handleEvent(store, makeEvmProposalEvent("evm-2"));
+    await consumer.handleEvent(store, makeProposalEvent("GovernanceProposalDiscovered", "sub-2"));
+    await evmConsumer.handleEvent(store, makeEvmProposalEvent("evm-2"));
 
     const evmRes = await app.inject({ method: "GET", url: "/governance/merged?backend=evm-governor" });
     const evmBody = evmRes.json<{ data: { items: { subject?: { backend: string } }[] } }>();
@@ -672,7 +695,7 @@ describe("governance routes", () => {
       { start: () => {} } as unknown as GovernanceIndexConsumer,
     );
 
-    store.saveProjection("governance_checkpoint", "checkpoint:substrate:vibly-solo", {
+    await store.saveProjection("governance_checkpoint", "checkpoint:substrate:vibly-solo", {
       id: "checkpoint:substrate:vibly-solo",
       chain: CHAIN,
       finalized: true,
@@ -680,7 +703,7 @@ describe("governance routes", () => {
       source: { adapter: "subquery" },
       projection: { version: "1", hash: "substrate-old", projectedAt: new Date().toISOString(), projector: "test" },
     } satisfies GovernanceCheckpointView);
-    store.saveProjection("governance_checkpoint", "checkpoint:eip155:31337", {
+    await store.saveProjection("governance_checkpoint", "checkpoint:eip155:31337", {
       id: "checkpoint:eip155:31337",
       chain: EVM_CHAIN,
       finalized: false,

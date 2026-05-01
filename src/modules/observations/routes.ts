@@ -71,7 +71,7 @@ const observationsRoutes: FastifyPluginAsync = async (fastify) => {
       };
 
       observations.set(observation.id, observation);
-      fastify.coordinatorStore.saveProjection("observation", observation.id, observation);
+      await fastify.coordinatorStore.saveProjection("observation", observation.id, observation);
 
       // Emit event
       const { createEvent } = await import("@concord/foundation");
@@ -101,8 +101,8 @@ const observationsRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const { limit: limitStr, cursor } = request.query;
       const limit = Math.min(Number(limitStr) || 50, 200);
-      const all = fastify.coordinatorStore.listProjections<ObservationRecord>("observation")
-        .filter((o) => o.projectId === request.params.projectId);
+      const allObs = await fastify.coordinatorStore.listProjections<ObservationRecord>("observation");
+      const all = allObs.filter((o) => o.projectId === request.params.projectId);
 
       let startIdx = 0;
       if (cursor) {
@@ -127,7 +127,7 @@ const observationsRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-      const observation = fastify.coordinatorStore.getProjection<ObservationRecord>("observation", request.params.observationId);
+      const observation = await fastify.coordinatorStore.getProjection<ObservationRecord>("observation", request.params.observationId);
       if (!observation) throw notFound("Observation", request.params.observationId);
       return ok({ observation });
     },

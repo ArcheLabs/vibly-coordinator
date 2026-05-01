@@ -2,21 +2,44 @@ import { describe, expect, it } from "vitest";
 import { createApp } from "./createApp.js";
 import { loadConfig } from "./config/env.js";
 import { createLogger } from "./config/logger.js";
-import { CoordinatorStore } from "./db/coordinatorStore.js";
+import type { CoordinatorStorePort } from "./db/coordinatorStorePort.js";
 import { createEventBus } from "./services/eventBus.js";
 import type { Concord } from "@concord/sdk";
 
-function makeStore(): CoordinatorStore {
+function makeStore(): CoordinatorStorePort {
   const projections = new Map<string, Map<string, unknown>>();
   return {
-    saveProjection: (kind: string, id: string, value: unknown) => {
+    async saveProjection(kind: string, id: string, value: unknown) {
       const bucket = projections.get(kind) ?? new Map<string, unknown>();
       bucket.set(id, value);
       projections.set(kind, bucket);
     },
-    getProjection: (kind: string, id: string) => projections.get(kind)?.get(id) ?? null,
-    listProjections: (kind: string) => Array.from(projections.get(kind)?.values() ?? []),
-  } as unknown as CoordinatorStore;
+    async getProjection(kind: string, id: string) {
+      return (projections.get(kind)?.get(id) ?? undefined) as never;
+    },
+    async listProjections(kind: string) {
+      return Array.from(projections.get(kind)?.values() ?? []) as never;
+    },
+    async deleteProjection(kind: string, id: string) {
+      projections.get(kind)?.delete(id);
+    },
+    async createLease() {
+      throw new Error("not implemented");
+    },
+    async getLease() {
+      return undefined;
+    },
+    async getActiveLease() {
+      return undefined;
+    },
+    async renewLease() {
+      return undefined;
+    },
+    async releaseLease() {},
+    async sweepExpiredLeases() {
+      return [];
+    },
+  };
 }
 
 function makeConcord(): Concord {

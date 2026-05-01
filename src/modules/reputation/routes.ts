@@ -33,7 +33,7 @@ const reputationRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
     const { projectId, actorId, kind, limit: limitStr, cursor } = request.query;
     const limit = Math.min(Number(limitStr) || 50, 200);
-    let items = fastify.coordinatorStore.listProjections<ReputationEvidence>(REPUTATION_EVIDENCE);
+    let items = await fastify.coordinatorStore.listProjections<ReputationEvidence>(REPUTATION_EVIDENCE);
     if (projectId) items = items.filter((item) => item.projectId === projectId);
     if (actorId) items = items.filter((item) => item.actorId === actorId);
     if (kind) items = items.filter((item) => item.kind === kind);

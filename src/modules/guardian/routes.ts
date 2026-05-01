@@ -30,7 +30,7 @@ const guardianRoutes: FastifyPluginAsync = async (fastify) => {
   }, async (request) => {
     const { projectId, actionId, status, limit: limitStr, cursor } = request.query;
     const limit = Math.min(Number(limitStr) || 50, 200);
-    let requests = fastify.coordinatorStore.listProjections<GuardianRequest>(GUARDIAN_REQUEST);
+    let requests = await fastify.coordinatorStore.listProjections<GuardianRequest>(GUARDIAN_REQUEST);
     if (projectId) requests = requests.filter((guardianRequest) => guardianRequest.projectId === projectId);
     if (actionId) requests = requests.filter((guardianRequest) => guardianRequest.actionId === actionId);
     if (status) requests = requests.filter((guardianRequest) => guardianRequest.status === status);

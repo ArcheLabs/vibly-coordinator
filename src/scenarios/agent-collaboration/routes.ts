@@ -70,9 +70,8 @@ const agentCollaborationScenarioRoutes: FastifyPluginAsync = async (fastify) => 
   }, async (request) => {
     const { limit: limitStr, cursor } = request.query;
     const limit = Math.min(Number(limitStr) || 50, 200);
-    const runs = fastify.coordinatorStore
-      .listProjections<{ id: string; scenarioId?: string }>(SCENARIO_RUN)
-      .filter((run) => run.scenarioId === AGENT_COLLABORATION_SCENARIO_ID);
+    const allRuns = await fastify.coordinatorStore.listProjections<{ id: string; scenarioId?: string }>(SCENARIO_RUN);
+    const runs = allRuns.filter((run) => run.scenarioId === AGENT_COLLABORATION_SCENARIO_ID);
     let startIdx = 0;
     if (cursor) {
       const idx = runs.findIndex((run) => run.id === cursor);
@@ -123,9 +122,9 @@ export async function runAgentCollaborationScenario(fastify: Parameters<FastifyP
     replay,
   };
 
-  fastify.coordinatorStore.saveProjection(SCENARIO_RUN, run.id, run);
-  fastify.coordinatorStore.saveProjection(TRACE, trace.traceId, trace);
-  fastify.coordinatorStore.saveProjection(GUARDIAN_REQUEST, result.guardianRequest.id, result.guardianRequest);
+  await fastify.coordinatorStore.saveProjection(SCENARIO_RUN, run.id, run);
+  await fastify.coordinatorStore.saveProjection(TRACE, trace.traceId, trace);
+  await fastify.coordinatorStore.saveProjection(GUARDIAN_REQUEST, result.guardianRequest.id, result.guardianRequest);
 
   const completed = createEvent({
     type: "AgentCollaborationScenarioCompleted",
@@ -210,7 +209,7 @@ async function runAgentCollaborationWorkflow(fastify: Parameters<FastifyPluginAs
     correlationId: goal.id,
     payload: { summary: "Observer identified the need for an auditable collaboration smoke.", projectId: project.id },
   }));
-  publishTimeline(fastify, timeline, {
+  await publishTimeline(fastify, timeline, {
     projectId: project.id,
     phase: "observe",
     title: "Observer identified a collaboration smoke goal",
@@ -233,7 +232,7 @@ async function runAgentCollaborationWorkflow(fastify: Parameters<FastifyPluginAs
     expectedOutputs: [{ description: "Accepted work order, review aggregation, guardian request, and trace" }],
   });
   const policyDecision = await fastify.concord.actions.evaluate({ action, actor: actors.observer, context: contextBundle });
-  publishTimeline(fastify, timeline, {
+  await publishTimeline(fastify, timeline, {
     projectId: project.id,
     actionId: action.id,
     phase: "action",
@@ -255,14 +254,14 @@ async function runAgentCollaborationWorkflow(fastify: Parameters<FastifyPluginAs
     riskLevel: action.riskLevel,
     reason: "High-risk collaboration smoke requires Guardian visibility.",
   };
-  fastify.coordinatorStore.saveProjection(GUARDIAN_REQUEST, guardianRequest.id, guardianRequest);
+  await fastify.coordinatorStore.saveProjection(GUARDIAN_REQUEST, guardianRequest.id, guardianRequest);
   await appendAndPublish(fastify, createEvent({
     type: "GuardianReviewRequested",
     actorId: actors.observer.id,
     correlationId: action.id,
     payload: guardianRequest,
   }));
-  publishTimeline(fastify, timeline, {
+  await publishTimeline(fastify, timeline, {
     projectId: project.id,
     actionId: action.id,
     phase: "guardian",
@@ -290,7 +289,7 @@ async function runAgentCollaborationWorkflow(fastify: Parameters<FastifyPluginAs
     position: { actorId: actors.guardian.id, stance: "support", score: 0.8, rationale: "Risk is acceptable because the path remains scripted and observable.", evidence: [] },
   });
   const { decision: decisionRecord, instance: closedNegotiation } = await fastify.concord.negotiation.close({ negotiationId: negotiation.id, projectId: project.id });
-  publishTimeline(fastify, timeline, {
+  await publishTimeline(fastify, timeline, {
     projectId: project.id,
     actionId: action.id,
     phase: "negotiate",
@@ -304,14 +303,14 @@ async function runAgentCollaborationWorkflow(fastify: Parameters<FastifyPluginAs
   });
   const completedGuardianRequest = { ...guardianRequest, decisionRecordId: decisionRecord.id, status: "approved" };
 
-  fastify.coordinatorStore.saveProjection(GUARDIAN_REQUEST, completedGuardianRequest.id, completedGuardianRequest);
+  await fastify.coordinatorStore.saveProjection(GUARDIAN_REQUEST, completedGuardianRequest.id, completedGuardianRequest);
   await appendAndPublish(fastify, createEvent({
     type: "GuardianReviewCompleted",
     actorId: actors.guardian.id,
     correlationId: action.id,
     payload: completedGuardianRequest,
   }));
-  publishTimeline(fastify, timeline, {
+  await publishTimeline(fastify, timeline, {
     projectId: project.id,
     actionId: action.id,
     phase: "guardian",
@@ -334,7 +333,7 @@ async function runAgentCollaborationWorkflow(fastify: Parameters<FastifyPluginAs
     contextBundleId: contextBundle.id,
   });
   await fastify.concord.work.claim({ actorId: actors.worker.id, workOrderId: workOrder.id });
-  publishTimeline(fastify, timeline, {
+  await publishTimeline(fastify, timeline, {
     projectId: project.id,
     actionId: action.id,
     phase: "work",
@@ -354,7 +353,7 @@ async function runAgentCollaborationWorkflow(fastify: Parameters<FastifyPluginAs
     artifacts: execution.submissionDraft.artifacts,
     summary: "Worker completed the scripted collaboration task and produced an auditable artifact.",
   });
-  publishTimeline(fastify, timeline, {
+  await publishTimeline(fastify, timeline, {
     projectId: project.id,
     actionId: action.id,
     phase: "work",
@@ -377,7 +376,7 @@ async function runAgentCollaborationWorkflow(fastify: Parameters<FastifyPluginAs
     contextReceipt,
   });
   const reviewAggregation = await fastify.concord.review.aggregate({ target: { kind: "submission", submissionId: submission.id } });
-  publishTimeline(fastify, timeline, {
+  await publishTimeline(fastify, timeline, {
     projectId: project.id,
     actionId: action.id,
     phase: "review",
@@ -430,7 +429,7 @@ async function runAgentCollaborationWorkflow(fastify: Parameters<FastifyPluginAs
     correlationId: action.id,
     payload: knowledgeVersion,
   }));
-  publishTimeline(fastify, timeline, {
+  await publishTimeline(fastify, timeline, {
     projectId: project.id,
     actionId: action.id,
     phase: "knowledge",
@@ -473,7 +472,7 @@ async function appendAndPublish(fastify: Parameters<FastifyPluginAsync>[0], even
   fastify.eventBus.publish(event);
 }
 
-function publishTimeline(fastify: Parameters<FastifyPluginAsync>[0], timeline: ProjectTimelineEntry[], input: Omit<ProjectTimelineEntry, "id" | "timestamp">): void {
+async function publishTimeline(fastify: Parameters<FastifyPluginAsync>[0], timeline: ProjectTimelineEntry[], input: Omit<ProjectTimelineEntry, "id" | "timestamp">): Promise<void> {
   const timestamp = new Date().toISOString();
   const entry: ProjectTimelineEntry = {
     ...input,
@@ -481,7 +480,7 @@ function publishTimeline(fastify: Parameters<FastifyPluginAsync>[0], timeline: P
     timestamp,
   };
   timeline.push(entry);
-  fastify.coordinatorStore.saveProjection(PROJECT_TIMELINE_ENTRY, entry.id, entry);
+  await fastify.coordinatorStore.saveProjection(PROJECT_TIMELINE_ENTRY, entry.id, entry);
   fastify.eventBus.publish(createEvent({
     type: "ProjectTimelineUpdated",
     actorId: input.actorId as never,

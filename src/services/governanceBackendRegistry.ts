@@ -39,6 +39,16 @@ export class GovernanceBackendRegistry {
     }
   }
 
+  stopAll(): void {
+    for (const { consumer, descriptor } of this.backends) {
+      consumer.stop();
+      // eslint-disable-next-line no-console
+      console.info(
+        `[GovernanceBackendRegistry] stopped consumer for backend "${descriptor.id}" (${descriptor.backend})`,
+      );
+    }
+  }
+
   get size(): number {
     return this.backends.length;
   }
