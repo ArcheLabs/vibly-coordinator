@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
+import { envelopeKey, listEnvelope } from "../../domain/schemas.js";
 
 const projectsRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /projects
@@ -29,6 +30,7 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
             metadata: { type: "object" },
           },
         },
+        response: { 200: envelopeKey("project") },
       },
     },
     async (request) => {
@@ -62,6 +64,7 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
             cursor: { type: "string" },
           },
         },
+        response: { 200: listEnvelope() },
       },
     },
     async (request) => {
@@ -89,6 +92,7 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Projects"],
         summary: "Get a project",
         params: { type: "object", required: ["projectId"], properties: { projectId: { type: "string" } } },
+        response: { 200: envelopeKey("project") },
       },
     },
     async (request) => {

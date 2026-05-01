@@ -3,6 +3,8 @@
 vibly-coordinator 是 Vibly / Concord 协调网络的服务端节点。基于 Fastify + SQLite，封装 `@concord/sdk` 提供的协议内核，对外暴露 REST API，并可选地通过 **GovernanceIndexConsumer** 持续索引链上 OpenGov 状态。
 
 > **唯一 HTTP/SSE 契约来源。** Vibly 协调节点的对外 HTTP/SSE 契约以本仓库的 Fastify 路由为唯一事实来源；`concord` 仓库不提供任何对外 HTTP 服务，`vibly-client` / `vibly-console` 等消费方均以这里的路由与响应信封为准。
+>
+> 契约工件由 `pnpm dump:openapi` 生成到 [`@vibly/coordinator-http-contract`](../vibly-coordinator-http-contract)。任何路由 schema 变更都必须在同一 PR 内刷新 `openapi.json` 与 `src/generated/types.ts`，CI 会跑 `verify:openapi` / `verify:types` 检测漂移。
 
 ## 依赖关系
 
@@ -28,6 +30,9 @@ vibly-indexer (SubQuery)   (链上事件索引, GraphQL :3010)
 pnpm install
 cp .env.example .env          # 或直接依赖默认值
 pnpm dev                      # ts-node 开发模式
+pnpm dump:openapi             # 刷新 packages/coordinator-http-contract/openapi.json
+pnpm verify:openapi           # CI 风味的契约工件 drift 检查
+pnpm check:response-schemas   # 报告 schema.response 覆盖率
 ```
 
 默认监听：`http://localhost:8787`  

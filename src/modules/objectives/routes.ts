@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
+import { listEnvelope } from "../../domain/schemas.js";
 
 const objectivesRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /projects/:projectId/objectives
@@ -75,6 +76,7 @@ const objectivesRoutes: FastifyPluginAsync = async (fastify) => {
             cursor: { type: "string" },
           },
         },
+        response: { 200: listEnvelope() },
       },
     },
     async (request) => {

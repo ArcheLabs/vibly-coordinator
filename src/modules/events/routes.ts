@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../domain/apiTypes.js";
 import type { EventEnvelope } from "@concord/foundation";
+import { envelope, listEnvelope } from "../../domain/schemas.js";
 
 const eventsRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /events — query event log
@@ -22,6 +23,7 @@ const eventsRoutes: FastifyPluginAsync = async (fastify) => {
             cursor: { type: "string" },
           },
         },
+        response: { 200: listEnvelope() },
       },
     },
     async (request) => {
@@ -61,6 +63,7 @@ const eventsRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["eventId"],
           properties: { eventId: { type: "string" } },
         },
+        response: { 200: envelope() },
       },
     },
     async (request) => {
