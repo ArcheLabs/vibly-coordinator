@@ -1,5 +1,5 @@
-import { paginateList } from "../../../../domain/pagination.js";
-import type { CoordinatorStorePort } from "../../../../db/coordinatorStorePort.js";
+import { paginateList } from "../../../domain/pagination.js";
+import type { CoordinatorStorePort } from "../../../db/coordinatorStorePort.js";
 import {
   GOVERNANCE_SUBJECT_VIEW,
   GOVERNANCE_VOTE_ACTIVITY,
@@ -7,7 +7,7 @@ import {
   GOVERNANCE_CHECKPOINT,
   GOVERNANCE_INTENT_CHAIN_LINK,
   GOVERNANCE_TX_RECEIPT,
-} from "../../../../db/projectionKinds.js";
+} from "../../../db/projectionKinds.js";
 import type {
   GovernanceSubjectView,
   GovernanceVoteActivityView,
@@ -15,8 +15,8 @@ import type {
   GovernanceCheckpointView,
   GovernanceIntentChainLink,
 } from "@concord/governance";
-import type { GovernanceTxReceiptProjection } from "../types.js";
-import { chainsEqual } from "../readModel.js";
+import type { GovernanceTxReceiptProjection } from "./types.js";
+import { chainsEqual } from "./readModel.js";
 
 export interface ListGovernanceSubjectsParams {
   chainId?: string;

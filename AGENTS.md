@@ -8,12 +8,13 @@ This file lists invariants every Cursor agent (and human contributor) must obey 
 
 ```
 src/modules/<domain>/…/routes.ts  ← Fastify routes with full schema (body/query/params/RESPONSE)
-  Domains: platform (health, metrics, events, streams, context, state, knowledge),
+  Domains: platform (health, metrics, events, streams),
+  knowledge (context, state, knowledge, observations),
   identity (principals, agents, memberships),
-  project (projects, objectives, boundary, project-read-models),
-  workflow (actions, negotiations, work, reviews, traces, assignments, observations),
+  project (projects, objectives, boundary, read-models),
+  workflow (actions, negotiations, work, reviews, traces, assignments),
   incentives (rewards, reputation, risk, guardian),
-  governance (intents-subjects-merged-backends),
+  governance (aggregate routes.ts → intents, subjects, merged, backends, shared),
   dev (scenarios)
         │ pnpm dump:openapi
         ▼

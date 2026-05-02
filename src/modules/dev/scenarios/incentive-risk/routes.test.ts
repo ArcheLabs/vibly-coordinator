@@ -7,7 +7,7 @@ import type { CoordinatorStore } from "../../../../db/coordinatorStore.js";
 import type { EventBus } from "../../../../services/eventBus.js";
 import agentCollaborationScenarioRoutes from "../agent-collaboration/routes.js";
 import guardianRoutes from "../../../incentives/guardian/routes.js";
-import projectReadModelRoutes from "../../../project/project-read-models/routes.js";
+import projectReadModelRoutes from "../../../project/read-models/routes.js";
 import reputationRoutes from "../../../incentives/reputation/routes.js";
 import riskRoutes from "../../../incentives/risk/routes.js";
 import incentiveRiskScenarioRoutes from "./routes.js";

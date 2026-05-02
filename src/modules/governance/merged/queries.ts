@@ -1,40 +1,6 @@
-import type { FastifyInstance } from "fastify";
-import type { GovernanceCheckpointView } from "@concord/governance";
-import { buildMergedView } from "../mergeBuilder.js";
-import { enrichMergedViewObservability, selectCheckpointForGovernanceView } from "../readModel.js";
-import { GovernanceProjectionRepository } from "../repositories/governanceProjectionRepository.js";
-
-/** Indexer `getGovernanceCheckpoint` returns Concord chain-indexing checkpoint shapes; keep loose here to avoid coupling to `@concord/chain-indexing`. */
-export type GovernanceCheckpointQueryResult =
-  | { checkpoint: GovernanceCheckpointView | null; items: GovernanceCheckpointView[] }
-  | { checkpoint: GovernanceCheckpointView | null; note: string }
-  | { checkpoint: unknown | null };
-
-export async function queryGovernanceCheckpoint(
-  fastify: FastifyInstance,
-  repo: GovernanceProjectionRepository,
-  query: { backend?: string; chainId?: string },
-): Promise<GovernanceCheckpointQueryResult> {
-  const { backend, chainId } = query;
-  const storedCheckpoints = await repo.listCheckpoints();
-  if (storedCheckpoints.length > 0 || backend || chainId) {
-    const descriptors = fastify.governanceBackendRegistry.listDescriptors();
-    const backendChains = backend
-      ? descriptors.filter((descriptor) => descriptor.backend === backend).map((descriptor) => descriptor.chain)
-      : [];
-    const items = repo.filterCheckpointsForQuery(storedCheckpoints, { backend, chainId }, backendChains);
-    return { checkpoint: items[0] ?? null, items };
-  }
-
-  const indexQuery = fastify.concord.governanceIndexQuery;
-  if (!indexQuery) {
-    return { checkpoint: null, note: "governanceIndexQuery not configured" };
-  }
-  const substrateChainId = fastify.config.substrateChainId ?? "substrate:vibly-solo";
-  const chain = { namespace: "substrate" as const, chainId: substrateChainId };
-  const checkpoint = await indexQuery.getGovernanceCheckpoint({ chain });
-  return { checkpoint };
-}
+import { buildMergedView } from "../shared/mergeBuilder.js";
+import { enrichMergedViewObservability, selectCheckpointForGovernanceView } from "../shared/readModel.js";
+import { GovernanceProjectionRepository } from "../shared/repository.js";
 
 export async function queryGovernanceMergedList(
   repo: GovernanceProjectionRepository,
@@ -107,8 +73,8 @@ export async function queryGovernanceMergedDetail(
     createdAt?: string;
   }>(intentId);
 
-  const allLinksMerged = await repo.listIntentChainLinks();
-  const link = allLinksMerged.find((l) => l.governanceIntentId === intentId);
+  const allLinks = await repo.listIntentChainLinks();
+  const link = allLinks.find((l) => l.governanceIntentId === intentId);
 
   const subject = link
     ? await repo.getSubject(link.subjectId)
@@ -116,10 +82,10 @@ export async function queryGovernanceMergedDetail(
 
   if (!intent && !subject) return null;
 
-  const allVotesMerged = await repo.listAllVoteActivity();
-  const votes = subject ? allVotesMerged.filter((v) => v.subjectId === subject.id) : [];
-  const allRcMerged = await repo.listAllTxReceipts();
-  const actionReceipts = allRcMerged.filter(
+  const allVotes = await repo.listAllVoteActivity();
+  const votes = subject ? allVotes.filter((v) => v.subjectId === subject.id) : [];
+  const allReceipts = await repo.listAllTxReceipts();
+  const actionReceipts = allReceipts.filter(
     (receipt) => receipt.intentId === intent?.id || receipt.subjectId === subject?.id,
   );
   const checkpoints = await repo.listCheckpoints();

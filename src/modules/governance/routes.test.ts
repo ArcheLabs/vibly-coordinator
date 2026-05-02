@@ -5,10 +5,10 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import Fastify from "fastify";
-import type { CoordinatorStorePort } from "../../../db/coordinatorStorePort.js";
-import { GovernanceProjectorService } from "../../../services/governanceProjector.js";
-import { GovernanceIndexConsumer } from "../../../services/governanceIndexConsumer.js";
-import { GovernanceBackendRegistry } from "../../../services/governanceBackendRegistry.js";
+import type { CoordinatorStorePort } from "../../db/coordinatorStorePort.js";
+import { GovernanceProjectorService } from "../../services/governanceProjector.js";
+import { GovernanceIndexConsumer } from "../../services/governanceIndexConsumer.js";
+import { GovernanceBackendRegistry } from "../../services/governanceBackendRegistry.js";
 import governanceRoutes from "./routes.js";
 import type { NormalizedChainEvent } from "@concord/core";
 import type {
@@ -41,7 +41,7 @@ function makeEvmProposalEvent(externalId: string, status = "Deciding"): Normaliz
   };
 }
 
-function makeTestApp(store: CoordinatorStorePort, config?: Partial<import("../../../config/env.js").CoordinatorConfig>) {
+function makeTestApp(store: CoordinatorStorePort, config?: Partial<import("../../config/env.js").CoordinatorConfig>) {
   const fastify = Fastify({ logger: false });
 
   // Minimal concord mock
@@ -57,7 +57,7 @@ function makeTestApp(store: CoordinatorStorePort, config?: Partial<import("../..
   } as unknown as import("@concord/sdk").Concord);
 
   fastify.decorate("coordinatorStore", store);
-  fastify.decorate("eventBus", { publish: () => {} } as unknown as import("../../../services/eventBus.js").EventBus);
+  fastify.decorate("eventBus", { publish: () => {} } as unknown as import("../../services/eventBus.js").EventBus);
   fastify.decorate("config", {
     substrateChainId: "vibly-solo",
     substrateRpcUrl: "ws://127.0.0.1:9944",
@@ -66,7 +66,7 @@ function makeTestApp(store: CoordinatorStorePort, config?: Partial<import("../..
     enableDevRoutes: false,
     nodeEnv: "test",
     ...config,
-  } as unknown as import("../../../config/env.js").CoordinatorConfig);
+  } as unknown as import("../../config/env.js").CoordinatorConfig);
 
   fastify.decorate("governanceBackendRegistry", new GovernanceBackendRegistry());
 
@@ -594,7 +594,7 @@ describe("governance routes", () => {
   });
 
   it("GET /governance/backends returns registered descriptors", async () => {
-    const { GovernanceBackendRegistry: Registry } = await import("../../../services/governanceBackendRegistry.js");
+    const { GovernanceBackendRegistry: Registry } = await import("../../services/governanceBackendRegistry.js");
     const registry = new Registry();
     registry.register(
       {
@@ -610,14 +610,14 @@ describe("governance routes", () => {
           supportsReason: true, supportsWeightedVote: true,
         },
       },
-      { start: () => {} } as unknown as import("../../../services/governanceIndexConsumer.js").GovernanceIndexConsumer,
+      { start: () => {} } as unknown as import("../../services/governanceIndexConsumer.js").GovernanceIndexConsumer,
     );
 
     const localApp = Fastify({ logger: false });
     localApp.decorate("concord", app.concord);
     localApp.decorate("coordinatorStore", store);
-    localApp.decorate("eventBus", { publish: () => {} } as unknown as import("../../../services/eventBus.js").EventBus);
-    localApp.decorate("config", { substrateChainId: "vibly-solo", nodeEnv: "test" } as unknown as import("../../../config/env.js").CoordinatorConfig);
+    localApp.decorate("eventBus", { publish: () => {} } as unknown as import("../../services/eventBus.js").EventBus);
+    localApp.decorate("config", { substrateChainId: "vibly-solo", nodeEnv: "test" } as unknown as import("../../config/env.js").CoordinatorConfig);
     localApp.decorate("governanceBackendRegistry", registry);
     void localApp.register(governanceRoutes);
     await localApp.ready();

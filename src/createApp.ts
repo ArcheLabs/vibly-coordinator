@@ -19,9 +19,11 @@ import healthRoutes from "./modules/platform/health/routes.js";
 import metricsRoutes from "./modules/platform/metrics/routes.js";
 import eventsRoutes from "./modules/platform/events/routes.js";
 import streamsRoutes from "./modules/platform/streams/routes.js";
-import contextRoutes from "./modules/platform/context/routes.js";
-import stateRoutes from "./modules/platform/state/routes.js";
-import knowledgeRoutes from "./modules/platform/knowledge/routes.js";
+
+import contextRoutes from "./modules/knowledge/context/routes.js";
+import stateRoutes from "./modules/knowledge/state/routes.js";
+import knowledgeRoutes from "./modules/knowledge/knowledge/routes.js";
+import observationsRoutes from "./modules/knowledge/observations/routes.js";
 
 import principalsRoutes from "./modules/identity/principals/routes.js";
 import agentsRoutes from "./modules/identity/agents/routes.js";
@@ -30,7 +32,7 @@ import membershipsRoutes from "./modules/identity/memberships/routes.js";
 import projectsRoutes from "./modules/project/projects/routes.js";
 import objectivesRoutes from "./modules/project/objectives/routes.js";
 import boundaryRoutes from "./modules/project/boundary/routes.js";
-import projectReadModelRoutes from "./modules/project/project-read-models/routes.js";
+import projectReadModelRoutes from "./modules/project/read-models/routes.js";
 
 import actionsRoutes from "./modules/workflow/actions/routes.js";
 import negotiationsRoutes from "./modules/workflow/negotiations/routes.js";
@@ -38,14 +40,13 @@ import workRoutes from "./modules/workflow/work/routes.js";
 import reviewsRoutes from "./modules/workflow/reviews/routes.js";
 import tracesRoutes from "./modules/workflow/traces/routes.js";
 import assignmentsRoutes from "./modules/workflow/assignments/routes.js";
-import observationsRoutes from "./modules/workflow/observations/routes.js";
 
 import incentivesRoutes from "./modules/incentives/rewards/routes.js";
 import reputationRoutes from "./modules/incentives/reputation/routes.js";
 import riskRoutes from "./modules/incentives/risk/routes.js";
 import guardianRoutes from "./modules/incentives/guardian/routes.js";
 
-import governanceRoutes from "./modules/governance/intents-subjects-merged-backends/routes.js";
+import governanceRoutes from "./modules/governance/routes.js";
 
 import agentCollaborationScenarioRoutes from "./modules/dev/scenarios/agent-collaboration/routes.js";
 import incentiveRiskScenarioRoutes from "./modules/dev/scenarios/incentive-risk/routes.js";

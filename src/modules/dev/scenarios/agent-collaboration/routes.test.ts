@@ -7,7 +7,7 @@ import type { CoordinatorStore } from "../../../../db/coordinatorStore.js";
 import type { EventBus } from "../../../../services/eventBus.js";
 import agentCollaborationScenarioRoutes from "./routes.js";
 import guardianRoutes from "../../../incentives/guardian/routes.js";
-import projectReadModelRoutes from "../../../project/project-read-models/routes.js";
+import projectReadModelRoutes from "../../../project/read-models/routes.js";
 
 function makeStore() {
   const projections = new Map<string, Map<string, unknown>>();
