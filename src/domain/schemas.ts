@@ -93,3 +93,25 @@ export const errorEnvelope = {
     meta: META_SCHEMA,
   },
 };
+
+/**
+ * Response schema for `POST /action-intents`.
+ * Returns the resulting event reference so callers can track what happened.
+ */
+export const actionIntentResultSchema = envelope({
+  type: "object" as const,
+  required: ["eventId", "aggregateRef", "status"],
+  properties: {
+    eventId: { type: "string" as const },
+    aggregateRef: {
+      type: "object" as const,
+      required: ["kind", "id"],
+      properties: {
+        kind: { type: "string" as const },
+        id: { type: "string" as const },
+      },
+    },
+    status: { type: "string" as const, enum: ["accepted"] as const },
+    events: { type: "array" as const, items: { type: "object" as const, additionalProperties: true } },
+  },
+});

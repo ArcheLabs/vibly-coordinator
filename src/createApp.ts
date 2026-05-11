@@ -55,6 +55,20 @@ import { GovernanceIndexConsumer } from "./services/governanceIndexConsumer.js";
 import { GovernanceProjectorService } from "./services/governanceProjector.js";
 import { GovernanceBackendRegistry } from "./services/governanceBackendRegistry.js";
 
+// v0.2 unified write path
+import { ActionIntentDispatcher } from "./application/actionIntentDispatcher.js";
+import actionIntentsRoutes from "./api/routes/actionIntents.js";
+// v0.2 Organization context routes
+import organizationsRoutes from "./api/routes/organizations.js";
+// v0.2 Coordination context routes
+import coordinationRoutes from "./api/routes/coordination.js";
+// v0.2 Work / Artifact / Evaluation context routes
+import workflowRoutes from "./api/routes/workflow.js";
+// v0.2 Reputation / Settlement routes
+import reputationV2Routes from "./api/routes/reputationV2.js";
+// v0.2 Agent profile routes
+
+
 declare module "fastify" {
   interface FastifyInstance {
     concord: Concord;
@@ -96,6 +110,42 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
 
   const governanceBackendRegistry = new GovernanceBackendRegistry();
 
+  // ─── v0.2 write-path dispatcher (built up by application services below) ─
+  const dispatcher = new ActionIntentDispatcher();
+  // Application services register their handlers here; imports are lazy so
+  // future phases can add services without touching earlier ones.
+  const { registerOrganizationHandlers } = await import("./application/organizationApplicationService.js");
+  registerOrganizationHandlers(dispatcher);
+  const { registerCoordinationHandlers } = await import("./application/coordinationApplicationService.js");
+  registerCoordinationHandlers(dispatcher);
+  const { registerWorkHandlers } = await import("./application/taskApplicationService.js");
+  registerWorkHandlers(dispatcher);
+  const { registerEvaluationHandlers } = await import("./application/evaluationApplicationService.js");
+  registerEvaluationHandlers(dispatcher);
+  const { registerSettlementHandlers } = await import("./application/settlementApplicationService.js");
+  registerSettlementHandlers(dispatcher);
+
+  // ─── v0.2 process managers (event-driven reactions) ───────────────────────
+  const { startObservationAssignmentProcess } = await import("./process-managers/observationAssignmentProcess.js");
+  startObservationAssignmentProcess(eventBus, coordinatorStore);
+
+  const { startVotingRoundProcess, startVoteCountProcess } = await import("./process-managers/votingRoundProcess.js");
+  startVotingRoundProcess(eventBus, coordinatorStore);
+  startVoteCountProcess(eventBus, coordinatorStore);
+
+  const { startProposalAcceptedProcess } = await import("./process-managers/proposalAcceptedProcess.js");
+  startProposalAcceptedProcess(eventBus, coordinatorStore);
+
+  const { startTaskSubmittedProcess } = await import("./process-managers/taskSubmittedProcess.js");
+  startTaskSubmittedProcess(eventBus, coordinatorStore);
+
+  const { startRewardCreationProcess } = await import("./process-managers/rewardCreationProcess.js");
+  startRewardCreationProcess(eventBus, coordinatorStore);
+
+  // ─── v0.2 projectors ──────────────────────────────────────────────────────
+  const { startReputationProjector } = await import("./contexts/reputation/projector.js");
+  startReputationProjector(eventBus, coordinatorStore);
+
   fastify.decorate("concord", concord);
   fastify.decorate("coordinatorStore", coordinatorStore);
   fastify.decorate("eventBus", eventBus);
@@ -112,6 +162,16 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(healthRoutes, { config, readinessProbe });
   await fastify.register(metricsRoutes);
   await fastify.register(eventsRoutes);
+  await fastify.register(streamsRoutes);
+
+  // ─── v0.2 routes (new unified API) ────────────────────────────────────────
+  await fastify.register(actionIntentsRoutes, { dispatcher });
+  await fastify.register(organizationsRoutes);
+  await fastify.register(coordinationRoutes);
+  await fastify.register(workflowRoutes);
+  await fastify.register(reputationV2Routes);
+
+  // ─── Legacy routes (deprecated, retained until Phase 5 cleanup) ───────────
   await fastify.register(projectsRoutes);
   await fastify.register(objectivesRoutes);
   await fastify.register(boundaryRoutes);
@@ -134,7 +194,6 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(riskRoutes);
   await fastify.register(projectReadModelRoutes);
   await fastify.register(assignmentsRoutes);
-  await fastify.register(streamsRoutes);
 
   if (config.enableDevRoutes) {
     await fastify.register(agentCollaborationScenarioRoutes);
