@@ -26,6 +26,13 @@ const envSchema = z
     SUBSTRATE_GOVERNANCE_TX_MODE: z.enum(["prepare-only", "fixture", "unsafe-papi"]).default("prepare-only"),
     EVM_GOVERNOR_FIXTURE: z.string().transform((v) => v === "true").default("false"),
     EVM_CHAIN_ID: z.string().default("31337"),
+    VIBLY_DOT_RECEIVING_ADDRESS: z.string().default(""),
+    VIBLY_AIRDROP_DOMAIN: z.string().default("vibly.identity.airdrop"),
+    VIBLY_CONVERSION_TOTAL_CAP: z.coerce.number().default(0),
+    VIBLY_CONVERSION_INITIAL_RATE: z.coerce.number().default(1000),
+    VIBLY_CONVERSION_SLOPE: z.coerce.number().default(0),
+    VIBLY_CONVERSION_MIN_DOT: z.coerce.number().default(0.1),
+    VIBLY_CONVERSION_MAX_DOT: z.coerce.number().default(1000),
     OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
   })
   .superRefine((val, ctx) => {
@@ -119,6 +126,13 @@ export interface CoordinatorConfig {
   substrateGovernanceTxMode: "prepare-only" | "fixture" | "unsafe-papi";
   evmGovernorFixture: boolean;
   evmChainId: string;
+  viblyDotReceivingAddress: string;
+  viblyAirdropDomain: string;
+  viblyConversionTotalCap: number;
+  viblyConversionInitialRate: number;
+  viblyConversionSlope: number;
+  viblyConversionMinDot: number;
+  viblyConversionMaxDot: number;
   otelExporterOtlpEndpoint?: string;
 }
 
@@ -150,6 +164,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     substrateGovernanceTxMode: parsed.SUBSTRATE_GOVERNANCE_TX_MODE,
     evmGovernorFixture: parsed.EVM_GOVERNOR_FIXTURE,
     evmChainId: parsed.EVM_CHAIN_ID,
+    viblyDotReceivingAddress: parsed.VIBLY_DOT_RECEIVING_ADDRESS,
+    viblyAirdropDomain: parsed.VIBLY_AIRDROP_DOMAIN,
+    viblyConversionTotalCap: parsed.VIBLY_CONVERSION_TOTAL_CAP,
+    viblyConversionInitialRate: parsed.VIBLY_CONVERSION_INITIAL_RATE,
+    viblyConversionSlope: parsed.VIBLY_CONVERSION_SLOPE,
+    viblyConversionMinDot: parsed.VIBLY_CONVERSION_MIN_DOT,
+    viblyConversionMaxDot: parsed.VIBLY_CONVERSION_MAX_DOT,
     otelExporterOtlpEndpoint: parsed.OTEL_EXPORTER_OTLP_ENDPOINT?.trim() || undefined,
   };
 }

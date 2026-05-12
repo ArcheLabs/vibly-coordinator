@@ -28,6 +28,10 @@ import observationsRoutes from "./modules/knowledge/observations/routes.js";
 import principalsRoutes from "./modules/identity/principals/routes.js";
 import agentsRoutes from "./modules/identity/agents/routes.js";
 import membershipsRoutes from "./modules/identity/memberships/routes.js";
+import onboardingRoutes from "./modules/identity/onboarding/routes.js";
+import dotVibRoutes from "./modules/conversion/dot-vib/routes.js";
+import adminAirdropRoutes from "./modules/admin/airdrop/routes.js";
+import adminConversionRoutes from "./modules/admin/conversion/routes.js";
 
 import projectsRoutes from "./modules/project/projects/routes.js";
 import objectivesRoutes from "./modules/project/objectives/routes.js";
@@ -178,6 +182,10 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(principalsRoutes);
   await fastify.register(agentsRoutes);
   await fastify.register(membershipsRoutes);
+  await fastify.register(onboardingRoutes);
+  await fastify.register(dotVibRoutes);
+  await fastify.register(adminAirdropRoutes);
+  await fastify.register(adminConversionRoutes);
   await fastify.register(contextRoutes);
   await fastify.register(stateRoutes);
   await fastify.register(knowledgeRoutes);
