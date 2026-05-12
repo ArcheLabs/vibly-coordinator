@@ -56,7 +56,9 @@ export type ActionIntentType =
   | "ConfirmSettlementBatch"
   | "SubmitSettlement"
   // ─── Human / Request ────────────────────────────────────────────────────
-  | "AnswerRequest";
+  | "AnswerRequest"
+  // ─── Dev / E2E ──────────────────────────────────────────────────────────
+  | "TickAssignmentExpiry";
 
 export interface ActionIntent {
   type: ActionIntentType;

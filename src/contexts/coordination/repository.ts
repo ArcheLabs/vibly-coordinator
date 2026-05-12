@@ -36,6 +36,9 @@ export class CoordinationRepository {
     const all = await this.store.listProjections<AssignmentOffer>(K.ASSIGNMENT_OFFER);
     return all.filter((a) => a.assigneeId === principalId);
   }
+  async listAllAssignmentOffers(): Promise<AssignmentOffer[]> {
+    return this.store.listProjections<AssignmentOffer>(K.ASSIGNMENT_OFFER);
+  }
 
   // ─── Discussion ────────────────────────────────────────────────────────────
   async saveDiscussion(d: DiscussionThread): Promise<void> { await this.store.saveProjection(K.DISCUSSION, d.id, d); }

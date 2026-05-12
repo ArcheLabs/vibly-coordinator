@@ -373,6 +373,40 @@ async function handleSubmitVote(intent: ActionIntent, ctx: DispatchContext): Pro
 
 // ─── Registration ────────────────────────────────────────────────────────────
 
+async function handleTickAssignmentExpiry(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
+  const repo = new CoordinationRepository(ctx.store);
+  const now = new Date();
+  const allOffers = await repo.listAllAssignmentOffers();
+  const expired = allOffers.filter(
+    (o) => o.status === "offered" && o.expiresAt != null && new Date(o.expiresAt) < now,
+  );
+
+  const events: ReturnType<typeof createEvent>[] = [];
+  for (const offer of expired) {
+    const task = await repo.getObservationTask(offer.observationTaskId);
+    const updated = { ...offer, status: "timed-out" as const };
+    await repo.saveAssignmentOffer(updated);
+
+    const orgId = task?.organizationId ?? "";
+    const evt = createEvent({
+      type: "AssignmentTimedOut",
+      payload: {
+        assignmentId: offer.id,
+        assigneeId: offer.assigneeId,
+        observationTaskId: offer.observationTaskId,
+        organizationId: orgId,
+        timedOutAt: now.toISOString(),
+      },
+      actorId: intent.principalId as never,
+    });
+    ctx.eventBus.publish(evt);
+    events.push(evt);
+  }
+
+  const syntheticId = makeId("tick");
+  return { eventId: syntheticId, aggregateRef: { kind: "AssignmentExpiry", id: syntheticId }, status: "accepted", events };
+}
+
 export function registerCoordinationHandlers(dispatcher: ActionIntentDispatcher): void {
   dispatcher
     .register("CreateObservation", handleCreateObservation)
@@ -386,5 +420,6 @@ export function registerCoordinationHandlers(dispatcher: ActionIntentDispatcher)
     .register("SubmitDiscussionContribution", handleSubmitDiscussionContribution)
     .register("SubmitProposal", handleSubmitProposal)
     .register("CreateVotingRound", handleCreateVotingRound)
-    .register("SubmitVote", handleSubmitVote);
+    .register("SubmitVote", handleSubmitVote)
+    .register("TickAssignmentExpiry", handleTickAssignmentExpiry);
 }

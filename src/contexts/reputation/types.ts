@@ -8,6 +8,7 @@
 export type ReputationEventType =
   | "assignment-completed"
   | "assignment-failed"
+  | "assignment-timeout"
   | "review-completed"
   | "vote-cast"
   | "proposal-accepted"

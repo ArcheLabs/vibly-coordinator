@@ -16,6 +16,7 @@ import type { ReputationEvent, ReputationEventType } from "./types.js";
 const DELTAS: Record<ReputationEventType, number> = {
   "assignment-completed": +5,
   "assignment-failed": -3,
+  "assignment-timeout": -5,
   "review-completed": +3,
   "vote-cast": +1,
   "proposal-accepted": +10,
@@ -109,6 +110,14 @@ export function startReputationProjector(
     if (!assigneeId || !orgId) return;
     await record(repo, assigneeId, orgId, "task-rejected", "Task rejected by reviewer", env.id, { type: "Task", id: (task?.["id"] as string) ?? "" });
   }, (env) => env.type === "TaskRejected"));
+
+  subs.push(eventBus.subscribe(async (env) => {
+    const payload = env.payload as Record<string, unknown>;
+    const assigneeId = payload["assigneeId"] as string | undefined;
+    const orgId = payload["organizationId"] as string | undefined;
+    if (!assigneeId || !orgId) return;
+    await record(repo, assigneeId, orgId, "assignment-timeout", "Assignment offer timed out without response", env.id, { type: "AssignmentOffer", id: (payload["assignmentId"] as string) ?? "" });
+  }, (env) => env.type === "AssignmentTimedOut"));
 
   return subs;
 }
