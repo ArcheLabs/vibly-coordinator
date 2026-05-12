@@ -11,6 +11,7 @@ import { MechanismRepository } from "../contexts/mechanism/repository.js";
 import { IdentityRepository } from "../contexts/identity/repository.js";
 import { selectParticipants, evaluateVotingDecision } from "../contexts/mechanism/mechanismEngine.js";
 import { applyVotingRound, applyProposal } from "../contexts/coordination/aggregate.js";
+import { filterEligibleAgents } from "../application/agentEligibility.js";
 
 export function startVotingRoundProcess(
   eventBus: EventBus,
@@ -33,7 +34,7 @@ export function startVotingRoundProcess(
         const mechanism = votingRound.mechanismId ? await mechanismRepo.get(votingRound.mechanismId) : undefined;
         const rule = mechanism?.voterSelection;
 
-        const agents = await identityRepo.listAgentProfiles();
+        const agents = await filterEligibleAgents(store, await identityRepo.listAgentProfiles(), rule);
         const candidates = agents.map((a) => a.principalId);
 
         const { selected } = selectParticipants(rule ?? { primitive: "random-selection", count: 5 }, { candidates });

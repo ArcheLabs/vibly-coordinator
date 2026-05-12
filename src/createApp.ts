@@ -153,6 +153,17 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   const { startE2eCollaborationProcesses } = await import("./process-managers/e2eCollaborationProcesses.js");
   startE2eCollaborationProcesses(eventBus, coordinatorStore);
 
+  const { startAssignmentExpiryScheduler } = await import("./process-managers/assignmentExpiryScheduler.js");
+  const stopAssignmentExpiryScheduler = startAssignmentExpiryScheduler({
+    intervalMs: config.assignmentExpiryIntervalMs,
+    principalId: config.coordinatorId,
+    dispatcher,
+    store: coordinatorStore,
+    eventBus,
+    concord,
+    config,
+  });
+
   // ─── v0.2 projectors ──────────────────────────────────────────────────────
   const { startReputationProjector } = await import("./contexts/reputation/projector.js");
   startReputationProjector(eventBus, coordinatorStore);
@@ -169,6 +180,9 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(authPlugin, { config });
   await fastify.register(authorizationPlugin, { config });
   await fastify.register(ssePlugin, { heartbeatMs: config.sseHeartbeatMs });
+  fastify.addHook("onClose", async () => {
+    stopAssignmentExpiryScheduler();
+  });
 
   await fastify.register(healthRoutes, { config, readinessProbe });
   await fastify.register(metricsRoutes);

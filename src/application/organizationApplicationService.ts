@@ -24,6 +24,11 @@ import { IdentityRepository } from "../contexts/identity/repository.js";
 import type { AgentProfile, Principal } from "../contexts/identity/types.js";
 import { MechanismRepository } from "../contexts/mechanism/repository.js";
 import type { CoordinationMechanism } from "../contexts/mechanism/types.js";
+import { StakeRepository } from "../contexts/stake/repository.js";
+import type { AgentStakeLedger } from "../contexts/stake/types.js";
+import { CoordinationRepository } from "../contexts/coordination/repository.js";
+import { ReviewRepository } from "../contexts/evaluation/repository.js";
+import { WorkRepository } from "../contexts/work/repository.js";
 
 // ─── Zod schemas ────────────────────────────────────────────────────────────
 
@@ -83,6 +88,31 @@ const registerAgentProfileSchema = z.object({
   capabilities: z.array(z.string().min(1)).default([]),
   reputationScore: z.number().optional(),
   stakeBalance: z.string().optional(),
+  chainId: z.string().optional(),
+  identityId: z.string().optional(),
+  chainAgentId: z.string().optional(),
+  dutyStatus: z.enum(["active", "paused"]).optional(),
+  stakeStatus: z.enum(["active", "unbonding", "released", "missing", "stale"]).optional(),
+});
+
+const upsertAgentStakeLedgerSchema = z.object({
+  chainId: z.string().min(1),
+  identityId: z.string().min(1),
+  chainAgentId: z.string().min(1),
+  principalId: z.string().optional(),
+  fundingAccount: z.string().optional(),
+  activeAmount: z.string().default("0"),
+  unbondingAmount: z.string().default("0"),
+  status: z.enum(["active", "unbonding", "released", "missing", "stale"]),
+  unlockAtBlock: z.string().optional(),
+  releaseBlocked: z.boolean().default(false),
+  releaseBlockReason: z.string().optional(),
+  updatedAtBlock: z.string().optional(),
+});
+
+const agentDutySchema = z.object({
+  principalId: z.string().min(1),
+  reason: z.string().optional(),
 });
 
 const upsertMechanismSchema = z.object({
@@ -326,12 +356,147 @@ async function handleRegisterAgentProfile(intent: ActionIntent, ctx: DispatchCon
     organizationIds: data.organizationIds,
     reputationScore: data.reputationScore,
     stakeBalance: data.stakeBalance,
+    chainId: data.chainId,
+    identityId: data.identityId,
+    chainAgentId: data.chainAgentId,
+    dutyStatus: data.dutyStatus ?? existingProfile?.dutyStatus ?? "active",
+    stakeStatus: data.stakeStatus ?? existingProfile?.stakeStatus,
     createdAt: existingProfile?.createdAt ?? now,
     updatedAt: now,
   };
   await repo.saveAgentProfile(profile);
 
   const env = createEvent({ type: "AgentProfileRegistered", payload: { ...profile }, actorId: intent.principalId as never });
+  ctx.eventBus.publish(env);
+  return makeResult(env, "AgentProfile", data.principalId);
+}
+
+async function handleUpsertAgentStakeLedger(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
+  const data = parsePayload(upsertAgentStakeLedgerSchema, intent);
+  const repo = new StakeRepository(ctx.store);
+  const id = `${data.chainId}:${data.identityId}:${data.chainAgentId}`;
+  const ledger: AgentStakeLedger = {
+    id,
+    chainId: data.chainId,
+    identityId: data.identityId,
+    chainAgentId: data.chainAgentId,
+    principalId: data.principalId,
+    fundingAccount: data.fundingAccount,
+    activeAmount: data.activeAmount ?? "0",
+    unbondingAmount: data.unbondingAmount ?? "0",
+    status: data.status,
+    unlockAtBlock: data.unlockAtBlock,
+    releaseBlocked: data.releaseBlocked ?? false,
+    releaseBlockReason: data.releaseBlockReason,
+    updatedAtBlock: data.updatedAtBlock,
+    indexedAt: new Date().toISOString(),
+  };
+  await repo.saveLedger(ledger);
+
+  if (data.principalId) {
+    const identity = new IdentityRepository(ctx.store);
+    const profile = await identity.getAgentProfile(data.principalId);
+    if (profile) {
+      await identity.saveAgentProfile({ ...profile, stakeStatus: data.status, updatedAt: ledger.indexedAt });
+    }
+  }
+
+  const events = [];
+  const env = createEvent({ type: "AgentStakeLedgerSynced", payload: { ...ledger }, actorId: intent.principalId as never });
+  ctx.eventBus.publish(env);
+  events.push(env);
+
+  if (data.principalId && data.status === "unbonding") {
+    const blockers = await listBlockingObligations(ctx.store, data.principalId);
+    if (blockers.length > 0 && !data.releaseBlocked) {
+      const blockEvent = createEvent({
+        type: "AgentStakeReleaseBlockRequested",
+        payload: { ...ledger, blockers },
+        actorId: intent.principalId as never,
+      });
+      ctx.eventBus.publish(blockEvent);
+      events.push(blockEvent);
+    } else if (blockers.length === 0 && data.releaseBlocked) {
+      const clearEvent = createEvent({
+        type: "AgentStakeReleaseClearRequested",
+        payload: { ...ledger },
+        actorId: intent.principalId as never,
+      });
+      ctx.eventBus.publish(clearEvent);
+      events.push(clearEvent);
+    }
+  }
+
+  return { eventId: env.id, aggregateRef: { kind: "AgentStakeLedger", id }, status: "accepted", events };
+}
+
+async function listBlockingObligations(store: DispatchContext["store"], principalId: string): Promise<Array<Record<string, unknown>>> {
+  const coordination = new CoordinationRepository(store);
+  const reviews = new ReviewRepository(store);
+  const work = new WorkRepository(store);
+  const blockers: Array<Record<string, unknown>> = [];
+
+  for (const offer of await coordination.listAssignmentOffersForPrincipal(principalId)) {
+    if (offer.status === "offered" || offer.status === "accepted") {
+      blockers.push({ type: "assignmentOffer", id: offer.id, status: offer.status });
+    }
+  }
+  for (const discussion of await coordination.listDiscussions()) {
+    if (discussion.status !== "open") continue;
+    for (const round of discussion.rounds) {
+      if (round.participantIds.includes(principalId) && !round.contributions.some((c) => c.authorId === principalId)) {
+        blockers.push({ type: "discussionRound", id: discussion.id, roundIndex: round.index });
+      }
+    }
+  }
+  for (const round of await reviews.list()) {
+    if ((round.status === "pending" || round.status === "in-review") &&
+      round.reviewerIds.includes(principalId) &&
+      !round.reviews.some((review) => review.reviewerId === principalId)) {
+      blockers.push({ type: "reviewRound", id: round.id });
+    }
+  }
+  for (const task of await work.listTasks()) {
+    if (task.assigneeId === principalId && ["claimed", "in-progress", "submitted"].includes(task.status)) {
+      blockers.push({ type: "task", id: task.id, status: task.status });
+    }
+  }
+  return blockers;
+}
+
+async function handleRequestAgentDutyPause(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
+  const data = parsePayload(agentDutySchema, intent);
+  const repo = new IdentityRepository(ctx.store);
+  const profile = await repo.getAgentProfile(data.principalId);
+  if (!profile) throw notFound("AgentProfile", data.principalId);
+  const blockers = await listBlockingObligations(ctx.store, data.principalId);
+  if (blockers.length > 0) throw conflict("Agent has unfinished public obligations", { blockers });
+
+  const now = new Date().toISOString();
+  const updated = { ...profile, dutyStatus: "paused" as const, updatedAt: now };
+  await repo.saveAgentProfile(updated);
+  const env = createEvent({
+    type: "AgentDutyPaused",
+    payload: { principalId: data.principalId, reason: data.reason, pausedAt: now },
+    actorId: intent.principalId as never,
+  });
+  ctx.eventBus.publish(env);
+  return makeResult(env, "AgentProfile", data.principalId);
+}
+
+async function handleResumeAgentDuty(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
+  const data = parsePayload(agentDutySchema, intent);
+  const repo = new IdentityRepository(ctx.store);
+  const profile = await repo.getAgentProfile(data.principalId);
+  if (!profile) throw notFound("AgentProfile", data.principalId);
+  const now = new Date().toISOString();
+  const updated = { ...profile, dutyStatus: "active" as const, updatedAt: now };
+  await repo.saveAgentProfile(updated);
+  const env = createEvent({
+    type: "AgentDutyResumed",
+    payload: { principalId: data.principalId, resumedAt: now },
+    actorId: intent.principalId as never,
+  });
   ctx.eventBus.publish(env);
   return makeResult(env, "AgentProfile", data.principalId);
 }
@@ -407,6 +572,9 @@ export function registerOrganizationHandlers(dispatcher: ActionIntentDispatcher)
     .register("EmergencyResume", handleEmergencyResume)
     .register("RegisterAgentProfile", handleRegisterAgentProfile)
     .register("UpdateAgentProfile", handleRegisterAgentProfile)
+    .register("RequestAgentDutyPause", handleRequestAgentDutyPause)
+    .register("ResumeAgentDuty", handleResumeAgentDuty)
     .register("UpsertMechanism", handleUpsertMechanism)
-    .register("SeedKnowledgeEntry", handleSeedKnowledgeEntry);
+    .register("SeedKnowledgeEntry", handleSeedKnowledgeEntry)
+    .register("UpsertAgentStakeLedger", handleUpsertAgentStakeLedger);
 }

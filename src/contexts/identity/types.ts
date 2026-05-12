@@ -23,7 +23,13 @@ export interface AgentProfile {
   capabilities: string[];
   organizationIds: string[];
   reputationScore?: number;
+  /** @deprecated Coordinator eligibility uses chain stake read models, not this local field. */
   stakeBalance?: string;
+  chainId?: string;
+  identityId?: string;
+  chainAgentId?: string;
+  dutyStatus?: "active" | "paused";
+  stakeStatus?: "active" | "unbonding" | "released" | "missing" | "stale";
   createdAt: string;
   updatedAt: string;
 }

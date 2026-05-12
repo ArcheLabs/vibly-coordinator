@@ -13,8 +13,9 @@ import type { CoordinatorStorePort } from "../db/coordinatorStorePort.js";
 import { CoordinationRepository } from "../contexts/coordination/repository.js";
 import { MechanismRepository } from "../contexts/mechanism/repository.js";
 import { IdentityRepository } from "../contexts/identity/repository.js";
-import { selectParticipants, checkEligibility } from "../contexts/mechanism/mechanismEngine.js";
+import { selectParticipants } from "../contexts/mechanism/mechanismEngine.js";
 import type { AssignmentOffer } from "../contexts/coordination/types.js";
+import { filterEligibleAgents } from "../application/agentEligibility.js";
 
 export function startObservationAssignmentProcess(
   eventBus: EventBus,
@@ -23,7 +24,7 @@ export function startObservationAssignmentProcess(
   return eventBus.subscribe(
     async (env) => {
       const payload = env.payload as Record<string, unknown>;
-      const taskId = payload["id"] as string | undefined;
+      const taskId = (payload["id"] ?? payload["observationTaskId"]) as string | undefined;
       if (!taskId) return;
 
       try {
@@ -39,15 +40,11 @@ export function startObservationAssignmentProcess(
         const rule = mechanism?.observerSelection;
 
         // Get candidate agents from the organization
-        const agents = await identityRepo.listAgentProfiles();
-        let candidates = agents.map((a) => a.principalId);
-
-        if (rule?.minReputation != null) {
-          candidates = candidates.filter((id) => {
-            const agent = agents.find((a) => a.principalId === id);
-            return checkEligibility({ principalId: id, reputationScore: agent?.reputationScore, rule });
-          });
-        }
+        const agents = await filterEligibleAgents(store, await identityRepo.listAgentProfiles(), rule);
+        const timedOutAssignees = (await coordRepo.listAllAssignmentOffers())
+          .filter((offer) => offer.observationTaskId === taskId && offer.status === "timed-out")
+          .map((offer) => offer.assigneeId);
+        let candidates = agents.map((a) => a.principalId).filter((id) => !timedOutAssignees.includes(id));
 
         if (candidates.length === 0) {
           // No eligible candidates — mark task as pending (will retry or escalate)
@@ -86,6 +83,6 @@ export function startObservationAssignmentProcess(
         console.error("[ObservationAssignmentProcess]", err);
       }
     },
-    (env) => env.type === "ObservationTaskCreated",
+    (env) => env.type === "ObservationTaskCreated" || env.type === "AssignmentTimedOut",
   );
 }

@@ -16,6 +16,7 @@ const envSchema = z
     OIDC_JWKS_URL: z.string().optional(),
     OIDC_PROJECTS_CLAIM: z.string().default("vibly_projects"),
     SSE_HEARTBEAT_MS: z.coerce.number().default(15000),
+    ASSIGNMENT_EXPIRY_INTERVAL_MS: z.coerce.number().default(0),
     TRACE_OUTPUT_DIR: z.string().default("./data/traces"),
     ENABLE_SWAGGER: z.string().transform((v) => v === "true").default("true"),
     ENABLE_DEV_ROUTES: z.string().transform((v) => v === "true").default("false"),
@@ -116,6 +117,7 @@ export interface CoordinatorConfig {
   oidcJwksUrl?: string;
   oidcProjectsClaim: string;
   sseHeartbeatMs: number;
+  assignmentExpiryIntervalMs: number;
   traceOutputDir: string;
   enableSwagger: boolean;
   enableDevRoutes: boolean;
@@ -154,6 +156,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     oidcJwksUrl: jwks || undefined,
     oidcProjectsClaim: parsed.OIDC_PROJECTS_CLAIM,
     sseHeartbeatMs: parsed.SSE_HEARTBEAT_MS,
+    assignmentExpiryIntervalMs: parsed.ASSIGNMENT_EXPIRY_INTERVAL_MS,
     traceOutputDir: parsed.TRACE_OUTPUT_DIR,
     enableSwagger: parsed.ENABLE_SWAGGER,
     enableDevRoutes: parsed.ENABLE_DEV_ROUTES,

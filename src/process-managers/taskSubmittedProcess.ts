@@ -11,6 +11,7 @@ import { MechanismRepository } from "../contexts/mechanism/repository.js";
 import { selectParticipants } from "../contexts/mechanism/mechanismEngine.js";
 import { IdentityRepository } from "../contexts/identity/repository.js";
 import type { ReviewRound } from "../contexts/evaluation/types.js";
+import { filterEligibleAgents } from "../application/agentEligibility.js";
 
 export function startTaskSubmittedProcess(
   eventBus: EventBus,
@@ -36,9 +37,9 @@ export function startTaskSubmittedProcess(
         const allMechanisms = await mechRepo.list(organizationId);
         const mechanism = allMechanisms[0]; // use first available mechanism for org
 
-        const agents = await identityRepo.listAgentProfiles();
-        const candidates = agents.map((a) => a.principalId);
         const rule = mechanism?.reviewerSelection ?? { primitive: "random-selection" as const, count: 3 };
+        const agents = await filterEligibleAgents(store, await identityRepo.listAgentProfiles(), rule);
+        const candidates = agents.map((a) => a.principalId);
         const { selected: reviewerIds } = selectParticipants(rule, { candidates });
 
         const now = new Date().toISOString();

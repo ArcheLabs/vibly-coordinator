@@ -12,6 +12,7 @@ import { CoordinationRepository } from "../../contexts/coordination/repository.j
 import { ReviewRepository } from "../../contexts/evaluation/repository.js";
 import { WorkRepository } from "../../contexts/work/repository.js";
 import { SettlementRepository } from "../../contexts/settlement/repository.js";
+import { StakeRepository } from "../../contexts/stake/repository.js";
 
 const ITEM_SCHEMA = { type: "object" as const, additionalProperties: true };
 const NOTIFICATION_KIND = "agent_notification_v2";
@@ -19,6 +20,7 @@ const KNOWLEDGE_KIND = "knowledge_entry_v2";
 
 const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
   const repo = () => new IdentityRepository(fastify.coordinatorStore);
+  const stakeRepo = () => new StakeRepository(fastify.coordinatorStore);
 
   fastify.get<{ Params: { id: string } }>(
     "/agent-profiles/:id",
@@ -33,7 +35,8 @@ const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
     async (req) => {
       const profile = await repo().getAgentProfile(req.params.id);
       if (!profile) throw notFound("AgentProfile", req.params.id);
-      return ok({ agent: profile });
+      const stakeLedger = await stakeRepo().getLedgerForProfile(profile);
+      return ok({ agent: { ...profile, stakeLedger } });
     },
   );
 
@@ -56,6 +59,37 @@ const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
     async (req) => {
       const all = await repo().listAgentProfiles();
       const items = req.query.organizationId ? all.filter((agent) => agent.organizationIds.includes(req.query.organizationId!)) : all;
+      const page = await Promise.all(items.slice(0, req.query.limit ?? 50).map(async (agent) => ({
+        ...agent,
+        stakeLedger: await stakeRepo().getLedgerForProfile(agent),
+      })));
+      return ok({ items: page });
+    },
+  );
+
+  fastify.get<{ Querystring: { principalId?: string; chainId?: string; status?: string; limit?: number } }>(
+    "/agent-stakes",
+    {
+      schema: {
+        tags: ["Agents"],
+        summary: "List agent stake ledgers synced from chain indexer",
+        querystring: {
+          type: "object",
+          properties: {
+            principalId: { type: "string" },
+            chainId: { type: "string" },
+            status: { type: "string" },
+            limit: { type: "integer", default: 50 },
+          },
+        },
+        response: { 200: envelopeKeyArray("items", ITEM_SCHEMA) },
+      },
+    },
+    async (req) => {
+      let items = await stakeRepo().listLedgers();
+      if (req.query.principalId) items = items.filter((item) => item.principalId === req.query.principalId);
+      if (req.query.chainId) items = items.filter((item) => item.chainId === req.query.chainId);
+      if (req.query.status) items = items.filter((item) => item.status === req.query.status);
       return ok({ items: items.slice(0, req.query.limit ?? 50) });
     },
   );
@@ -90,6 +124,8 @@ const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
       const reviews = new ReviewRepository(fastify.coordinatorStore);
       const work = new WorkRepository(fastify.coordinatorStore);
       const settlement = new SettlementRepository(fastify.coordinatorStore);
+      const profile = await repo().getAgentProfile(principalId);
+      const stakeLedger = profile ? await stakeRepo().getLedgerForProfile(profile) : undefined;
 
       const assignmentOffersWithTasks = await Promise.all(
         (await coordination.listAssignmentOffersForPrincipal(principalId)).map(async (offer) => ({
@@ -142,6 +178,7 @@ const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
       return ok({
         inbox: {
           principalId,
+          agent: profile ? { ...profile, stakeLedger } : undefined,
           assignmentOffers,
           discussionParticipations: discussions,
           reviewRequests,

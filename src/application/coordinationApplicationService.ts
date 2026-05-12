@@ -10,7 +10,11 @@ import type { ActionIntent, ActionIntentResult } from "./types.js";
 import { badRequest, notFound } from "../domain/errors.js";
 import { CoordinationRepository } from "../contexts/coordination/repository.js";
 import { applyObservation, applyDiscussion, applyProposal, applyVotingRound } from "../contexts/coordination/aggregate.js";
-import type { ObservationTask, Observation, DiscussionThread, Proposal, VotingRound } from "../contexts/coordination/types.js";
+import type { ObservationTask, Observation, DiscussionThread, Proposal, VotingRound, AssignmentOffer } from "../contexts/coordination/types.js";
+import { MechanismRepository } from "../contexts/mechanism/repository.js";
+import { IdentityRepository } from "../contexts/identity/repository.js";
+import { selectParticipants } from "../contexts/mechanism/mechanismEngine.js";
+import { filterEligibleAgents } from "./agentEligibility.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -375,6 +379,8 @@ async function handleSubmitVote(intent: ActionIntent, ctx: DispatchContext): Pro
 
 async function handleTickAssignmentExpiry(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
   const repo = new CoordinationRepository(ctx.store);
+  const mechanismRepo = new MechanismRepository(ctx.store);
+  const identityRepo = new IdentityRepository(ctx.store);
   const now = new Date();
   const allOffers = await repo.listAllAssignmentOffers();
   const expired = allOffers.filter(
@@ -386,6 +392,9 @@ async function handleTickAssignmentExpiry(intent: ActionIntent, ctx: DispatchCon
     const task = await repo.getObservationTask(offer.observationTaskId);
     const updated = { ...offer, status: "timed-out" as const };
     await repo.saveAssignmentOffer(updated);
+    if (task) {
+      await repo.saveObservationTask({ ...task, status: "pending", assigneeId: undefined, updatedAt: now.toISOString() });
+    }
 
     const orgId = task?.organizationId ?? "";
     const evt = createEvent({
@@ -401,6 +410,45 @@ async function handleTickAssignmentExpiry(intent: ActionIntent, ctx: DispatchCon
     });
     ctx.eventBus.publish(evt);
     events.push(evt);
+
+    if (task) {
+      const mechanism = task.mechanismId ? await mechanismRepo.get(task.mechanismId) : undefined;
+      const rule = mechanism?.observerSelection ?? { primitive: "random-selection" as const, count: 1 };
+      const agents = await filterEligibleAgents(ctx.store, await identityRepo.listAgentProfiles(), rule);
+      const alreadyOffered = (await repo.listAllAssignmentOffers())
+        .filter((candidateOffer) => candidateOffer.observationTaskId === task.id)
+        .map((candidateOffer) => candidateOffer.assigneeId);
+      const candidates = agents
+        .map((agent) => agent.principalId)
+        .filter((id) => id !== offer.assigneeId && !alreadyOffered.includes(id));
+      const { selected } = selectParticipants(rule, { candidates });
+      const assigneeId = selected[0] ?? candidates[0];
+      if (assigneeId) {
+        const expiresAt = mechanism?.timeout
+          ? new Date(now.getTime() + mechanism.timeout.durationMs).toISOString()
+          : undefined;
+        const backupOffer: AssignmentOffer = {
+          id: makeId("assign"),
+          observationTaskId: task.id,
+          assigneeId,
+          status: "offered",
+          offeredAt: now.toISOString(),
+          expiresAt,
+        };
+        await repo.saveAssignmentOffer(backupOffer);
+        await repo.saveObservationTask({ ...task, status: "assigned", assigneeId, updatedAt: now.toISOString() });
+        const backupEvt = createEvent({
+          type: "AssignmentOffered",
+          payload: { ...backupOffer, backupForAssignmentId: offer.id },
+          actorId: intent.principalId as never,
+          causationId: evt.id,
+        });
+        ctx.eventBus.publish(backupEvt);
+        events.push(backupEvt);
+      } else {
+        await repo.saveObservationTask({ ...task, status: "pending", assigneeId: undefined, updatedAt: now.toISOString() });
+      }
+    }
   }
 
   const syntheticId = makeId("tick");

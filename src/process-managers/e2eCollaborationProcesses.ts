@@ -15,6 +15,7 @@ import type { DiscussionThread } from "../contexts/coordination/types.js";
 import type { Artifact } from "../contexts/artifact/types.js";
 import type { ReviewRound } from "../contexts/evaluation/types.js";
 import type { SettlementBatch } from "../contexts/settlement/types.js";
+import { filterEligibleAgents } from "../application/agentEligibility.js";
 
 const NOTIFICATION_KIND = "agent_notification_v2";
 const KNOWLEDGE_KIND = "knowledge_entry_v2";
@@ -31,9 +32,9 @@ export function startObservationDiscussionProcess(eventBus: EventBus, store: Coo
       const mechanismRepo = new MechanismRepository(store);
       const organizationId = String(observation.organizationId);
       const projectId = observation.projectId ? String(observation.projectId) : undefined;
-      const agents = await identityRepo.listAgentProfiles();
       const mechanisms = await mechanismRepo.list(organizationId);
       const rule = mechanisms[0]?.participantSelection ?? { primitive: "random-selection" as const, count: 3 };
+      const agents = await filterEligibleAgents(store, await identityRepo.listAgentProfiles(), rule);
       const candidates = agents.map((agent) => agent.principalId).filter((id) => id !== observation.submittedBy);
       const { selected } = selectParticipants(rule, { candidates });
       const participantIds = selected.length > 0 ? selected : candidates.slice(0, 3);
@@ -72,7 +73,7 @@ export function startDiscussionOutcomeNotificationProcess(eventBus: EventBus, st
       const discussion = await coordRepo.getDiscussion(payload.discussionId);
       if (!discussion) return;
 
-      const agents = await identityRepo.listAgentProfiles();
+      const agents = await filterEligibleAgents(store, await identityRepo.listAgentProfiles());
       const proposer = agents.find((agent) => agent.displayName.toLowerCase().includes("proposer"))
         ?? agents.find((agent) => agent.capabilities.includes("proposal_writing"))
         ?? agents[0];
@@ -115,11 +116,12 @@ export function startProposalReviewProcess(eventBus: EventBus, store: Coordinato
       const identityRepo = new IdentityRepository(store);
       const mechanismRepo = new MechanismRepository(store);
       const mechanisms = await mechanismRepo.list(organizationId);
-      const agents = await identityRepo.listAgentProfiles();
+      const rule = mechanisms[0]?.reviewerSelection ?? { primitive: "random-selection" as const, count: 2 };
+      const agents = await filterEligibleAgents(store, await identityRepo.listAgentProfiles(), rule);
       const candidates = agents
         .filter((agent) => agent.principalId !== proposal.submittedBy)
         .map((agent) => agent.principalId);
-      const { selected } = selectParticipants(mechanisms[0]?.reviewerSelection ?? { primitive: "random-selection", count: 2 }, { candidates });
+      const { selected } = selectParticipants(rule, { candidates });
       const reviewerIds = selected.length > 0 ? selected : candidates.slice(0, 2);
       const now = new Date().toISOString();
       const round: ReviewRound = {

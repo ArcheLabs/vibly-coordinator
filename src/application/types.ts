@@ -22,6 +22,9 @@ export type ActionIntentType =
   | "UpdateAgentProfile"
   | "UpsertMechanism"
   | "SeedKnowledgeEntry"
+  | "UpsertAgentStakeLedger"
+  | "RequestAgentDutyPause"
+  | "ResumeAgentDuty"
   // ─── Observation ────────────────────────────────────────────────────────
   | "CreateObservation"
   | "CreateObservationTask"

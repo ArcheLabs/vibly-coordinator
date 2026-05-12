@@ -57,6 +57,32 @@ const coordinationRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
+  fastify.get<{ Querystring: { organizationId?: string; observationTaskId?: string; submittedBy?: string; limit?: number } }>(
+    "/observations",
+    {
+      schema: {
+        tags: ["Observations"],
+        summary: "List observations",
+        querystring: {
+          type: "object",
+          properties: {
+            organizationId: { type: "string" },
+            observationTaskId: { type: "string" },
+            submittedBy: { type: "string" },
+            limit: { type: "integer", default: 50 },
+          },
+        },
+        response: { 200: envelopeKeyArray("items", ITEM_SCHEMA) },
+      },
+    },
+    async (req) => {
+      let items = await repo().listObservations(req.query.organizationId);
+      if (req.query.observationTaskId) items = items.filter((o) => o.observationTaskId === req.query.observationTaskId);
+      if (req.query.submittedBy) items = items.filter((o) => o.submittedBy === req.query.submittedBy);
+      return ok({ items: items.slice(0, req.query.limit ?? 50) });
+    },
+  );
+
   // ─── Discussions ─────────────────────────────────────────────────────────
 
   fastify.get<{ Params: { id: string } }>(
