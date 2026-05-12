@@ -28,22 +28,39 @@ export function startProposalAcceptedProcess(
         if (!proposal) return;
 
         const now = new Date().toISOString();
-        const task: Task = {
-          id: makeId("task"),
+        const taskPlanItems = proposal.suggestedTaskPlan.length > 0
+          ? proposal.suggestedTaskPlan
+          : [{ title: `Work item: ${proposal.title}`, description: proposal.body }];
+
+        const taskPlan = {
+          id: makeId("taskplan"),
           organizationId: proposal.organizationId,
           projectId: proposal.projectId,
           proposalId: proposal.id,
-          title: `Work item: ${proposal.title}`,
-          description: proposal.body,
-          status: "available",
-          createdBy: proposal.submittedBy,
+          taskCount: taskPlanItems.length,
           createdAt: now,
-          updatedAt: now,
         };
-        await workRepo.saveTask(task);
+        eventBus.publish(createEvent({ type: "TaskPlanCreated", payload: taskPlan, causationId: env.id }));
 
-        const event = createEvent({ type: "TaskCreated", payload: { ...task }, causationId: env.id });
-        eventBus.publish(event);
+        for (const [index, item] of taskPlanItems.entries()) {
+          const raw = item as Record<string, unknown>;
+          const task: Task = {
+            id: makeId("task"),
+            organizationId: proposal.organizationId,
+            projectId: proposal.projectId,
+            proposalId: proposal.id,
+            title: String(raw["title"] ?? raw["name"] ?? `Task ${index + 1}: ${proposal.title}`),
+            description: String(raw["description"] ?? raw["acceptanceCriteria"] ?? proposal.body),
+            status: "available",
+            skillRequirements: Array.isArray(raw["skillRequirements"]) ? raw["skillRequirements"] as string[] : undefined,
+            createdBy: proposal.submittedBy,
+            createdAt: now,
+            updatedAt: now,
+          };
+          await workRepo.saveTask(task);
+          eventBus.publish(createEvent({ type: "TaskCreated", payload: { ...task, taskPlanId: taskPlan.id }, causationId: env.id }));
+          eventBus.publish(createEvent({ type: "TaskOpened", payload: { taskId: task.id, organizationId: task.organizationId, projectId: task.projectId }, causationId: env.id }));
+        }
       } catch (err) {
         console.error("[ProposalAcceptedProcess]", err);
       }

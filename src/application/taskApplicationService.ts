@@ -44,6 +44,12 @@ const acceptRejectTaskSchema = z.object({
   submissionId: z.string().optional(),
 });
 
+const acceptRejectArtifactSchema = z.object({
+  artifactId: z.string().min(1),
+  organizationId: z.string().min(1),
+  reason: z.string().optional(),
+});
+
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
 async function handleClaimTask(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
@@ -61,10 +67,10 @@ async function handleClaimTask(intent: ActionIntent, ctx: DispatchContext): Prom
   });
   await workRepo.saveTask(next);
 
-  const event = createEvent({ type: "TaskClaimed", payload: { ...next }, actorId: ctx.principalId });
+  const event = createEvent({ type: "TaskClaimed", payload: { ...next }, actorId: ctx.principalId as never });
   ctx.eventBus.publish(event);
 
-  return { eventId: event.id, aggregateRef: { type: "Task", id: task.id }, status: "applied" };
+  return { eventId: event.id, aggregateRef: { kind: "Task", id: task.id }, status: "accepted", events: [event] };
 }
 
 async function handleSubmitTask(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
@@ -94,11 +100,11 @@ async function handleSubmitTask(intent: ActionIntent, ctx: DispatchContext): Pro
   const event = createEvent({
     type: "TaskSubmitted",
     payload: { task: next, submission },
-    actorId: ctx.principalId,
+    actorId: ctx.principalId as never,
   });
   ctx.eventBus.publish(event);
 
-  return { eventId: event.id, aggregateRef: { type: "Task", id: task.id }, status: "applied" };
+  return { eventId: event.id, aggregateRef: { kind: "Task", id: task.id }, status: "accepted", events: [event] };
 }
 
 async function handleSubmitArtifact(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
@@ -111,6 +117,7 @@ async function handleSubmitArtifact(intent: ActionIntent, ctx: DispatchContext):
     organizationId: payload.organizationId,
     taskId: payload.taskId,
     createdBy: ctx.principalId,
+    status: "submitted",
     mimeType: payload.mimeType,
     title: payload.title,
     description: payload.description,
@@ -123,10 +130,10 @@ async function handleSubmitArtifact(intent: ActionIntent, ctx: DispatchContext):
   };
   await artifactRepo.save(artifact);
 
-  const event = createEvent({ type: "ArtifactSubmitted", payload: { artifact }, actorId: ctx.principalId });
+  const event = createEvent({ type: "ArtifactSubmitted", payload: { artifact }, actorId: ctx.principalId as never });
   ctx.eventBus.publish(event);
 
-  return { eventId: event.id, aggregateRef: { type: "Artifact", id: artifact.id }, status: "applied" };
+  return { eventId: event.id, aggregateRef: { kind: "Artifact", id: artifact.id }, status: "accepted", events: [event] };
 }
 
 async function handleAcceptTask(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
@@ -140,10 +147,10 @@ async function handleAcceptTask(intent: ActionIntent, ctx: DispatchContext): Pro
   const next = applyTask(task, { type: "TaskAccepted", payload: { taskId: task.id, acceptedAt: now } });
   await workRepo.saveTask(next);
 
-  const event = createEvent({ type: "TaskAccepted", payload: { ...next }, actorId: ctx.principalId });
+  const event = createEvent({ type: "TaskAccepted", payload: { ...next }, actorId: ctx.principalId as never });
   ctx.eventBus.publish(event);
 
-  return { eventId: event.id, aggregateRef: { type: "Task", id: task.id }, status: "applied" };
+  return { eventId: event.id, aggregateRef: { kind: "Task", id: task.id }, status: "accepted", events: [event] };
 }
 
 async function handleRejectTask(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
@@ -157,10 +164,48 @@ async function handleRejectTask(intent: ActionIntent, ctx: DispatchContext): Pro
   const next = applyTask(task, { type: "TaskRejected", payload: { taskId: task.id, rejectedAt: now } });
   await workRepo.saveTask(next);
 
-  const event = createEvent({ type: "TaskRejected", payload: { ...next }, actorId: ctx.principalId });
+  const event = createEvent({ type: "TaskRejected", payload: { ...next }, actorId: ctx.principalId as never });
   ctx.eventBus.publish(event);
 
-  return { eventId: event.id, aggregateRef: { type: "Task", id: task.id }, status: "applied" };
+  return { eventId: event.id, aggregateRef: { kind: "Task", id: task.id }, status: "accepted", events: [event] };
+}
+
+async function handleAcceptArtifact(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
+  const payload = acceptRejectArtifactSchema.parse(intent.payload);
+  const artifactRepo = new ArtifactRepository(ctx.store);
+  const artifact = await artifactRepo.get(payload.artifactId);
+  if (!artifact) throw notFound("Artifact", payload.artifactId);
+
+  const now = new Date().toISOString();
+  const next: Artifact = { ...artifact, status: "accepted", updatedAt: now };
+  await artifactRepo.save(next);
+
+  const event = createEvent({
+    type: "ArtifactAccepted",
+    payload: { artifact: next, organizationId: payload.organizationId, reason: payload.reason },
+    actorId: ctx.principalId as never,
+  });
+  ctx.eventBus.publish(event);
+  return { eventId: event.id, aggregateRef: { kind: "Artifact", id: artifact.id }, status: "accepted", events: [event] };
+}
+
+async function handleRejectArtifact(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
+  const payload = acceptRejectArtifactSchema.parse(intent.payload);
+  const artifactRepo = new ArtifactRepository(ctx.store);
+  const artifact = await artifactRepo.get(payload.artifactId);
+  if (!artifact) throw notFound("Artifact", payload.artifactId);
+
+  const now = new Date().toISOString();
+  const next: Artifact = { ...artifact, status: "rejected", updatedAt: now };
+  await artifactRepo.save(next);
+
+  const event = createEvent({
+    type: "ArtifactRejected",
+    payload: { artifact: next, organizationId: payload.organizationId, reason: payload.reason },
+    actorId: ctx.principalId as never,
+  });
+  ctx.eventBus.publish(event);
+  return { eventId: event.id, aggregateRef: { kind: "Artifact", id: artifact.id }, status: "accepted", events: [event] };
 }
 
 // ─── Registration ─────────────────────────────────────────────────────────────
@@ -171,4 +216,6 @@ export function registerWorkHandlers(dispatcher: ActionIntentDispatcher): void {
   dispatcher.register("SubmitArtifact", handleSubmitArtifact);
   dispatcher.register("AcceptTask", handleAcceptTask);
   dispatcher.register("RejectTask", handleRejectTask);
+  dispatcher.register("AcceptArtifact", handleAcceptArtifact);
+  dispatcher.register("RejectArtifact", handleRejectArtifact);
 }

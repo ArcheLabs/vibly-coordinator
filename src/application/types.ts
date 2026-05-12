@@ -18,6 +18,10 @@ export type ActionIntentType =
   | "VetoProposal"
   | "EmergencyPause"
   | "EmergencyResume"
+  | "RegisterAgentProfile"
+  | "UpdateAgentProfile"
+  | "UpsertMechanism"
+  | "SeedKnowledgeEntry"
   // ─── Observation ────────────────────────────────────────────────────────
   | "CreateObservation"
   | "CreateObservationTask"
@@ -37,10 +41,19 @@ export type ActionIntentType =
   | "ClaimTask"
   | "SubmitTask"
   | "SubmitArtifact"
+  | "AcceptArtifact"
+  | "RejectArtifact"
+  | "AcceptTask"
+  | "RejectTask"
   // ─── Review ─────────────────────────────────────────────────────────────
+  | "CreateReviewRound"
   | "SubmitReview"
   // ─── Reward / Settlement ────────────────────────────────────────────────
   | "CreateRewardIntent"
+  | "ApproveRewardIntent"
+  | "VetoReward"
+  | "CreateSettlementBatch"
+  | "ConfirmSettlementBatch"
   | "SubmitSettlement"
   // ─── Human / Request ────────────────────────────────────────────────────
   | "AnswerRequest";

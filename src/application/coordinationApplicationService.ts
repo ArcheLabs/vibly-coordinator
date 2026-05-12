@@ -169,7 +169,7 @@ async function handleRespondAssignmentOffer(intent: ActionIntent, ctx: DispatchC
   if (!assignment) throw notFound("AssignmentOffer", data.assignmentId);
 
   const now = new Date().toISOString();
-  const updated = { ...assignment, status: data.response === "accept" ? "accepted" : "declined", respondedAt: now };
+  const updated = { ...assignment, status: data.response === "accept" ? "accepted" as const : "declined" as const, respondedAt: now };
   await repo.saveAssignmentOffer(updated);
 
   const eventType = data.response === "accept" ? "AssignmentAccepted" : "AssignmentDeclined";

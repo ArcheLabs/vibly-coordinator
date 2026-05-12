@@ -52,10 +52,10 @@ async function handleCreateReviewRound(intent: ActionIntent, ctx: DispatchContex
   };
   await reviewRepo.save(round);
 
-  const event = createEvent({ type: "ReviewRoundCreated", payload: { ...round }, actorId: ctx.principalId });
+  const event = createEvent({ type: "ReviewRoundCreated", payload: { ...round }, actorId: ctx.principalId as never });
   ctx.eventBus.publish(event);
 
-  return { eventId: event.id, aggregateRef: { type: "ReviewRound", id: round.id }, status: "applied" };
+  return { eventId: event.id, aggregateRef: { kind: "ReviewRound", id: round.id }, status: "accepted", events: [event] };
 }
 
 async function handleSubmitReview(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
@@ -99,11 +99,31 @@ async function handleSubmitReview(intent: ActionIntent, ctx: DispatchContext): P
   };
   await reviewRepo.save(updated);
 
-  const eventType = allDone ? "ReviewRoundCompleted" : "ReviewSubmitted";
-  const event = createEvent({ type: eventType, payload: { ...updated, newReview: reviewItem }, actorId: ctx.principalId });
-  ctx.eventBus.publish(event);
+  const submittedEvent = createEvent({
+    type: "ReviewSubmitted",
+    payload: {
+      reviewRoundId: round.id,
+      organizationId: round.organizationId,
+      reviewerId: ctx.principalId,
+      outcome: payload.outcome,
+      comment: payload.comment,
+      review: reviewItem,
+    },
+    actorId: ctx.principalId as never,
+  });
+  ctx.eventBus.publish(submittedEvent);
 
-  return { eventId: event.id, aggregateRef: { type: "ReviewRound", id: round.id }, status: "applied" };
+  if (allDone) {
+    const completedEvent = createEvent({
+      type: "ReviewRoundCompleted",
+      payload: { ...updated, reviewRoundId: round.id, organizationId: round.organizationId, newReview: reviewItem },
+      actorId: ctx.principalId as never,
+      causationId: submittedEvent.id,
+    });
+    ctx.eventBus.publish(completedEvent);
+  }
+
+  return { eventId: submittedEvent.id, aggregateRef: { kind: "ReviewRound", id: round.id }, status: "accepted", events: [submittedEvent] };
 }
 
 // ─── Registration ─────────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@
 import type { CoordinatorStorePort } from "../db/coordinatorStorePort.js";
 import type { EventBus } from "../services/eventBus.js";
 import type { CoordinatorConfig } from "../config/env.js";
+import type { Concord } from "@concord/sdk";
 import type { ActionIntent, ActionIntentResult, ActionIntentType } from "./types.js";
 import { badRequest } from "../domain/errors.js";
 
@@ -18,6 +19,7 @@ export interface DispatchContext {
   store: CoordinatorStorePort;
   eventBus: EventBus;
   config: CoordinatorConfig;
+  concord: Concord;
   /** The resolved principal id from auth middleware. */
   principalId: string;
 }

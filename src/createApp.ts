@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import type { CoordinatorConfig } from "./config/env.js";
 import type { Logger } from "./config/logger.js";
 import type { Concord } from "@concord/sdk";
+import type { EventEnvelope } from "@concord/foundation";
 import type { CoordinatorStorePort } from "./db/coordinatorStorePort.js";
 import type { EventBus } from "./services/eventBus.js";
 
@@ -27,6 +28,7 @@ import observationsRoutes from "./modules/knowledge/observations/routes.js";
 
 import principalsRoutes from "./modules/identity/principals/routes.js";
 import agentsRoutes from "./modules/identity/agents/routes.js";
+import agentProfileRoutes from "./api/routes/agentProfile.js";
 import membershipsRoutes from "./modules/identity/memberships/routes.js";
 import onboardingRoutes from "./modules/identity/onboarding/routes.js";
 import dotVibRoutes from "./modules/conversion/dot-vib/routes.js";
@@ -129,6 +131,8 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   const { registerSettlementHandlers } = await import("./application/settlementApplicationService.js");
   registerSettlementHandlers(dispatcher);
 
+  startCoordinatorEventPersistence(eventBus, coordinatorStore, concord);
+
   // ─── v0.2 process managers (event-driven reactions) ───────────────────────
   const { startObservationAssignmentProcess } = await import("./process-managers/observationAssignmentProcess.js");
   startObservationAssignmentProcess(eventBus, coordinatorStore);
@@ -145,6 +149,9 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
 
   const { startRewardCreationProcess } = await import("./process-managers/rewardCreationProcess.js");
   startRewardCreationProcess(eventBus, coordinatorStore);
+
+  const { startE2eCollaborationProcesses } = await import("./process-managers/e2eCollaborationProcesses.js");
+  startE2eCollaborationProcesses(eventBus, coordinatorStore);
 
   // ─── v0.2 projectors ──────────────────────────────────────────────────────
   const { startReputationProjector } = await import("./contexts/reputation/projector.js");
@@ -174,6 +181,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(coordinationRoutes);
   await fastify.register(workflowRoutes);
   await fastify.register(reputationV2Routes);
+  await fastify.register(agentProfileRoutes);
 
   // ─── Legacy routes (deprecated, retained until Phase 5 cleanup) ───────────
   await fastify.register(projectsRoutes);
@@ -287,4 +295,75 @@ function isGovernanceBackendEnabled(
 ): boolean {
   if (config.governanceBackends.length === 0) return defaultEnabled;
   return config.governanceBackends.includes(backendId);
+}
+
+function startCoordinatorEventPersistence(
+  eventBus: EventBus,
+  store: CoordinatorStorePort,
+  concord: Concord,
+): void {
+  eventBus.subscribe(async (event) => {
+    try {
+      await concord.state.events.append(event);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!message.includes("Event already exists") && !message.includes("UNIQUE constraint failed")) {
+        console.error("[EventPersistence]", err);
+      }
+    }
+
+    const scope = extractScope(event);
+    if (!scope.organizationId) return;
+    const feedItem = {
+      feedEventId: event.id,
+      eventType: event.type,
+      organizationId: scope.organizationId,
+      projectId: scope.projectId,
+      actorId: typeof event.actorId === "string" ? event.actorId : undefined,
+      subject: scope.subject,
+      summary: `${event.type} on ${scope.subject?.type ?? scope.organizationId}`,
+      payload: event.payload as Record<string, unknown>,
+      createdAt: event.timestamp.iso,
+    };
+    try {
+      await store.saveProjection("organization_feed_v2", feedItem.feedEventId, feedItem);
+    } catch (err) {
+      console.error("[FeedProjection]", err);
+    }
+  });
+}
+
+function extractScope(event: EventEnvelope<string, unknown>): {
+  organizationId?: string;
+  projectId?: string;
+  subject?: { type: string; id?: string };
+} {
+  const payload = event.payload as Record<string, unknown>;
+  const nested = (
+    payload["observation"]
+    ?? payload["task"]
+    ?? payload["artifact"]
+    ?? payload["proposal"]
+    ?? payload["rewardIntent"]
+    ?? payload["batch"]
+  ) as Record<string, unknown> | undefined;
+  const source = nested ?? payload;
+  const organizationId = stringValue(source["organizationId"]) ?? stringValue(payload["organizationId"]);
+  const projectId = stringValue(source["projectId"]) ?? stringValue(payload["projectId"]);
+  const id = stringValue(source["id"])
+    ?? stringValue(payload["proposalId"])
+    ?? stringValue(payload["taskId"])
+    ?? stringValue(payload["artifactId"])
+    ?? stringValue(payload["reviewRoundId"])
+    ?? stringValue(payload["discussionId"]);
+
+  return {
+    organizationId,
+    projectId,
+    subject: { type: event.type.replace(/(Created|Submitted|Accepted|Rejected|Updated|Recorded|Started|Completed|Confirmed|Opened|Claimed|Requested|Selected)$/u, ""), id },
+  };
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }

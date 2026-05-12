@@ -20,6 +20,10 @@ import { OrganizationRepository } from "../contexts/organization/repository.js";
 import { apply, type OrganizationEvent } from "../contexts/organization/aggregate.js";
 import type { OrganizationHandbook, OrganizationMember, AuthorityAssignment } from "../contexts/organization/types.js";
 import { isKnownAuthority } from "../contexts/authority/types.js";
+import { IdentityRepository } from "../contexts/identity/repository.js";
+import type { AgentProfile, Principal } from "../contexts/identity/types.js";
+import { MechanismRepository } from "../contexts/mechanism/repository.js";
+import type { CoordinationMechanism } from "../contexts/mechanism/types.js";
 
 // ─── Zod schemas ────────────────────────────────────────────────────────────
 
@@ -70,6 +74,40 @@ const emergencyPauseSchema = z.object({
 
 const emergencyResumeSchema = z.object({
   organizationId: z.string().min(1),
+});
+
+const registerAgentProfileSchema = z.object({
+  principalId: z.string().min(1),
+  displayName: z.string().min(1),
+  organizationIds: z.array(z.string().min(1)).min(1),
+  capabilities: z.array(z.string().min(1)).default([]),
+  reputationScore: z.number().optional(),
+  stakeBalance: z.string().optional(),
+});
+
+const upsertMechanismSchema = z.object({
+  id: z.string().min(1).optional(),
+  organizationId: z.string().min(1),
+  projectId: z.string().optional(),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  observerSelection: z.record(z.unknown()).optional(),
+  participantSelection: z.record(z.unknown()).optional(),
+  reviewerSelection: z.record(z.unknown()).optional(),
+  voterSelection: z.record(z.unknown()).optional(),
+  assignmentSelection: z.record(z.unknown()).optional(),
+  timeout: z.record(z.unknown()).optional(),
+  reward: z.record(z.unknown()).optional(),
+  votingRule: z.string().optional(),
+});
+
+const seedKnowledgeEntrySchema = z.object({
+  organizationId: z.string().min(1),
+  projectId: z.string().optional(),
+  title: z.string().min(1),
+  content: z.string().min(1),
+  tags: z.array(z.string()).optional(),
+  sourceRef: z.object({ type: z.string(), id: z.string() }).optional(),
 });
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -259,6 +297,101 @@ async function handleEmergencyResume(intent: ActionIntent, ctx: DispatchContext)
   return makeResult(env, "Organization", organizationId);
 }
 
+async function handleRegisterAgentProfile(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
+  const data = parsePayload(registerAgentProfileSchema, intent);
+  const repo = new IdentityRepository(ctx.store);
+  const now = new Date().toISOString();
+
+  const existingPrincipal = await repo.getPrincipal(data.principalId);
+  const principal: Principal = existingPrincipal ?? {
+    id: data.principalId,
+    kind: "agent",
+    displayName: data.displayName,
+    organizationIds: data.organizationIds,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await repo.savePrincipal({
+    ...principal,
+    displayName: data.displayName,
+    organizationIds: data.organizationIds,
+    updatedAt: now,
+  });
+
+  const existingProfile = await repo.getAgentProfile(data.principalId);
+  const profile: AgentProfile = {
+    principalId: data.principalId,
+    displayName: data.displayName,
+    capabilities: data.capabilities ?? [],
+    organizationIds: data.organizationIds,
+    reputationScore: data.reputationScore,
+    stakeBalance: data.stakeBalance,
+    createdAt: existingProfile?.createdAt ?? now,
+    updatedAt: now,
+  };
+  await repo.saveAgentProfile(profile);
+
+  const env = createEvent({ type: "AgentProfileRegistered", payload: { ...profile }, actorId: intent.principalId as never });
+  ctx.eventBus.publish(env);
+  return makeResult(env, "AgentProfile", data.principalId);
+}
+
+async function handleUpsertMechanism(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
+  const data = parsePayload(upsertMechanismSchema, intent);
+  const repo = new MechanismRepository(ctx.store);
+  const id = data.id ?? makeId("mech");
+  const now = new Date().toISOString();
+  const existing = await repo.get(id);
+
+  const mechanism: CoordinationMechanism = {
+    id,
+    organizationId: data.organizationId,
+    projectId: data.projectId,
+    name: data.name,
+    description: data.description,
+    observerSelection: data.observerSelection as CoordinationMechanism["observerSelection"],
+    participantSelection: data.participantSelection as CoordinationMechanism["participantSelection"],
+    reviewerSelection: data.reviewerSelection as CoordinationMechanism["reviewerSelection"],
+    voterSelection: data.voterSelection as CoordinationMechanism["voterSelection"],
+    assignmentSelection: data.assignmentSelection as CoordinationMechanism["assignmentSelection"],
+    timeout: data.timeout as CoordinationMechanism["timeout"],
+    reward: data.reward as CoordinationMechanism["reward"],
+    votingRule: data.votingRule as CoordinationMechanism["votingRule"],
+    createdBy: existing?.createdBy ?? intent.principalId,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  };
+  await repo.save(mechanism);
+
+  const env = createEvent({ type: "MechanismUpserted", payload: { ...mechanism }, actorId: intent.principalId as never });
+  ctx.eventBus.publish(env);
+  return makeResult(env, "Mechanism", id);
+}
+
+async function handleSeedKnowledgeEntry(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
+  const data = parsePayload(seedKnowledgeEntrySchema, intent);
+  const id = makeId("kentry");
+  const now = new Date().toISOString();
+  const entry = {
+    id,
+    organizationId: data.organizationId,
+    projectId: data.projectId,
+    title: data.title,
+    content: data.content,
+    tags: data.tags ?? [],
+    sourceRef: data.sourceRef,
+    version: 1,
+    createdBy: intent.principalId,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await ctx.store.saveProjection("knowledge_entry_v2", id, entry);
+
+  const env = createEvent({ type: "KnowledgeEntryCreated", payload: { ...entry }, actorId: intent.principalId as never });
+  ctx.eventBus.publish(env);
+  return makeResult(env, "KnowledgeEntry", id);
+}
+
 // ─── Registration ────────────────────────────────────────────────────────────
 
 export function registerOrganizationHandlers(dispatcher: ActionIntentDispatcher): void {
@@ -271,5 +404,9 @@ export function registerOrganizationHandlers(dispatcher: ActionIntentDispatcher)
     .register("GrantAuthority", handleAssignGuardian)
     .register("RevokeAuthority", handleRevokeAuthority)
     .register("EmergencyPause", handleEmergencyPause)
-    .register("EmergencyResume", handleEmergencyResume);
+    .register("EmergencyResume", handleEmergencyResume)
+    .register("RegisterAgentProfile", handleRegisterAgentProfile)
+    .register("UpdateAgentProfile", handleRegisterAgentProfile)
+    .register("UpsertMechanism", handleUpsertMechanism)
+    .register("SeedKnowledgeEntry", handleSeedKnowledgeEntry);
 }

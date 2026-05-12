@@ -69,8 +69,9 @@ export function startReputationProjector(
 
   subs.push(eventBus.subscribe(async (env) => {
     const payload = env.payload as Record<string, unknown>;
-    const assigneeId = payload["assigneeId"] as string | undefined;
-    const orgId = payload["organizationId"] as string | undefined;
+    const observation = payload["observation"] as Record<string, unknown> | undefined;
+    const assigneeId = (payload["assigneeId"] as string | undefined) ?? (observation?.["submittedBy"] as string | undefined);
+    const orgId = (payload["organizationId"] as string | undefined) ?? (observation?.["organizationId"] as string | undefined);
     if (!assigneeId || !orgId) return;
     await record(repo, assigneeId, orgId, "assignment-completed", "Completed assignment offer", env.id, { type: "AssignmentOffer", id: (payload["id"] as string) ?? "" });
   }, (env) => env.type === "ObservationSubmitted"));
@@ -94,8 +95,8 @@ export function startReputationProjector(
   subs.push(eventBus.subscribe(async (env) => {
     const payload = env.payload as Record<string, unknown>;
     const task = payload["task"] as Record<string, unknown> | undefined;
-    const assigneeId = task?.["assigneeId"] as string | undefined;
-    const orgId = task?.["organizationId"] as string | undefined;
+    const assigneeId = (task?.["assigneeId"] as string | undefined) ?? (payload["assigneeId"] as string | undefined);
+    const orgId = (task?.["organizationId"] as string | undefined) ?? (payload["organizationId"] as string | undefined);
     if (!assigneeId || !orgId) return;
     await record(repo, assigneeId, orgId, "task-accepted", "Task accepted by reviewer", env.id, { type: "Task", id: (task?.["id"] as string) ?? "" });
   }, (env) => env.type === "TaskAccepted"));
@@ -103,8 +104,8 @@ export function startReputationProjector(
   subs.push(eventBus.subscribe(async (env) => {
     const payload = env.payload as Record<string, unknown>;
     const task = payload["task"] as Record<string, unknown> | undefined;
-    const assigneeId = task?.["assigneeId"] as string | undefined;
-    const orgId = task?.["organizationId"] as string | undefined;
+    const assigneeId = (task?.["assigneeId"] as string | undefined) ?? (payload["assigneeId"] as string | undefined);
+    const orgId = (task?.["organizationId"] as string | undefined) ?? (payload["organizationId"] as string | undefined);
     if (!assigneeId || !orgId) return;
     await record(repo, assigneeId, orgId, "task-rejected", "Task rejected by reviewer", env.id, { type: "Task", id: (task?.["id"] as string) ?? "" });
   }, (env) => env.type === "TaskRejected"));

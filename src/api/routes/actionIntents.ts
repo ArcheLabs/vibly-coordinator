@@ -78,6 +78,7 @@ const actionIntentsRoutes: FastifyPluginAsync<ActionIntentsPluginOptions> = asyn
           store: fastify.coordinatorStore,
           eventBus: fastify.eventBus,
           config: fastify.config,
+          concord: fastify.concord,
           principalId: intent.principalId,
         },
       );

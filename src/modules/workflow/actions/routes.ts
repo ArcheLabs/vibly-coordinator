@@ -118,7 +118,7 @@ const actionsRoutes: FastifyPluginAsync = async (fastify) => {
         .map((e) => e.payload as ActionIntent)
         .filter((a) => (a as unknown as { projectId?: string }).projectId === request.params.projectId);
       if (type) actions = actions.filter((a) => a.type === type);
-      if (proposedBy) actions = actions.filter((a) => String(a.proposedBy) === proposedBy);
+      if (proposedBy) actions = actions.filter((a) => String((a as unknown as { proposedBy?: string }).proposedBy) === proposedBy);
 
       let startIdx = 0;
       if (cursor) {

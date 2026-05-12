@@ -3,6 +3,7 @@ export interface Artifact {
   taskId?: string;
   organizationId: string;
   createdBy: string;
+  status?: "submitted" | "accepted" | "rejected" | "merged";
   mimeType: string;
   title: string;
   description?: string;
