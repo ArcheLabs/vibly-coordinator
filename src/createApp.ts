@@ -164,6 +164,18 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
     config,
   });
 
+  const { startAgentStakeReleaseProcess } = await import("./process-managers/agentStakeReleaseProcess.js");
+  startAgentStakeReleaseProcess(eventBus, coordinatorStore, config);
+
+  const { startAgentStakeIndexerSync } = await import("./services/agentStakeIndexerSync.js");
+  const stopAgentStakeIndexerSync = startAgentStakeIndexerSync({
+    config,
+    dispatcher,
+    store: coordinatorStore,
+    eventBus,
+    concord,
+  });
+
   // ─── v0.2 projectors ──────────────────────────────────────────────────────
   const { startReputationProjector } = await import("./contexts/reputation/projector.js");
   startReputationProjector(eventBus, coordinatorStore);
@@ -182,6 +194,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(ssePlugin, { heartbeatMs: config.sseHeartbeatMs });
   fastify.addHook("onClose", async () => {
     stopAssignmentExpiryScheduler();
+    stopAgentStakeIndexerSync();
   });
 
   await fastify.register(healthRoutes, { config, readinessProbe });

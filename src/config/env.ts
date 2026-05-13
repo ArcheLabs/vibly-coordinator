@@ -17,6 +17,8 @@ const envSchema = z
     OIDC_PROJECTS_CLAIM: z.string().default("vibly_projects"),
     SSE_HEARTBEAT_MS: z.coerce.number().default(15000),
     ASSIGNMENT_EXPIRY_INTERVAL_MS: z.coerce.number().default(0),
+    AGENT_STAKE_SYNC_INTERVAL_MS: z.coerce.number().default(0),
+    AGENT_STAKE_FRESHNESS_MS: z.coerce.number().default(30000),
     TRACE_OUTPUT_DIR: z.string().default("./data/traces"),
     ENABLE_SWAGGER: z.string().transform((v) => v === "true").default("true"),
     ENABLE_DEV_ROUTES: z.string().transform((v) => v === "true").default("false"),
@@ -25,6 +27,8 @@ const envSchema = z
     SUBSTRATE_CHAIN_ID: z.string().default("substrate:vibly-solo"),
     SUBSTRATE_RPC_URL: z.string().default("ws://127.0.0.1:9944"),
     SUBSTRATE_GOVERNANCE_TX_MODE: z.enum(["prepare-only", "fixture", "unsafe-papi"]).default("prepare-only"),
+    SUBSTRATE_STAKE_TX_MODE: z.enum(["prepare-only", "fixture", "unsafe-papi"]).default("prepare-only"),
+    SUBSTRATE_COORDINATOR_AUTHORITY_URI: z.string().default("//Alice"),
     EVM_GOVERNOR_FIXTURE: z.string().transform((v) => v === "true").default("false"),
     EVM_CHAIN_ID: z.string().default("31337"),
     VIBLY_DOT_RECEIVING_ADDRESS: z.string().default(""),
@@ -118,6 +122,8 @@ export interface CoordinatorConfig {
   oidcProjectsClaim: string;
   sseHeartbeatMs: number;
   assignmentExpiryIntervalMs: number;
+  agentStakeSyncIntervalMs: number;
+  agentStakeFreshnessMs: number;
   traceOutputDir: string;
   enableSwagger: boolean;
   enableDevRoutes: boolean;
@@ -126,6 +132,8 @@ export interface CoordinatorConfig {
   substrateChainId: string;
   substrateRpcUrl: string;
   substrateGovernanceTxMode: "prepare-only" | "fixture" | "unsafe-papi";
+  substrateStakeTxMode: "prepare-only" | "fixture" | "unsafe-papi";
+  substrateCoordinatorAuthorityUri: string;
   evmGovernorFixture: boolean;
   evmChainId: string;
   viblyDotReceivingAddress: string;
@@ -157,6 +165,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     oidcProjectsClaim: parsed.OIDC_PROJECTS_CLAIM,
     sseHeartbeatMs: parsed.SSE_HEARTBEAT_MS,
     assignmentExpiryIntervalMs: parsed.ASSIGNMENT_EXPIRY_INTERVAL_MS,
+    agentStakeSyncIntervalMs: parsed.AGENT_STAKE_SYNC_INTERVAL_MS,
+    agentStakeFreshnessMs: parsed.AGENT_STAKE_FRESHNESS_MS,
     traceOutputDir: parsed.TRACE_OUTPUT_DIR,
     enableSwagger: parsed.ENABLE_SWAGGER,
     enableDevRoutes: parsed.ENABLE_DEV_ROUTES,
@@ -165,6 +175,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     substrateChainId: parsed.SUBSTRATE_CHAIN_ID,
     substrateRpcUrl: parsed.SUBSTRATE_RPC_URL,
     substrateGovernanceTxMode: parsed.SUBSTRATE_GOVERNANCE_TX_MODE,
+    substrateStakeTxMode: parsed.SUBSTRATE_STAKE_TX_MODE,
+    substrateCoordinatorAuthorityUri: parsed.SUBSTRATE_COORDINATOR_AUTHORITY_URI,
     evmGovernorFixture: parsed.EVM_GOVERNOR_FIXTURE,
     evmChainId: parsed.EVM_CHAIN_ID,
     viblyDotReceivingAddress: parsed.VIBLY_DOT_RECEIVING_ADDRESS,

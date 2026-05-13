@@ -430,7 +430,7 @@ async function handleUpsertAgentStakeLedger(intent: ActionIntent, ctx: DispatchC
   return { eventId: env.id, aggregateRef: { kind: "AgentStakeLedger", id }, status: "accepted", events };
 }
 
-async function listBlockingObligations(store: DispatchContext["store"], principalId: string): Promise<Array<Record<string, unknown>>> {
+export async function listBlockingObligations(store: DispatchContext["store"], principalId: string): Promise<Array<Record<string, unknown>>> {
   const coordination = new CoordinationRepository(store);
   const reviews = new ReviewRepository(store);
   const work = new WorkRepository(store);
