@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import type { CoordinatorConfig } from "../config/env.js";
 import { forbidden } from "../domain/errors.js";
 import type { CoordinatorAuth } from "./auth.js";
+import { getRouteAuthPolicy } from "./authPolicy.js";
 
 export function requireScope(auth: CoordinatorAuth | undefined, scope: string): void {
   if (!auth) throw forbidden("Unauthorized");
@@ -37,9 +38,23 @@ const authorizationPlugin: FastifyPluginAsync<AuthorizationPluginOptions> = asyn
       return;
     }
 
+    const policy = getRouteAuthPolicy(request);
+    if (policy === "public-read") return;
+
     const auth = request.auth;
     if (!auth) throw forbidden("Auth context missing");
     if (auth.kind === "static") return;
+
+    if (policy === "coordinator-authority") {
+      requireScope(auth, "coord:admin");
+      return;
+    }
+
+    if (policy === "service-token" || policy === "wallet-session" || policy === "signed-action") {
+      const read = request.method === "GET" || request.method === "HEAD";
+      requireScope(auth, read ? "coord:read" : "coord:write");
+      return;
+    }
 
     const m = request.method;
     const read = m === "GET" || m === "HEAD";

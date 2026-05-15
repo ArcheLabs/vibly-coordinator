@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../../domain/apiTypes.js";
 import { notFound } from "../../../domain/errors.js";
 import { envelopeKey, listEnvelope } from "../../../domain/schemas.js";
+import { authPolicy } from "../../../plugins/authPolicy.js";
 
 const agentsRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /agents
@@ -17,7 +18,7 @@ const agentsRoutes: FastifyPluginAsync = async (fastify) => {
   }>(
     "/agents",
     {
-      schema: {
+      ...authPolicy("service-token", {
         tags: ["Agents"],
         summary: "Register a new agent",
         body: {
@@ -33,7 +34,7 @@ const agentsRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKey("agent") },
-      },
+      }),
     },
     async (request) => {
       const agent = await fastify.concord.agents.registerAgent({
@@ -52,7 +53,7 @@ const agentsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { principalId?: string; status?: string; limit?: string; cursor?: string } }>(
     "/agents",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Agents"],
         summary: "List agents",
         querystring: {
@@ -65,7 +66,7 @@ const agentsRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: listEnvelope() },
-      },
+      }),
     },
     async (request) => {
       const { principalId, status, limit: limitStr, cursor } = request.query;
@@ -89,12 +90,12 @@ const agentsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { agentId: string } }>(
     "/agents/:agentId",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Agents"],
         summary: "Get an agent",
         params: { type: "object", required: ["agentId"], properties: { agentId: { type: "string" } } },
         response: { 200: envelopeKey("agent") },
-      },
+      }),
     },
     async (request) => {
       const agent = await fastify.concord.agents.getAgent(request.params.agentId as never);
@@ -110,7 +111,7 @@ const agentsRoutes: FastifyPluginAsync = async (fastify) => {
   }>(
     "/agents/:agentId/status",
     {
-      schema: {
+      ...authPolicy("wallet-session", {
         tags: ["Agents"],
         summary: "Change agent status",
         params: { type: "object", required: ["agentId"], properties: { agentId: { type: "string" } } },
@@ -123,7 +124,7 @@ const agentsRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKey("agent") },
-      },
+      }),
     },
     async (request) => {
       const agent = await fastify.concord.agents.changeAgentStatus({
@@ -148,7 +149,7 @@ const agentsRoutes: FastifyPluginAsync = async (fastify) => {
   }>(
     "/agents/:agentId/runtime-bindings",
     {
-      schema: {
+      ...authPolicy("wallet-session", {
         tags: ["Agents"],
         summary: "Create runtime binding for agent",
         params: { type: "object", required: ["agentId"], properties: { agentId: { type: "string" } } },
@@ -164,7 +165,7 @@ const agentsRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKey("runtimeBinding") },
-      },
+      }),
     },
     async (request) => {
       const binding = await fastify.concord.agents.createRuntimeBinding({
@@ -183,12 +184,12 @@ const agentsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { agentId: string } }>(
     "/agents/:agentId/runtime-bindings",
     {
-      schema: {
+      ...authPolicy("wallet-session", {
         tags: ["Agents"],
         summary: "List runtime bindings for agent",
         params: { type: "object", required: ["agentId"], properties: { agentId: { type: "string" } } },
         response: { 200: listEnvelope() },
-      },
+      }),
     },
     async (request) => {
       const events = await fastify.concord.state.events.query({ type: ["RuntimeBindingCreated"] });
@@ -203,7 +204,7 @@ const agentsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete<{ Params: { agentId: string; bindingId: string }; Body: { reason: string } }>(
     "/agents/:agentId/runtime-bindings/:bindingId",
     {
-      schema: {
+      ...authPolicy("wallet-session", {
         tags: ["Agents"],
         summary: "Revoke a runtime binding",
         params: {
@@ -217,7 +218,7 @@ const agentsRoutes: FastifyPluginAsync = async (fastify) => {
           properties: { reason: { type: "string" } },
         },
         response: { 200: envelopeKey("runtimeBinding") },
-      },
+      }),
     },
     async (request) => {
       const binding = await fastify.concord.agents.revokeRuntimeBinding({

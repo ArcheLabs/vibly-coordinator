@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { GUARDIAN_REQUEST, PROJECT_TIMELINE_ENTRY, REPUTATION_EVIDENCE, REWARD_INTENT, SCENARIO_RUN, SLASH_REQUEST, TRACE } from "../../../db/projectionKinds.js";
 import { ok } from "../../../domain/apiTypes.js";
 import { envelopeKey, envelopeKeyArray } from "../../../domain/schemas.js";
+import { authPolicy } from "../../../plugins/authPolicy.js";
 
 interface ScenarioRun {
   id: string;
@@ -31,12 +32,12 @@ const projectReadModelRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { projectId: string } }>(
     "/projects/:projectId/overview",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Project read models"],
         summary: "Project overview (aggregated read model)",
         params: { type: "object", required: ["projectId"], properties: { projectId: { type: "string" } } },
         response: { 200: envelopeKey("overview") },
-      },
+      }),
     },
     async (request) => {
       const { projectId } = request.params;
@@ -99,12 +100,12 @@ const projectReadModelRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { projectId: string } }>(
     "/projects/:projectId/timeline",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Project read models"],
         summary: "Project timeline (merged from runs and projections)",
         params: { type: "object", required: ["projectId"], properties: { projectId: { type: "string" } } },
         response: { 200: envelopeKeyArray("timeline") },
-      },
+      }),
     },
     async (request) => {
       const { projectId } = request.params;

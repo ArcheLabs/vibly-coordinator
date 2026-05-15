@@ -3,6 +3,7 @@ import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import type { CoordinatorConfig } from "../config/env.js";
 import { unauthorized } from "../domain/errors.js";
+import { getRouteAuthPolicy } from "./authPolicy.js";
 
 const PUBLIC_PATHS = new Set(["/health", "/ready", "/metrics", "/docs", "/openapi.json", "/documentation"]);
 
@@ -70,7 +71,7 @@ const authPlugin: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opts) 
   fastify.addHook("onRequest", async (request: FastifyRequest, reply: FastifyReply) => {
     const path = request.url.split("?")[0] ?? "";
 
-    if (isPublicPath(path)) return;
+    if (isPublicPath(path) || getRouteAuthPolicy(request) === "public-read") return;
 
     const authHeader = request.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {

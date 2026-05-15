@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../../domain/apiTypes.js";
 import { notFound } from "../../../domain/errors.js";
 import { envelopeKey, listEnvelope } from "../../../domain/schemas.js";
+import { authPolicy } from "../../../plugins/authPolicy.js";
 
 const projectsRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /projects
@@ -16,7 +17,7 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
   }>(
     "/projects",
     {
-      schema: {
+      ...authPolicy("service-token", {
         tags: ["Projects"],
         summary: "Create a new project",
         body: {
@@ -31,7 +32,7 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKey("project") },
-      },
+      }),
     },
     async (request) => {
       const project = await fastify.concord.projects.createProject({
@@ -53,7 +54,7 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { status?: string; limit?: string; cursor?: string } }>(
     "/projects",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Projects"],
         summary: "List projects",
         querystring: {
@@ -65,7 +66,7 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: listEnvelope() },
-      },
+      }),
     },
     async (request) => {
       const { status, limit: limitStr, cursor } = request.query;
@@ -88,12 +89,12 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { projectId: string } }>(
     "/projects/:projectId",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Projects"],
         summary: "Get a project",
         params: { type: "object", required: ["projectId"], properties: { projectId: { type: "string" } } },
         response: { 200: envelopeKey("project") },
-      },
+      }),
     },
     async (request) => {
       const project = await fastify.concord.projects.getProject(request.params.projectId as never);
@@ -109,7 +110,7 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
   }>(
     "/projects/:projectId/activate",
     {
-      schema: {
+      ...authPolicy("service-token", {
         tags: ["Projects"],
         summary: "Activate a project",
         params: { type: "object", required: ["projectId"], properties: { projectId: { type: "string" } } },
@@ -119,7 +120,7 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
           properties: { actorId: { type: "string" }, reason: { type: "string" } },
         },
         response: { 200: envelopeKey("project") },
-      },
+      }),
     },
     async (request) => {
       const project = await fastify.concord.projects.activateProject({
@@ -138,7 +139,7 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
   }>(
     "/projects/:projectId/pause",
     {
-      schema: {
+      ...authPolicy("service-token", {
         tags: ["Projects"],
         summary: "Pause a project",
         params: { type: "object", required: ["projectId"], properties: { projectId: { type: "string" } } },
@@ -148,7 +149,7 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
           properties: { actorId: { type: "string" }, reason: { type: "string" } },
         },
         response: { 200: envelopeKey("project") },
-      },
+      }),
     },
     async (request) => {
       const project = await fastify.concord.projects.pauseProject({
@@ -167,7 +168,7 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
   }>(
     "/projects/:projectId/archive",
     {
-      schema: {
+      ...authPolicy("service-token", {
         tags: ["Projects"],
         summary: "Archive a project",
         params: { type: "object", required: ["projectId"], properties: { projectId: { type: "string" } } },
@@ -177,7 +178,7 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
           properties: { actorId: { type: "string" }, reason: { type: "string" } },
         },
         response: { 200: envelopeKey("project") },
-      },
+      }),
     },
     async (request) => {
       const project = await fastify.concord.projects.archiveProject({

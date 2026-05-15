@@ -31,6 +31,7 @@ import agentsRoutes from "./modules/identity/agents/routes.js";
 import agentProfileRoutes from "./api/routes/agentProfile.js";
 import membershipsRoutes from "./modules/identity/memberships/routes.js";
 import onboardingRoutes from "./modules/identity/onboarding/routes.js";
+import walletRoutes from "./modules/identity/wallet/routes.js";
 import dotVibRoutes from "./modules/conversion/dot-vib/routes.js";
 import adminAirdropRoutes from "./modules/admin/airdrop/routes.js";
 import adminConversionRoutes from "./modules/admin/conversion/routes.js";
@@ -217,6 +218,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(principalsRoutes);
   await fastify.register(agentsRoutes);
   await fastify.register(membershipsRoutes);
+  await fastify.register(walletRoutes);
   await fastify.register(onboardingRoutes);
   await fastify.register(dotVibRoutes);
   await fastify.register(adminAirdropRoutes);

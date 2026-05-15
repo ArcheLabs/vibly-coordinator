@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import EventEmitter from "node:events";
 import type { EventEnvelope } from "@concord/foundation";
+import { authPolicy } from "../../../plugins/authPolicy.js";
 
 const sseResponse200 = {
   description: "Server-Sent Events stream of EventEnvelope frames",
@@ -23,7 +24,7 @@ const streamsRoutes: FastifyPluginAsync = async (fastify) => {
   }>(
     "/streams/events",
     {
-      schema: {
+      ...authPolicy("wallet-session", {
         tags: ["Streams"],
         summary: "Global SSE event stream",
         querystring: {
@@ -35,7 +36,7 @@ const streamsRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: sseResponse200 },
-      },
+      }),
     },
     async (request, reply) => {
       const { projectId, type, actorId } = request.query;
@@ -97,12 +98,12 @@ const streamsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { projectId: string } }>(
     "/projects/:projectId/stream",
     {
-      schema: {
+      ...authPolicy("wallet-session", {
         tags: ["Streams"],
         summary: "Project-scoped SSE event stream",
         params: { type: "object", required: ["projectId"], properties: { projectId: { type: "string" } } },
         response: { 200: sseResponse200 },
-      },
+      }),
     },
     async (request, reply) => {
       const { projectId } = request.params;

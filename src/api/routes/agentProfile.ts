@@ -13,6 +13,7 @@ import { ReviewRepository } from "../../contexts/evaluation/repository.js";
 import { WorkRepository } from "../../contexts/work/repository.js";
 import { SettlementRepository } from "../../contexts/settlement/repository.js";
 import { StakeRepository } from "../../contexts/stake/repository.js";
+import { authPolicy } from "../../plugins/authPolicy.js";
 
 const ITEM_SCHEMA = { type: "object" as const, additionalProperties: true };
 const NOTIFICATION_KIND = "agent_notification_v2";
@@ -25,12 +26,12 @@ const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string } }>(
     "/agent-profiles/:id",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Agents"],
         summary: "Get agent profile by principal ID",
         params: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
         response: { 200: envelopeKey("agent") },
-      },
+      }),
     },
     async (req) => {
       const profile = await repo().getAgentProfile(req.params.id);
@@ -43,7 +44,7 @@ const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { organizationId?: string; limit?: number } }>(
     "/agent-profiles",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Agents"],
         summary: "List agent profiles",
         querystring: {
@@ -54,7 +55,7 @@ const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKeyArray("items", ITEM_SCHEMA) },
-      },
+      }),
     },
     async (req) => {
       const all = await repo().listAgentProfiles();
@@ -70,7 +71,7 @@ const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { principalId?: string; chainId?: string; status?: string; limit?: number } }>(
     "/agent-stakes",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Agents"],
         summary: "List agent stake ledgers synced from chain indexer",
         querystring: {
@@ -83,7 +84,7 @@ const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKeyArray("items", ITEM_SCHEMA) },
-      },
+      }),
     },
     async (req) => {
       let items = await stakeRepo().listLedgers();
@@ -97,7 +98,7 @@ const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string }; Querystring: { organizationId?: string; projectId?: string; limit?: number } }>(
     "/agents/:id/inbox",
     {
-      schema: {
+      ...authPolicy("wallet-session", {
         tags: ["Agents"],
         summary: "Get agent-facing inbox items and readable project snapshot",
         params: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
@@ -115,7 +116,7 @@ const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
             additionalProperties: true,
           }),
         },
-      },
+      }),
     },
     async (req) => {
       const principalId = req.params.id;

@@ -9,6 +9,7 @@ import { ok } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
 import { envelope, envelopeKey, envelopeKeyArray, listEnvelope } from "../../domain/schemas.js";
 import { OrganizationRepository } from "../../contexts/organization/repository.js";
+import { authPolicy } from "../../plugins/authPolicy.js";
 
 const organizationsRoutes: FastifyPluginAsync = async (fastify) => {
   // ─── List organizations ────────────────────────────────────────────────
@@ -16,7 +17,7 @@ const organizationsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { limit?: number; cursor?: string } }>(
     "/organizations",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Organizations"],
         summary: "List organizations",
         querystring: {
@@ -41,7 +42,7 @@ const organizationsRoutes: FastifyPluginAsync = async (fastify) => {
             },
           }),
         },
-      },
+      }),
     },
     async (request) => {
       const repo = new OrganizationRepository(fastify.coordinatorStore);
@@ -62,7 +63,7 @@ const organizationsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { organizationId: string } }>(
     "/organizations/:organizationId",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Organizations"],
         summary: "Get organization by ID",
         params: {
@@ -88,7 +89,7 @@ const organizationsRoutes: FastifyPluginAsync = async (fastify) => {
             },
           }),
         },
-      },
+      }),
     },
     async (request) => {
       const repo = new OrganizationRepository(fastify.coordinatorStore);
@@ -103,7 +104,7 @@ const organizationsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { organizationId: string }; Querystring: { limit?: number } }>(
     "/organizations/:organizationId/feed",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Organizations"],
         summary: "Get organization activity feed",
         params: {
@@ -134,7 +135,7 @@ const organizationsRoutes: FastifyPluginAsync = async (fastify) => {
             },
           }),
         },
-      },
+      }),
     },
     async (request) => {
       const repo = new OrganizationRepository(fastify.coordinatorStore);
@@ -151,7 +152,7 @@ const organizationsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { limit?: number } }>(
     "/feed",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Feed"],
         summary: "Global activity feed across all organizations",
         querystring: {
@@ -177,7 +178,7 @@ const organizationsRoutes: FastifyPluginAsync = async (fastify) => {
             },
           }),
         },
-      },
+      }),
     },
     async (request) => {
       const repo = new OrganizationRepository(fastify.coordinatorStore);
@@ -192,7 +193,7 @@ const organizationsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { feedEventId: string } }>(
     "/feed/:feedEventId",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Feed"],
         summary: "Get feed event detail",
         params: {
@@ -217,7 +218,7 @@ const organizationsRoutes: FastifyPluginAsync = async (fastify) => {
             },
           }),
         },
-      },
+      }),
     },
     async (request) => {
       const repo = new OrganizationRepository(fastify.coordinatorStore);

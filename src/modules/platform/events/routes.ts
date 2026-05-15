@@ -3,6 +3,7 @@ import { ok, okList } from "../../../domain/apiTypes.js";
 import { notFound } from "../../../domain/errors.js";
 import type { EventEnvelope } from "@concord/foundation";
 import { envelope, errorEnvelope, listEnvelope } from "../../../domain/schemas.js";
+import { authPolicy } from "../../../plugins/authPolicy.js";
 
 const eventsRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /events — query event log
@@ -11,7 +12,7 @@ const eventsRoutes: FastifyPluginAsync = async (fastify) => {
   }>(
     "/events",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Events"],
         summary: "Query event log",
         querystring: {
@@ -25,7 +26,7 @@ const eventsRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: listEnvelope() },
-      },
+      }),
     },
     async (request) => {
       const { type, actorId, correlationId, limit: limitStr, cursor } = request.query;
@@ -56,7 +57,7 @@ const eventsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { eventId: string } }>(
     "/events/:eventId",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Events"],
         summary: "Get a single event by ID",
         params: {
@@ -65,7 +66,7 @@ const eventsRoutes: FastifyPluginAsync = async (fastify) => {
           properties: { eventId: { type: "string" } },
         },
         response: { 200: envelope() },
-      },
+      }),
     },
     async (request) => {
       const { eventId } = request.params;
@@ -80,7 +81,7 @@ const eventsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Body: { event: EventEnvelope<string, unknown> } }>(
     "/events",
     {
-      schema: {
+      ...authPolicy("service-token", {
         tags: ["Events"],
         summary: "Inject event (dev only)",
         body: {
@@ -89,7 +90,7 @@ const eventsRoutes: FastifyPluginAsync = async (fastify) => {
           properties: { event: { type: "object" } },
         },
         response: { 200: envelope(), 403: errorEnvelope },
-      },
+      }),
     },
     async (request, reply) => {
       if (!fastify.config.enableDevRoutes) {

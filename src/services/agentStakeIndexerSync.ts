@@ -101,8 +101,8 @@ async function syncAgentStakeLedgers(input: {
 }
 
 async function fetchAgentStakeLedgers(indexerUrl: string): Promise<RawLedger[]> {
-  const response = await fetch(indexerUrl, {
-    method: "POST",
+  const fetchOptions = {
+    method: "POST" as const,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       query: `query AgentStakeLedgers {
@@ -124,7 +124,14 @@ async function fetchAgentStakeLedgers(indexerUrl: string): Promise<RawLedger[]> 
         }
       }`,
     }),
-  });
+  };
+  // Retry once on transient network errors (e.g., ECONNRESET from stale keep-alive pool connections)
+  let response: Response;
+  try {
+    response = await fetch(indexerUrl, fetchOptions);
+  } catch {
+    response = await fetch(indexerUrl, fetchOptions);
+  }
   if (!response.ok) throw new Error(`AgentStakeLedger GraphQL request failed: HTTP ${response.status}`);
   const body = await response.json() as GraphQlLedgerResponse;
   if (body.errors?.length) {

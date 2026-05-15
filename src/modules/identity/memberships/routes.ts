@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../../domain/apiTypes.js";
 import { notFound } from "../../../domain/errors.js";
 import { envelopeKey, listEnvelope } from "../../../domain/schemas.js";
+import { authPolicy } from "../../../plugins/authPolicy.js";
 
 const membershipsRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /projects/:projectId/members
@@ -16,7 +17,7 @@ const membershipsRoutes: FastifyPluginAsync = async (fastify) => {
   }>(
     "/projects/:projectId/members",
     {
-      schema: {
+      ...authPolicy("wallet-session", {
         tags: ["Memberships"],
         summary: "Add a member to a project",
         params: { type: "object", required: ["projectId"], properties: { projectId: { type: "string" } } },
@@ -31,7 +32,7 @@ const membershipsRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKey("membership") },
-      },
+      }),
     },
     async (request) => {
       const membership = await fastify.concord.agents.addProjectMember({
@@ -52,7 +53,7 @@ const membershipsRoutes: FastifyPluginAsync = async (fastify) => {
   }>(
     "/projects/:projectId/members",
     {
-      schema: {
+      ...authPolicy("wallet-session", {
         tags: ["Memberships"],
         summary: "List project members",
         params: { type: "object", required: ["projectId"], properties: { projectId: { type: "string" } } },
@@ -66,7 +67,7 @@ const membershipsRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: listEnvelope() },
-      },
+      }),
     },
     async (request) => {
       const { status, role, limit: limitStr, cursor } = request.query;
@@ -93,7 +94,7 @@ const membershipsRoutes: FastifyPluginAsync = async (fastify) => {
   }>(
     "/projects/:projectId/members/:principalId",
     {
-      schema: {
+      ...authPolicy("wallet-session", {
         tags: ["Memberships"],
         summary: "Remove a member from a project",
         params: {
@@ -110,7 +111,7 @@ const membershipsRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKey("membership") },
-      },
+      }),
     },
     async (request) => {
       const members = await fastify.concord.agents.listProjectMembers(request.params.projectId as never);
