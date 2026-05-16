@@ -10,6 +10,7 @@ import { startAgentStakeIndexerSync } from "./agentStakeIndexerSync.js";
 import type { ActionIntent, ActionIntentResult } from "../application/types.js";
 import type { CoordinatorStorePort } from "../db/coordinatorStorePort.js";
 import type { AgentStakeLedger } from "../contexts/stake/types.js";
+import { StakeRepository } from "../contexts/stake/repository.js";
 
 const stores: Array<{ close?: () => void }> = [];
 
@@ -80,6 +81,10 @@ describe("agent stake production services", () => {
     await vi.waitFor(() => {
       expect(intents).toHaveLength(1);
     });
+    await vi.waitFor(async () => {
+      const health = await new StakeRepository(store).getIndexerHealth();
+      expect(health).toMatchObject({ status: "healthy", consecutiveFailures: 0, ledgerCount: 1, sourceUrl: server.url });
+    });
     expect(intents[0]).toMatchObject({
       type: "UpsertAgentStakeLedger",
       payload: {
@@ -91,6 +96,101 @@ describe("agent stake production services", () => {
         activeAmount: "1000",
       },
     });
+  });
+
+  it("paginates indexer ledgers beyond the first 500 rows", async () => {
+    const store = makeStore();
+    const ledgers = Array.from({ length: 501 }, (_, index) => ({
+      id: `ledger-${index}`,
+      chainId: "substrate:vibly-solo",
+      identityId: `identity-${index}`,
+      agentId: `chain-agent-${index}`,
+      fundingAccount: null,
+      activeAmount: "1000",
+      unbondingAmount: "0",
+      status: "ACTIVE",
+      unlockAtBlock: null,
+      releaseBlocked: false,
+      releaseBlockReason: null,
+      updatedAtBlock: String(index),
+    }));
+    const server = await startGraphqlFixture((request: GraphqlFixtureRequest) => {
+      const offset = Number(request.variables?.offset ?? 0);
+      const first = Number(request.variables?.first ?? 500);
+      return { data: { agentStakeLedgers: { nodes: ledgers.slice(offset, offset + first) } } };
+    });
+    stores.push(server);
+
+    const intents: ActionIntent[] = [];
+    const dispatcher = new ActionIntentDispatcher();
+    vi.spyOn(dispatcher, "dispatch").mockImplementation(async (intent): Promise<ActionIntentResult> => {
+      intents.push(intent);
+      return { eventId: "event-1", aggregateRef: { kind: "AgentStakeLedger", id: "ledger" }, status: "accepted", events: [] };
+    });
+
+    const stop = startAgentStakeIndexerSync({
+      config: loadConfig({
+        NODE_ENV: "test",
+        API_AUTH_MODE: "none",
+        SUBSTRATE_INDEXER_URL: server.url,
+        AGENT_STAKE_SYNC_INTERVAL_MS: "10000",
+      }),
+      dispatcher,
+      store,
+      eventBus: createInMemoryEventBus(),
+      concord: {} as never,
+    });
+    stores.push({ close: stop });
+
+    await vi.waitFor(() => {
+      expect(intents).toHaveLength(501);
+    });
+    const health = await new StakeRepository(store).getIndexerHealth();
+    expect(health).toMatchObject({ status: "healthy", ledgerCount: 501 });
+  });
+
+  it("records indexer health failures without mutating existing ledgers", async () => {
+    const store = makeStore();
+    const ledger: AgentStakeLedger = {
+      id: "substrate:vibly-solo:identity-1:chain-agent-1",
+      chainId: "substrate:vibly-solo",
+      identityId: "identity-1",
+      chainAgentId: "chain-agent-1",
+      principalId: "agent-principal-1",
+      activeAmount: "1000",
+      unbondingAmount: "0",
+      status: "active",
+      releaseBlocked: false,
+      indexedAt: "2000-01-01T00:00:00.000Z",
+    };
+    await store.saveProjection("agent_stake_ledger_v1", ledger.id, ledger);
+    const server = await startGraphqlFixture({ errors: [{ message: "indexer unavailable" }] });
+    stores.push(server);
+
+    const dispatcher = new ActionIntentDispatcher();
+    vi.spyOn(dispatcher, "dispatch").mockImplementation(async (): Promise<ActionIntentResult> => {
+      throw new Error("dispatch should not be called");
+    });
+
+    const stop = startAgentStakeIndexerSync({
+      config: loadConfig({
+        NODE_ENV: "test",
+        API_AUTH_MODE: "none",
+        SUBSTRATE_INDEXER_URL: server.url,
+        AGENT_STAKE_SYNC_INTERVAL_MS: "10000",
+      }),
+      dispatcher,
+      store,
+      eventBus: createInMemoryEventBus(),
+      concord: {} as never,
+    });
+    stores.push({ close: stop });
+
+    await vi.waitFor(async () => {
+      const health = await new StakeRepository(store).getIndexerHealth();
+      expect(health).toMatchObject({ status: "degraded", consecutiveFailures: 1, ledgerCount: 0 });
+    });
+    await expect(store.getProjection<AgentStakeLedger>("agent_stake_ledger_v1", ledger.id)).resolves.toEqual(ledger);
   });
 
   it("submits idempotent block and clear commands for unbond release control", async () => {
@@ -166,6 +266,9 @@ function makeStore(): CoordinatorStorePort {
     async createLease() {
       throw new Error("not implemented");
     },
+    async tryAcquireLease() {
+      throw new Error("not implemented");
+    },
     async getLease() {
       return undefined;
     },
@@ -182,10 +285,20 @@ function makeStore(): CoordinatorStorePort {
   };
 }
 
-async function startGraphqlFixture(body: unknown): Promise<{ url: string; close: () => void }> {
-  const server: Server = createServer((_, res) => {
-    res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify(body));
+type GraphqlFixtureRequest = { variables?: Record<string, unknown> };
+
+async function startGraphqlFixture(
+  body: unknown | ((request: GraphqlFixtureRequest) => unknown),
+): Promise<{ url: string; close: () => void }> {
+  const server: Server = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    req.on("end", () => {
+      const request = chunks.length > 0 ? JSON.parse(Buffer.concat(chunks).toString("utf8")) as GraphqlFixtureRequest : {};
+      const responseBody = typeof body === "function" ? body(request) : body;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify(responseBody));
+    });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();

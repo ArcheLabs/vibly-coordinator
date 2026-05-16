@@ -53,6 +53,8 @@ export interface OrganizationOverview {
   description?: string;
   status: OrganizationStatus;
   memberCount: number;
+  feedCount?: number;
+  artifactCount?: number;
   createdAt: string;
   updatedAt: string;
 }

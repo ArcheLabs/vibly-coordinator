@@ -9,6 +9,7 @@ import { ok } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
 import { envelope, envelopeKey, envelopeKeyArray, listEnvelope } from "../../domain/schemas.js";
 import { OrganizationRepository } from "../../contexts/organization/repository.js";
+import { ArtifactRepository } from "../../contexts/artifact/repository.js";
 import { authPolicy } from "../../plugins/authPolicy.js";
 
 const organizationsRoutes: FastifyPluginAsync = async (fastify) => {
@@ -37,6 +38,8 @@ const organizationsRoutes: FastifyPluginAsync = async (fastify) => {
               description: { type: "string" },
               status: { type: "string" },
               memberCount: { type: "integer" },
+              feedCount: { type: "integer" },
+              artifactCount: { type: "integer" },
               createdAt: { type: "string" },
               updatedAt: { type: "string" },
             },
@@ -46,12 +49,37 @@ const organizationsRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const repo = new OrganizationRepository(fastify.coordinatorStore);
+      const artifactRepo = new ArtifactRepository(fastify.coordinatorStore);
       const limit = request.query.limit ?? 50;
       const overviews = await repo.listOverviews();
       const page = overviews.slice(0, limit);
+
+      // Compute feedCount and artifactCount per org in two batched queries.
+      const [allFeed, allArtifacts] = await Promise.all([
+        repo.listGlobalFeed(10_000),
+        artifactRepo.list(),
+      ]);
+
+      const feedCountByOrg = new Map<string, number>();
+      for (const item of allFeed) {
+        feedCountByOrg.set(item.organizationId, (feedCountByOrg.get(item.organizationId) ?? 0) + 1);
+      }
+      const artifactCountByOrg = new Map<string, number>();
+      for (const a of allArtifacts) {
+        if (a.organizationId) {
+          artifactCountByOrg.set(a.organizationId, (artifactCountByOrg.get(a.organizationId) ?? 0) + 1);
+        }
+      }
+
+      const enriched = page.map((o) => ({
+        ...o,
+        feedCount: feedCountByOrg.get(o.id) ?? 0,
+        artifactCount: artifactCountByOrg.get(o.id) ?? 0,
+      }));
+
       return {
         ok: true as const,
-        data: page,
+        data: enriched,
         page: { limit, nextCursor: page.length < limit ? null : (page[page.length - 1]?.id ?? null) },
         meta: { requestId: (fastify as unknown as { genReqId?: () => string }).genReqId?.() ?? "req" },
       };

@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import EventEmitter from "node:events";
 import type { EventEnvelope } from "@concord/foundation";
 import { authPolicy } from "../../../plugins/authPolicy.js";
+import type { EventMetadata } from "../../../services/eventBus.js";
 
 const sseResponse200 = {
   description: "Server-Sent Events stream of EventEnvelope frames",
@@ -43,13 +44,6 @@ const streamsRoutes: FastifyPluginAsync = async (fastify) => {
 
       const bridge = new EventEmitter();
 
-      const since = lastEventIdFromRequest(request);
-      if (since !== undefined && fastify.eventBus.replaySince) {
-        await fastify.eventBus.replaySince(since, (event) => {
-          bridge.emit("event", event);
-        });
-      }
-
       const filter: (event: EventEnvelope<string, unknown>) => boolean = (event) => {
         if (projectId && (event as unknown as { projectId?: string }).projectId !== projectId) return false;
         if (type && event.type !== type) return false;
@@ -57,9 +51,17 @@ const streamsRoutes: FastifyPluginAsync = async (fastify) => {
         return true;
       };
 
+      const since = lastEventIdFromRequest(request);
+      if (since !== undefined && fastify.eventBus.replaySince) {
+        await fastify.eventBus.replaySince(since, (event, metadata) => {
+          if (!filter(event)) return;
+          bridge.emit("event", event, metadata);
+        });
+      }
+
       const unsubscribe = fastify.eventBus.subscribe(
-        (event) => {
-          bridge.emit("event", event);
+        (event, metadata) => {
+          bridge.emit("event", event, metadata);
         },
         filter,
       );
@@ -77,7 +79,7 @@ const streamsRoutes: FastifyPluginAsync = async (fastify) => {
         reply.raw.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
       };
 
-      bridge.on("event", (data) => sendEvent("EventEnvelope", data));
+      bridge.on("event", (data, metadata?: EventMetadata) => sendEvent("EventEnvelope", data, metadata?.streamId));
 
       const heartbeat = setInterval(() => {
         sendEvent("heartbeat", { timestamp: new Date().toISOString() });
@@ -112,16 +114,16 @@ const streamsRoutes: FastifyPluginAsync = async (fastify) => {
 
       const since = lastEventIdFromRequest(request);
       if (since !== undefined && fastify.eventBus.replaySince) {
-        await fastify.eventBus.replaySince(since, (event) => {
+        await fastify.eventBus.replaySince(since, (event, metadata) => {
           const p = event as unknown as { projectId?: string; payload?: { projectId?: string } };
           if (p.projectId === projectId || p.payload?.projectId === projectId) {
-            bridge.emit("event", event);
+            bridge.emit("event", event, metadata);
           }
         });
       }
 
       const unsubscribe = fastify.eventBus.subscribe(
-        (event) => bridge.emit("event", event),
+        (event, metadata) => bridge.emit("event", event, metadata),
         (event) => {
           const p = event as unknown as { projectId?: string; payload?: { projectId?: string } };
           return p.projectId === projectId || p.payload?.projectId === projectId;
@@ -141,7 +143,7 @@ const streamsRoutes: FastifyPluginAsync = async (fastify) => {
         reply.raw.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
       };
 
-      bridge.on("event", (data) => sendEvent("ProjectEvent", data));
+      bridge.on("event", (data, metadata?: EventMetadata) => sendEvent("ProjectEvent", data, metadata?.streamId));
 
       const heartbeat = setInterval(() => {
         sendEvent("heartbeat", { timestamp: new Date().toISOString() });

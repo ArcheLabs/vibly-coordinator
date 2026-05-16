@@ -3,6 +3,7 @@ import type { CoordinatorConfig } from "../config/env.js";
 import { IdentityRepository } from "../contexts/identity/repository.js";
 import type { AgentProfile } from "../contexts/identity/types.js";
 import type { AgentStakeStatus } from "../contexts/stake/types.js";
+import { AGENT_STAKE_INDEXER_HEALTH_ID, StakeRepository } from "../contexts/stake/repository.js";
 import type { Concord } from "@concord/sdk";
 import type { CoordinatorStorePort } from "../db/coordinatorStorePort.js";
 import type { EventBus } from "./eventBus.js";
@@ -32,6 +33,8 @@ type GraphQlLedgerResponse = {
   errors?: Array<{ message?: string }>;
 };
 
+const PAGE_SIZE = 500;
+
 export function startAgentStakeIndexerSync(input: {
   config: CoordinatorConfig;
   dispatcher: ActionIntentDispatcher;
@@ -46,8 +49,18 @@ export function startAgentStakeIndexerSync(input: {
     if (running) return;
     running = true;
     try {
-      await syncAgentStakeLedgers(input);
+      const ledgerCount = await syncAgentStakeLedgers(input);
+      await recordIndexerHealth(input.store, {
+        ok: true,
+        sourceUrl: input.config.substrateIndexerUrl,
+        ledgerCount,
+      });
     } catch (err) {
+      await recordIndexerHealth(input.store, {
+        ok: false,
+        sourceUrl: input.config.substrateIndexerUrl,
+        error: err,
+      });
       console.error("[AgentStakeIndexerSync]", err);
     } finally {
       running = false;
@@ -65,7 +78,7 @@ async function syncAgentStakeLedgers(input: {
   store: CoordinatorStorePort;
   eventBus: EventBus;
   concord: Concord;
-}): Promise<void> {
+}): Promise<number> {
   const ledgers = await fetchAgentStakeLedgers(input.config.substrateIndexerUrl!);
   const profiles = await new IdentityRepository(input.store).listAgentProfiles();
   for (const ledger of ledgers) {
@@ -98,15 +111,25 @@ async function syncAgentStakeLedgers(input: {
       },
     );
   }
+  return ledgers.length;
 }
 
 async function fetchAgentStakeLedgers(indexerUrl: string): Promise<RawLedger[]> {
+  const all: RawLedger[] = [];
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const page = await fetchAgentStakeLedgerPage(indexerUrl, offset, PAGE_SIZE);
+    all.push(...page);
+    if (page.length < PAGE_SIZE) return all;
+  }
+}
+
+async function fetchAgentStakeLedgerPage(indexerUrl: string, offset: number, first: number): Promise<RawLedger[]> {
   const fetchOptions = {
     method: "POST" as const,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      query: `query AgentStakeLedgers {
-        agentStakeLedgers(first: 500, orderBy: UPDATED_AT_BLOCK_DESC) {
+      query: `query AgentStakeLedgers($first: Int!, $offset: Int!) {
+        agentStakeLedgers(first: $first, offset: $offset, orderBy: UPDATED_AT_BLOCK_DESC) {
           nodes {
             id
             chainId
@@ -123,6 +146,7 @@ async function fetchAgentStakeLedgers(indexerUrl: string): Promise<RawLedger[]> 
           }
         }
       }`,
+      variables: { first, offset },
     }),
   };
   // Retry once on transient network errors (e.g., ECONNRESET from stale keep-alive pool connections)
@@ -140,6 +164,44 @@ async function fetchAgentStakeLedgers(indexerUrl: string): Promise<RawLedger[]> 
   const value = body.data?.agentStakeLedgers;
   if (Array.isArray(value)) return value;
   return value?.nodes ?? value?.items ?? [];
+}
+
+async function recordIndexerHealth(
+  store: CoordinatorStorePort,
+  input:
+    | { ok: true; sourceUrl?: string; ledgerCount: number }
+    | { ok: false; sourceUrl?: string; error: unknown },
+): Promise<void> {
+  const repo = new StakeRepository(store);
+  const previous = await repo.getIndexerHealth();
+  const now = new Date().toISOString();
+  if (input.ok) {
+    await repo.saveIndexerHealth({
+      id: AGENT_STAKE_INDEXER_HEALTH_ID,
+      status: "healthy",
+      sourceUrl: input.sourceUrl,
+      lastAttemptAt: now,
+      lastSuccessfulSyncAt: now,
+      lastErrorAt: previous?.lastErrorAt,
+      lastError: previous?.lastError,
+      consecutiveFailures: 0,
+      ledgerCount: input.ledgerCount,
+    });
+    return;
+  }
+
+  const consecutiveFailures = (previous?.consecutiveFailures ?? 0) + 1;
+  await repo.saveIndexerHealth({
+    id: AGENT_STAKE_INDEXER_HEALTH_ID,
+    status: consecutiveFailures >= 3 ? "down" : "degraded",
+    sourceUrl: input.sourceUrl,
+    lastAttemptAt: now,
+    lastSuccessfulSyncAt: previous?.lastSuccessfulSyncAt,
+    lastErrorAt: now,
+    lastError: input.error instanceof Error ? input.error.message : String(input.error),
+    consecutiveFailures,
+    ledgerCount: previous?.ledgerCount ?? 0,
+  });
 }
 
 function findProfileForLedger(profiles: AgentProfile[], ledger: RawLedger): AgentProfile | undefined {

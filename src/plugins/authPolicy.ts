@@ -7,6 +7,12 @@ export type AuthPolicy =
   | "service-token"
   | "coordinator-authority";
 
+declare module "fastify" {
+  interface FastifyContextConfig {
+    authPolicy?: AuthPolicy;
+  }
+}
+
 const KNOWN_POLICIES = new Set<AuthPolicy>([
   "public-read",
   "wallet-session",

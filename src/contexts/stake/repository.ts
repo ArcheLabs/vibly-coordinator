@@ -1,7 +1,9 @@
 import type { CoordinatorStorePort } from "../../db/coordinatorStorePort.js";
-import type { AgentStakeLedger } from "./types.js";
+import type { AgentStakeIndexerHealth, AgentStakeLedger } from "./types.js";
 
 export const AGENT_STAKE_LEDGER_KIND = "agent_stake_ledger_v1";
+export const AGENT_STAKE_INDEXER_HEALTH_KIND = "agent_stake_indexer_health_v1";
+export const AGENT_STAKE_INDEXER_HEALTH_ID = "agent-stake-indexer";
 
 export class StakeRepository {
   constructor(private readonly store: CoordinatorStorePort) {}
@@ -21,5 +23,13 @@ export class StakeRepository {
 
   async listLedgers(): Promise<AgentStakeLedger[]> {
     return this.store.listProjections<AgentStakeLedger>(AGENT_STAKE_LEDGER_KIND);
+  }
+
+  async saveIndexerHealth(health: AgentStakeIndexerHealth): Promise<void> {
+    await this.store.saveProjection(AGENT_STAKE_INDEXER_HEALTH_KIND, health.id, health);
+  }
+
+  async getIndexerHealth(): Promise<AgentStakeIndexerHealth | undefined> {
+    return this.store.getProjection<AgentStakeIndexerHealth>(AGENT_STAKE_INDEXER_HEALTH_KIND, AGENT_STAKE_INDEXER_HEALTH_ID);
   }
 }

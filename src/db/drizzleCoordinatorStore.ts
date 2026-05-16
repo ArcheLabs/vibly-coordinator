@@ -22,6 +22,51 @@ export class DrizzleCoordinatorStore implements CoordinatorStorePort {
     return { id, kind: input.kind, resourceId: input.resourceId, holderId: input.holderId, expiresAt, createdAt: now };
   }
 
+  async tryAcquireLease(input: CreateLeaseInput): Promise<Lease | undefined> {
+    const id = `lease_${uuidv4().replace(/-/g, "").slice(0, 16)}`;
+    const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + input.ttlMs).toISOString();
+    const lockKey = `${input.kind}:${input.resourceId}`;
+
+    return this.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${lockKey}))`);
+      await tx.delete(schema.coordinatorLeases).where(
+        and(
+          eq(schema.coordinatorLeases.kind, input.kind),
+          eq(schema.coordinatorLeases.resourceId, input.resourceId),
+          lte(schema.coordinatorLeases.expiresAt, now),
+        ),
+      );
+
+      const active = await tx
+        .select()
+        .from(schema.coordinatorLeases)
+        .where(
+          and(
+            eq(schema.coordinatorLeases.kind, input.kind),
+            eq(schema.coordinatorLeases.resourceId, input.resourceId),
+            gt(schema.coordinatorLeases.expiresAt, now),
+          ),
+        )
+        .limit(1);
+      if (active[0]) return undefined;
+
+      const rows = await tx
+        .insert(schema.coordinatorLeases)
+        .values({
+          id,
+          kind: input.kind,
+          resourceId: input.resourceId,
+          holderId: input.holderId,
+          expiresAt,
+          createdAt: now,
+        })
+        .returning();
+      const row = rows[0];
+      return row ? this.rowToLease(row) : undefined;
+    });
+  }
+
   async getLease(id: string): Promise<Lease | undefined> {
     const rows = await this.db
       .select()

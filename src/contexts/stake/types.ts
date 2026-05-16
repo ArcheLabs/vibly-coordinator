@@ -16,3 +16,17 @@ export interface AgentStakeLedger {
   updatedAtBlock?: string;
   indexedAt: string;
 }
+
+export type AgentStakeIndexerHealthStatus = "healthy" | "degraded" | "down";
+
+export interface AgentStakeIndexerHealth {
+  id: "agent-stake-indexer";
+  status: AgentStakeIndexerHealthStatus;
+  sourceUrl?: string;
+  lastAttemptAt: string;
+  lastSuccessfulSyncAt?: string;
+  lastErrorAt?: string;
+  lastError?: string;
+  consecutiveFailures: number;
+  ledgerCount: number;
+}

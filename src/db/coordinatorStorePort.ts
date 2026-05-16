@@ -21,6 +21,7 @@ export interface CreateLeaseInput {
  */
 export interface CoordinatorStorePort {
   createLease(input: CreateLeaseInput): Promise<Lease>;
+  tryAcquireLease(input: CreateLeaseInput): Promise<Lease | undefined>;
   getLease(id: string): Promise<Lease | undefined>;
   getActiveLease(kind: string, resourceId: string): Promise<Lease | undefined>;
   renewLease(id: string, ttlMs: number): Promise<Lease | undefined>;

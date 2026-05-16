@@ -21,6 +21,21 @@ export class SqliteCoordinatorStore implements CoordinatorStorePort {
     return { id, kind: input.kind, resourceId: input.resourceId, holderId: input.holderId, expiresAt, createdAt: now };
   }
 
+  async tryAcquireLease(input: CreateLeaseInput): Promise<Lease | undefined> {
+    const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + input.ttlMs).toISOString();
+    this.db.prepare(`DELETE FROM leases WHERE kind = ? AND resource_id = ? AND expires_at <= ?`).run(input.kind, input.resourceId, now);
+    const active = await this.getActiveLease(input.kind, input.resourceId);
+    if (active) return undefined;
+
+    const id = `lease_${uuidv4().replace(/-/g, "").slice(0, 16)}`;
+    this.db.prepare(
+      `INSERT INTO leases (id, kind, resource_id, holder_id, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(id, input.kind, input.resourceId, input.holderId, expiresAt, now);
+    return { id, kind: input.kind, resourceId: input.resourceId, holderId: input.holderId, expiresAt, createdAt: now };
+  }
+
   async getLease(id: string): Promise<Lease | undefined> {
     const row = this.db.prepare(`SELECT * FROM leases WHERE id = ?`).get(id) as
       | { id: string; kind: string; resource_id: string; holder_id: string; expires_at: string; created_at: string; renewed_at?: string }

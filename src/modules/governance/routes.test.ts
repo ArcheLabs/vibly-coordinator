@@ -118,6 +118,9 @@ function makeStore(): CoordinatorStorePort {
     async createLease() {
       throw new Error("not implemented");
     },
+    async tryAcquireLease() {
+      throw new Error("not implemented");
+    },
     async getLease() {
       return undefined;
     },

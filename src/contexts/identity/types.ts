@@ -28,6 +28,7 @@ export interface AgentProfile {
   chainId?: string;
   identityId?: string;
   chainAgentId?: string;
+  evmAddress?: string;
   dutyStatus?: "active" | "paused";
   stakeStatus?: "active" | "unbonding" | "released" | "missing" | "stale";
   createdAt: string;

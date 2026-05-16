@@ -3,7 +3,11 @@ import type { EventEnvelope } from "@concord/foundation";
 import type { Logger } from "../config/logger.js";
 import type postgres from "postgres";
 
-export type EventHandler = (event: EventEnvelope<string, unknown>) => void;
+export interface EventMetadata {
+  streamId?: number;
+}
+
+export type EventHandler = (event: EventEnvelope<string, unknown>, metadata?: EventMetadata) => void;
 export type EventFilter = (event: EventEnvelope<string, unknown>) => boolean;
 export type Unsubscribe = () => void;
 
@@ -53,8 +57,8 @@ export function createPostgresEventBus(opts: PostgresEventBusOptions): EventBus 
   const dispatch = async (payload: string | undefined): Promise<void> => {
     const id = Number(payload);
     if (!Number.isFinite(id)) return;
-    const rows = await sql<{ envelope_json: string }[]>`
-      select envelope_json from coordinator_broadcast_events where id = ${id}
+    const rows = await sql<{ id: number; envelope_json: string }[]>`
+      select id, envelope_json from coordinator_broadcast_events where id = ${id}
     `;
     const row = rows[0];
     if (!row) return;
@@ -67,7 +71,7 @@ export function createPostgresEventBus(opts: PostgresEventBusOptions): EventBus 
     }
     for (const { h, f } of handlers) {
       try {
-        if (!f || f(env)) h(env);
+        if (!f || f(env)) h(env, { streamId: row.id });
       } catch (err) {
         logger.error(err, "event bus handler error");
       }
@@ -84,7 +88,7 @@ export function createPostgresEventBus(opts: PostgresEventBusOptions): EventBus 
         try {
           await listenPromise;
           const json = JSON.stringify(event);
-          const rows = await sql<{ id: string }[]>`
+          const rows = await sql<{ id: number }[]>`
             insert into coordinator_broadcast_events (envelope_json) values (${json}) returning id
           `;
           const id = rows[0]?.id;
@@ -101,15 +105,15 @@ export function createPostgresEventBus(opts: PostgresEventBusOptions): EventBus 
       return () => handlers.delete(entry);
     },
     async replaySince(sinceId, handler) {
-      const rows = await sql<{ envelope_json: string }[]>`
-        select envelope_json from coordinator_broadcast_events
+      const rows = await sql<{ id: number; envelope_json: string }[]>`
+        select id, envelope_json from coordinator_broadcast_events
         where id > ${sinceId}
         order by id asc
         limit 500
       `;
       for (const row of rows) {
         const env = JSON.parse(row.envelope_json) as EventEnvelope<string, unknown>;
-        handler(env);
+        handler(env, { streamId: row.id });
       }
     },
     async close() {

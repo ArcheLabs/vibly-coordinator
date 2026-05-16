@@ -95,6 +95,20 @@ const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
+  fastify.get(
+    "/agent-stake-indexer-health",
+    {
+      ...authPolicy("public-read", {
+        tags: ["Agents"],
+        summary: "Get agent stake indexer health",
+        response: { 200: envelopeKey("health") },
+      }),
+    },
+    async () => {
+      return ok({ health: await stakeRepo().getIndexerHealth() });
+    },
+  );
+
   fastify.get<{ Params: { id: string }; Querystring: { organizationId?: string; projectId?: string; limit?: number } }>(
     "/agents/:id/inbox",
     {

@@ -389,8 +389,17 @@ async function handleTickAssignmentExpiry(intent: ActionIntent, ctx: DispatchCon
 
   const events: ReturnType<typeof createEvent>[] = [];
   for (const offer of expired) {
+    const currentOffer = await repo.getAssignmentOffer(offer.id);
+    if (
+      !currentOffer ||
+      currentOffer.status !== "offered" ||
+      currentOffer.expiresAt == null ||
+      new Date(currentOffer.expiresAt) > now
+    ) {
+      continue;
+    }
     const task = await repo.getObservationTask(offer.observationTaskId);
-    const updated = { ...offer, status: "timed-out" as const };
+    const updated = { ...currentOffer, status: "timed-out" as const };
     await repo.saveAssignmentOffer(updated);
     if (task) {
       await repo.saveObservationTask({ ...task, status: "pending", assigneeId: undefined, updatedAt: now.toISOString() });
@@ -401,8 +410,8 @@ async function handleTickAssignmentExpiry(intent: ActionIntent, ctx: DispatchCon
       type: "AssignmentTimedOut",
       payload: {
         assignmentId: offer.id,
-        assigneeId: offer.assigneeId,
-        observationTaskId: offer.observationTaskId,
+        assigneeId: currentOffer.assigneeId,
+        observationTaskId: currentOffer.observationTaskId,
         organizationId: orgId,
         timedOutAt: now.toISOString(),
       },
@@ -420,7 +429,7 @@ async function handleTickAssignmentExpiry(intent: ActionIntent, ctx: DispatchCon
         .map((candidateOffer) => candidateOffer.assigneeId);
       const candidates = agents
         .map((agent) => agent.principalId)
-        .filter((id) => id !== offer.assigneeId && !alreadyOffered.includes(id));
+        .filter((id) => id !== currentOffer.assigneeId && !alreadyOffered.includes(id));
       const { selected } = selectParticipants(rule, { candidates });
       const assigneeId = selected[0] ?? candidates[0];
       if (assigneeId) {
@@ -452,6 +461,31 @@ async function handleTickAssignmentExpiry(intent: ActionIntent, ctx: DispatchCon
   }
 
   const syntheticId = makeId("tick");
+
+  // ── Retry "orphaned" pending tasks (never got an offer) ───────────────────
+  // If filterEligibleAgents returned empty when ObservationTaskCreated fired,
+  // the task was left pending with no offer.  TickAssignmentExpiry only handles
+  // expired *offers*, so we add a recovery path here: any pending task that has
+  // no active (offered/accepted) offer is re-published as ObservationTaskCreated
+  // so the assignment process can retry now that eligibility may have changed.
+  const allTasks = await repo.listObservationTasks();
+  const allOffersAfter = await repo.listAllAssignmentOffers();
+  for (const task of allTasks) {
+    if (task.status !== "pending") continue;
+    const hasActiveOffer = allOffersAfter.some(
+      (o) => o.observationTaskId === task.id && (o.status === "offered" || o.status === "accepted"),
+    );
+    if (hasActiveOffer) continue;
+    // Re-trigger assignment for this orphaned task.
+    const retryEvt = createEvent({
+      type: "ObservationTaskCreated",
+      payload: { ...task },
+      actorId: intent.principalId as never,
+    });
+    ctx.eventBus.publish(retryEvt);
+    events.push(retryEvt);
+  }
+
   return { eventId: syntheticId, aggregateRef: { kind: "AssignmentExpiry", id: syntheticId }, status: "accepted", events };
 }
 
