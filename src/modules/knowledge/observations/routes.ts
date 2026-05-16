@@ -3,6 +3,7 @@ import { ok, okList } from "../../../domain/apiTypes.js";
 import { notFound } from "../../../domain/errors.js";
 import { envelopeKey, listEnvelope } from "../../../domain/schemas.js";
 import { v4 as uuidv4 } from "uuid";
+import { authPolicy } from "../../../plugins/authPolicy.js";
 
 interface ObservationRecord {
   id: string;
@@ -87,7 +88,7 @@ const observationsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { projectId: string }; Querystring: { limit?: string; cursor?: string } }>(
     "/projects/:projectId/observations",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Observations"],
         summary: "List observations for a project",
         params: { type: "object", required: ["projectId"], properties: { projectId: { type: "string" } } },
@@ -96,7 +97,7 @@ const observationsRoutes: FastifyPluginAsync = async (fastify) => {
           properties: { limit: { type: "string" }, cursor: { type: "string" } },
         },
         response: { 200: listEnvelope() },
-      },
+      }),
     },
     async (request) => {
       const { limit: limitStr, cursor } = request.query;
@@ -119,12 +120,12 @@ const observationsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { observationId: string } }>(
     "/observations/:observationId",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Observations"],
         summary: "Get an observation",
         params: { type: "object", required: ["observationId"], properties: { observationId: { type: "string" } } },
         response: { 200: envelopeKey("observation") },
-      },
+      }),
     },
     async (request) => {
       const observation = await fastify.coordinatorStore.getProjection<ObservationRecord>("observation", request.params.observationId);

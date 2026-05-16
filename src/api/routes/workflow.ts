@@ -10,6 +10,7 @@ import { envelopeKey, envelopeKeyArray } from "../../domain/schemas.js";
 import { WorkRepository } from "../../contexts/work/repository.js";
 import { ArtifactRepository } from "../../contexts/artifact/repository.js";
 import { ReviewRepository } from "../../contexts/evaluation/repository.js";
+import { authPolicy } from "../../plugins/authPolicy.js";
 
 const ITEM_SCHEMA = { type: "object" as const, additionalProperties: true };
 
@@ -23,12 +24,12 @@ const workflowRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string } }>(
     "/tasks/:id",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Tasks"],
         summary: "Get task by ID",
         params: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
         response: { 200: envelopeKey("task") },
-      },
+      }),
     },
     async (req) => {
       const task = await workRepo().getTask(req.params.id);
@@ -40,7 +41,7 @@ const workflowRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { organizationId?: string; assigneeId?: string; status?: string; limit?: number } }>(
     "/tasks",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Tasks"],
         summary: "List tasks",
         querystring: {
@@ -53,7 +54,7 @@ const workflowRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKeyArray("items", ITEM_SCHEMA) },
-      },
+      }),
     },
     async (req) => {
       let items = await workRepo().listTasks(req.query.organizationId);
@@ -68,12 +69,12 @@ const workflowRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string } }>(
     "/submissions/:id",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Submissions"],
         summary: "Get task submission by ID",
         params: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
         response: { 200: envelopeKey("submission") },
-      },
+      }),
     },
     async (req) => {
       const submission = await workRepo().getSubmission(req.params.id);
@@ -85,7 +86,7 @@ const workflowRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { taskId?: string; limit?: number } }>(
     "/submissions",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Submissions"],
         summary: "List task submissions",
         querystring: {
@@ -93,7 +94,7 @@ const workflowRoutes: FastifyPluginAsync = async (fastify) => {
           properties: { taskId: { type: "string" }, limit: { type: "integer", default: 50 } },
         },
         response: { 200: envelopeKeyArray("items", ITEM_SCHEMA) },
-      },
+      }),
     },
     async (req) => {
       const items = await workRepo().listSubmissions(req.query.taskId);
@@ -106,12 +107,12 @@ const workflowRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string } }>(
     "/artifacts/:id",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Artifacts"],
         summary: "Get artifact by ID",
         params: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
         response: { 200: envelopeKey("artifact") },
-      },
+      }),
     },
     async (req) => {
       const artifact = await artifactRepo().get(req.params.id);
@@ -123,7 +124,7 @@ const workflowRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { organizationId?: string; taskId?: string; limit?: number } }>(
     "/artifacts",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Artifacts"],
         summary: "List artifacts",
         querystring: {
@@ -135,7 +136,7 @@ const workflowRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKeyArray("items", ITEM_SCHEMA) },
-      },
+      }),
     },
     async (req) => {
       let items = await artifactRepo().list(req.query.organizationId);
@@ -149,12 +150,12 @@ const workflowRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string } }>(
     "/review-rounds/:id",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["ReviewRounds"],
         summary: "Get review round by ID",
         params: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
         response: { 200: envelopeKey("reviewRound") },
-      },
+      }),
     },
     async (req) => {
       const reviewRound = await reviewRepo().get(req.params.id);
@@ -166,7 +167,7 @@ const workflowRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { organizationId?: string; taskId?: string; status?: string; limit?: number } }>(
     "/review-rounds",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["ReviewRounds"],
         summary: "List review rounds",
         querystring: {
@@ -179,7 +180,7 @@ const workflowRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKeyArray("items", ITEM_SCHEMA) },
-      },
+      }),
     },
     async (req) => {
       let items = await reviewRepo().list(req.query.organizationId);

@@ -8,6 +8,7 @@ import { ok } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
 import { envelopeKey, envelopeKeyArray } from "../../domain/schemas.js";
 import { CoordinationRepository } from "../../contexts/coordination/repository.js";
+import { authPolicy } from "../../plugins/authPolicy.js";
 
 const ITEM_SCHEMA = { type: "object" as const, additionalProperties: true };
 
@@ -19,12 +20,12 @@ const coordinationRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string } }>(
     "/observation-tasks/:id",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["ObservationTasks"],
         summary: "Get observation task by ID",
         params: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
         response: { 200: envelopeKey("observationTask") },
-      },
+      }),
     },
     async (req) => {
       const task = await repo().getObservationTask(req.params.id);
@@ -36,7 +37,7 @@ const coordinationRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { organizationId?: string; assigneeId?: string; limit?: number } }>(
     "/observation-tasks",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["ObservationTasks"],
         summary: "List observation tasks",
         querystring: {
@@ -48,7 +49,7 @@ const coordinationRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKeyArray("items", ITEM_SCHEMA) },
-      },
+      }),
     },
     async (req) => {
       let items = await repo().listObservationTasks(req.query.organizationId);
@@ -60,7 +61,7 @@ const coordinationRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { organizationId?: string; observationTaskId?: string; submittedBy?: string; limit?: number } }>(
     "/observations",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Observations"],
         summary: "List observations",
         querystring: {
@@ -73,7 +74,7 @@ const coordinationRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKeyArray("items", ITEM_SCHEMA) },
-      },
+      }),
     },
     async (req) => {
       let items = await repo().listObservations(req.query.organizationId);
@@ -88,12 +89,12 @@ const coordinationRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string } }>(
     "/discussions/:id",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Discussions"],
         summary: "Get discussion by ID",
         params: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
         response: { 200: envelopeKey("discussion") },
-      },
+      }),
     },
     async (req) => {
       const discussion = await repo().getDiscussion(req.params.id);
@@ -105,7 +106,7 @@ const coordinationRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { organizationId?: string; limit?: number } }>(
     "/discussions",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Discussions"],
         summary: "List discussions",
         querystring: {
@@ -113,7 +114,7 @@ const coordinationRoutes: FastifyPluginAsync = async (fastify) => {
           properties: { organizationId: { type: "string" }, limit: { type: "integer", default: 50 } },
         },
         response: { 200: envelopeKeyArray("items", ITEM_SCHEMA) },
-      },
+      }),
     },
     async (req) => {
       const items = await repo().listDiscussions(req.query.organizationId);
@@ -126,12 +127,12 @@ const coordinationRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string } }>(
     "/proposals/:id",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Proposals"],
         summary: "Get proposal by ID",
         params: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
         response: { 200: envelopeKey("proposal") },
-      },
+      }),
     },
     async (req) => {
       const proposal = await repo().getProposal(req.params.id);
@@ -143,7 +144,7 @@ const coordinationRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { organizationId?: string; status?: string; limit?: number } }>(
     "/proposals",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Proposals"],
         summary: "List proposals",
         querystring: {
@@ -155,7 +156,7 @@ const coordinationRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKeyArray("items", ITEM_SCHEMA) },
-      },
+      }),
     },
     async (req) => {
       let items = await repo().listProposals(req.query.organizationId);
@@ -169,12 +170,12 @@ const coordinationRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string } }>(
     "/voting-rounds/:id",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["VotingRounds"],
         summary: "Get voting round by ID",
         params: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
         response: { 200: envelopeKey("votingRound") },
-      },
+      }),
     },
     async (req) => {
       const votingRound = await repo().getVotingRound(req.params.id);
@@ -186,7 +187,7 @@ const coordinationRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { organizationId?: string; proposalId?: string; limit?: number } }>(
     "/voting-rounds",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["VotingRounds"],
         summary: "List voting rounds",
         querystring: {
@@ -198,7 +199,7 @@ const coordinationRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKeyArray("items", ITEM_SCHEMA) },
-      },
+      }),
     },
     async (req) => {
       let items = await repo().listVotingRounds(req.query.organizationId);
@@ -212,12 +213,12 @@ const coordinationRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string } }>(
     "/mechanisms/:id",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Mechanisms"],
         summary: "Get coordination mechanism by ID",
         params: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
         response: { 200: envelopeKey("mechanism") },
-      },
+      }),
     },
     async (req) => {
       const { MechanismRepository } = await import("../../contexts/mechanism/repository.js");
@@ -231,7 +232,7 @@ const coordinationRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { organizationId?: string; limit?: number } }>(
     "/mechanisms",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Mechanisms"],
         summary: "List coordination mechanisms",
         querystring: {
@@ -242,7 +243,7 @@ const coordinationRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKeyArray("items", ITEM_SCHEMA) },
-      },
+      }),
     },
     async (req) => {
       const { MechanismRepository } = await import("../../contexts/mechanism/repository.js");

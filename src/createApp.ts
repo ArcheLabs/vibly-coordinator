@@ -350,7 +350,7 @@ function startCoordinatorEventPersistence(
       projectId: scope.projectId,
       actorId: typeof event.actorId === "string" ? event.actorId : undefined,
       subject: scope.subject,
-      summary: `${event.type} on ${scope.subject?.type ?? scope.organizationId}`,
+      summary: buildFeedSummary(event, scope.subject?.type ?? scope.organizationId),
       payload: event.payload as Record<string, unknown>,
       createdAt: event.timestamp.iso,
     };
@@ -360,6 +360,29 @@ function startCoordinatorEventPersistence(
       console.error("[FeedProjection]", err);
     }
   });
+}
+
+function buildFeedSummary(event: EventEnvelope<string, unknown>, fallbackSubject: string): string {
+  const payload = event.payload as Record<string, unknown>;
+  const nested = (
+    payload["observation"]
+    ?? payload["proposal"]
+    ?? payload["artifact"]
+    ?? payload["task"]
+    ?? payload["review"]
+    ?? payload["outcome"]
+    ?? payload["contribution"]
+  ) as Record<string, unknown> | undefined;
+  const source = nested ?? payload;
+  const title = stringValue(source["title"])
+    ?? stringValue(source["name"])
+    ?? stringValue(source["summary"])
+    ?? stringValue(source["body"])
+    ?? stringValue(source["content"])
+    ?? stringValue(source["description"])
+    ?? stringValue(source["comment"]);
+  if (title) return `${event.type}: ${truncate(title, 180)}`;
+  return `${event.type} on ${fallbackSubject}`;
 }
 
 function extractScope(event: EventEnvelope<string, unknown>): {
@@ -395,4 +418,9 @@ function extractScope(event: EventEnvelope<string, unknown>): {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function truncate(value: string, max: number): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  return compact.length > max ? `${compact.slice(0, max - 1)}…` : compact;
 }

@@ -48,6 +48,7 @@ const projectReadModelRoutes: FastifyPluginAsync = async (fastify) => {
         fastify.concord.state.events.query(),
       ]);
       const runs = await scenarioRunsForProject(fastify, projectId);
+      const knowledgeEntries = await knowledgeEntriesForProject(fastify, projectId);
       const guardianRequests = await projectionsForProject<ProjectScoped>(fastify, GUARDIAN_REQUEST, projectId);
       const rewards = await projectionsForProject<ProjectScoped>(fastify, REWARD_INTENT, projectId);
       const reputationEvidence = await projectionsForProject<ProjectScoped>(fastify, REPUTATION_EVIDENCE, projectId);
@@ -84,7 +85,9 @@ const projectReadModelRoutes: FastifyPluginAsync = async (fastify) => {
             traces: traces.length,
             timelineEvents: timeline.length,
             recentEvents: recentEvents.length,
+            knowledgeEntries: knowledgeEntries.length,
           },
+          knowledgeEntries: knowledgeEntries.slice(-20).reverse(),
           latestRun: runs.at(-1) ?? null,
           ledger: ledgerSummary(rewards),
           live: {
@@ -136,6 +139,19 @@ async function buildTimeline(
 ): Promise<ProjectTimelineEntry[]> {
   const projectedRows = await fastify.coordinatorStore.listProjections<ProjectTimelineEntry>(PROJECT_TIMELINE_ENTRY);
   const projectedEntries = projectedRows.filter((entry) => entry.projectId === projectId);
+  const events = await fastify.concord.state.events.query();
+  const eventEntries = runs.length > 0
+    ? []
+    : events
+      .filter((event) => eventProjectId(event.payload as Record<string, unknown>) === projectId)
+      .map((event) => ({
+        id: String(event.id),
+        projectId,
+        phase: String(event.type),
+        title: eventTitle(event.type, event.payload as Record<string, unknown>),
+        status: String((event.payload as Record<string, unknown>)["status"] ?? "recorded"),
+        timestamp: event.timestamp.iso,
+      }));
   const embeddedEntries = runs.flatMap((run) => {
     const traceId = run.trace?.traceId;
     return (run.timeline ?? []).map((entry) => ({
@@ -145,8 +161,44 @@ async function buildTimeline(
     }));
   });
   const entriesById = new Map<string, ProjectTimelineEntry>();
-  for (const entry of [...projectedEntries, ...embeddedEntries]) entriesById.set(entry.id, entry);
+  for (const entry of [...projectedEntries, ...eventEntries, ...embeddedEntries]) entriesById.set(entry.id, entry);
   return Array.from(entriesById.values()).sort((a, b) => String(a.timestamp ?? "").localeCompare(String(b.timestamp ?? "")));
+}
+
+async function knowledgeEntriesForProject(
+  fastify: Parameters<FastifyPluginAsync>[0],
+  projectId: string,
+): Promise<Array<Record<string, unknown>>> {
+  const rows = await fastify.coordinatorStore.listProjections<Record<string, unknown>>("knowledge_entry_v2");
+  return rows.filter((item) => item.projectId === projectId);
+}
+
+function eventProjectId(payload: Record<string, unknown>): string | undefined {
+  const nested = (
+    payload["observation"]
+    ?? payload["proposal"]
+    ?? payload["artifact"]
+    ?? payload["task"]
+    ?? payload["rewardIntent"]
+    ?? payload["batch"]
+  ) as Record<string, unknown> | undefined;
+  const source = nested ?? payload;
+  return typeof source["projectId"] === "string" ? source["projectId"] : undefined;
+}
+
+function eventTitle(type: string, payload: Record<string, unknown>): string {
+  const nested = (
+    payload["observation"]
+    ?? payload["proposal"]
+    ?? payload["artifact"]
+    ?? payload["task"]
+    ?? payload["review"]
+    ?? payload["outcome"]
+    ?? payload["contribution"]
+  ) as Record<string, unknown> | undefined;
+  const source = nested ?? payload;
+  const title = source["title"] ?? source["summary"] ?? source["body"] ?? source["content"] ?? source["description"] ?? source["comment"];
+  return typeof title === "string" && title.trim() ? `${type}: ${title.replace(/\s+/g, " ").slice(0, 140)}` : type;
 }
 
 function ledgerSummary(intents: ProjectScoped[]) {
