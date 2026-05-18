@@ -354,6 +354,7 @@ async function handleRegisterAgentProfile(intent: ActionIntent, ctx: DispatchCon
     displayName: data.displayName,
     capabilities: data.capabilities ?? [],
     organizationIds: data.organizationIds,
+    sessionKeys: existingProfile?.sessionKeys,
     reputationScore: data.reputationScore,
     stakeBalance: data.stakeBalance,
     chainId: data.chainId,

@@ -32,6 +32,8 @@ import agentProfileRoutes from "./api/routes/agentProfile.js";
 import membershipsRoutes from "./modules/identity/memberships/routes.js";
 import onboardingRoutes from "./modules/identity/onboarding/routes.js";
 import walletRoutes from "./modules/identity/wallet/routes.js";
+import agentEnrollmentsRoutes from "./modules/identity/agent-enrollments/routes.js";
+import personalCenterRoutes from "./api/routes/personalCenter.js";
 import dotVibRoutes from "./modules/conversion/dot-vib/routes.js";
 import adminAirdropRoutes from "./modules/admin/airdrop/routes.js";
 import adminConversionRoutes from "./modules/admin/conversion/routes.js";
@@ -210,6 +212,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(workflowRoutes);
   await fastify.register(reputationV2Routes);
   await fastify.register(agentProfileRoutes);
+  await fastify.register(personalCenterRoutes);
 
   // ─── Legacy routes (deprecated, retained until Phase 5 cleanup) ───────────
   await fastify.register(projectsRoutes);
@@ -219,6 +222,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(agentsRoutes);
   await fastify.register(membershipsRoutes);
   await fastify.register(walletRoutes);
+  await fastify.register(agentEnrollmentsRoutes);
   await fastify.register(onboardingRoutes);
   await fastify.register(dotVibRoutes);
   await fastify.register(adminAirdropRoutes);

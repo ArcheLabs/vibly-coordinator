@@ -244,8 +244,140 @@ describe("createApp governance runtime config", () => {
 
     await app.close();
   });
+
+  it("returns an empty personal center without a wallet session", async () => {
+    const config = loadConfig({
+      NODE_ENV: "test",
+      API_AUTH_MODE: "none",
+    });
+    const app = await createApp({
+      config,
+      logger: createLogger(config),
+      concord: makeConcord(),
+      coordinatorStore: makeStore(),
+      eventBus: createEventBus(),
+      startGovernanceConsumers: false,
+    });
+
+    const res = await app.inject({ method: "GET", url: "/personal-center" });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{ data: { personalCenter: { session: null; agents: unknown[] } } }>();
+    expect(body.data.personalCenter.session).toBeNull();
+    expect(body.data.personalCenter.agents).toEqual([]);
+
+    await app.close();
+  });
+
+  it("authorizes, lists, and revokes an agent session key", async () => {
+    await cryptoWaitReady();
+    const keyring = new Keyring({ type: "sr25519" });
+    const root = keyring.addFromUri("//Alice");
+    const agent = keyring.addFromUri("//Bob");
+
+    const config = loadConfig({
+      NODE_ENV: "test",
+      API_AUTH_MODE: "none",
+    });
+    const app = await createApp({
+      config,
+      logger: createLogger(config),
+      concord: makeConcord(),
+      coordinatorStore: makeStore(),
+      eventBus: createEventBus(),
+      startGovernanceConsumers: false,
+    });
+    const token = await createWalletSession(app, root.address, root);
+
+    const challengeRes = await app.inject({
+      method: "POST",
+      url: "/agent-enrollments/challenges",
+      headers: { "x-wallet-session": token },
+      payload: {
+        descriptor: {
+          displayName: "Observer Agent",
+          sessionPublicKey: agent.address,
+          capabilities: ["observer"],
+          organizationIds: ["default"],
+          scopes: ["availability", "task_result"],
+          stakeLimit: "100",
+          identityId: "identity-1",
+          chainAgentId: "chain-agent-1",
+          chainId: "substrate:vibly-solo",
+        },
+      },
+    });
+    expect(challengeRes.statusCode).toBe(200);
+    const challenge = challengeRes.json<{ data: { challenge: { id: string; message: string; rootAuthorizationMessage: string } } }>().data.challenge;
+
+    const authorizeRes = await app.inject({
+      method: "POST",
+      url: "/agent-enrollments/authorizations",
+      headers: { "x-wallet-session": token },
+      payload: {
+        challengeId: challenge.id,
+        sessionSignature: toHex(agent.sign(new TextEncoder().encode(challenge.message))),
+        rootAuthorizationSignature: toHex(root.sign(new TextEncoder().encode(challenge.rootAuthorizationMessage))),
+      },
+    });
+    expect(authorizeRes.statusCode).toBe(200);
+    const authorization = authorizeRes.json<{ data: { authorization: { sessionKey: { id: string }; profile: { sessionKeys: unknown[] } } } }>().data.authorization;
+    expect(authorization.profile.sessionKeys).toHaveLength(1);
+
+    const reuseRes = await app.inject({
+      method: "POST",
+      url: "/agent-enrollments/authorizations",
+      headers: { "x-wallet-session": token },
+      payload: {
+        challengeId: challenge.id,
+        sessionSignature: toHex(agent.sign(new TextEncoder().encode(challenge.message))),
+        rootAuthorizationSignature: toHex(root.sign(new TextEncoder().encode(challenge.rootAuthorizationMessage))),
+      },
+    });
+    expect(reuseRes.statusCode).toBe(409);
+
+    const centerRes = await app.inject({
+      method: "GET",
+      url: "/personal-center",
+      headers: { "x-wallet-session": token },
+    });
+    expect(centerRes.statusCode).toBe(200);
+    const center = centerRes.json<{ data: { personalCenter: { agents: unknown[]; securityEvents: unknown[] } } }>().data.personalCenter;
+    expect(center.agents).toHaveLength(1);
+    expect(center.securityEvents).toHaveLength(1);
+
+    const revokeRes = await app.inject({
+      method: "POST",
+      url: `/agent-enrollments/${authorization.sessionKey.id}/revoke`,
+      headers: { "x-wallet-session": token },
+      payload: { reason: "test" },
+    });
+    expect(revokeRes.statusCode).toBe(200);
+
+    await app.close();
+  });
 });
 
 function toHex(bytes: Uint8Array): string {
   return `0x${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`;
+}
+
+async function createWalletSession(app: Awaited<ReturnType<typeof createApp>>, address: string, pair: { sign(input: Uint8Array): Uint8Array }) {
+  const challengeRes = await app.inject({
+    method: "POST",
+    url: "/wallet/challenges",
+    payload: { ecosystem: "polkadot", address },
+  });
+  const challengeBody = challengeRes.json<{ data: { challenge: { id: string; message: string } } }>();
+  const sessionRes = await app.inject({
+    method: "POST",
+    url: "/wallet/sessions",
+    payload: {
+      challengeId: challengeBody.data.challenge.id,
+      ecosystem: "polkadot",
+      address,
+      signature: toHex(pair.sign(new TextEncoder().encode(challengeBody.data.challenge.message))),
+    },
+  });
+  return sessionRes.json<{ data: { session: { token: string } } }>().data.session.token;
 }

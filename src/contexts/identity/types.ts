@@ -17,11 +17,31 @@ export interface Principal {
   updatedAt: string;
 }
 
+export interface AgentSessionKey {
+  id: string;
+  publicKey: string;
+  keyType: "sr25519" | "ed25519" | "ecdsa" | "unknown";
+  status: "active" | "revoked" | "expired";
+  scopes: string[];
+  stakeLimit?: string;
+  expiresAt?: string;
+  authorizedBy: string;
+  proof?: {
+    challengeId?: string;
+    sessionSignature?: string;
+    rootSignature?: string;
+    message?: string;
+  };
+  createdAt: string;
+  revokedAt?: string;
+}
+
 export interface AgentProfile {
   principalId: string;
   displayName: string;
   capabilities: string[];
   organizationIds: string[];
+  sessionKeys?: AgentSessionKey[];
   reputationScore?: number;
   /** @deprecated Coordinator eligibility uses chain stake read models, not this local field. */
   stakeBalance?: string;
