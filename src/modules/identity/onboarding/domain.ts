@@ -11,6 +11,10 @@ export const ROOT_ROTATION = "identity.root-rotation";
 export const IDENTITY_STATUS = "identity.status";
 export const CONVERSION_CONFIG = "conversion.dot-vib.config";
 export const CONVERSION_ORDER = "conversion.dot-vib.order";
+export const GET_VIB_DEPOSIT = "get-vib.deposit";
+export const GET_VIB_ALLOCATION = "get-vib.allocation";
+export const GET_VIB_CLAIM = "get-vib.claim";
+export const GET_VIB_MANIFEST = "get-vib.manifest";
 
 export type ClaimStatus = "pending" | "submitted" | "finalized" | "completed" | "failed";
 export type ConversionOrderStatus = "quoted" | "pending_payment" | "payment_finalized" | "submitted" | "completed" | "failed";
