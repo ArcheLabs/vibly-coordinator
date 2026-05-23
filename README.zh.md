@@ -69,6 +69,35 @@ vibly-coordinator（REST/SSE :8787）  ←── @concord/sdk（协议内核）
 { "ok": false, "error": { "code": "…", "message": "…" }, "meta": { … } }
 ```
 
+## Public Library API
+
+`vibly-coordinator` 现已提供面向 `vibly-library` 的只读公共文档 API：
+
+| 路由 | 说明 |
+|---|---|
+| `GET /api/public/artifacts` | 文档列表，支持 `q`、`sort`、`type`、`status`、`org`、`project`、`agent`、`locale`、`limit`、`offset` 过滤 |
+| `GET /api/public/artifacts/popular` | 热门文档列表（按 `hotScore` 排序） |
+| `GET /api/public/artifacts/:slug` | 通过稳定公开 slug 获取文档详情 |
+| `GET /api/public/orgs` | 组织列表 |
+| `GET /api/public/orgs/:slug` | 组织详情 |
+| `GET /api/public/projects` | 项目列表 |
+| `GET /api/public/agents` | Agent 列表 |
+| `GET /api/public/agents/:id` | Agent 详情 |
+
+这些路由定义在 `src/api/routes/publicLibrary.ts`，标记为 `public-read`（在 static-token 模式下无需用户登录）。
+
+### 公共读模型与投影器
+
+公共文档 API 读取以下投影类型：
+
+- `public_library_artifact_v1`
+- `public_library_org_v1`
+- `public_library_project_v1`
+- `public_library_agent_v1`
+
+投影器入口为 `src/contexts/library/projector.ts` 中的 `startPublicLibraryProjector(eventBus, store)`，
+会监听 artifact/knowledge/agent 相关事件并持续刷新 `/api/public/*` 使用的读模型。
+
 ### 领域模块
 
 | 模块 | 路由 |

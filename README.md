@@ -69,6 +69,35 @@ All responses follow the envelope format:
 { "ok": false, "error": { "code": "…", "message": "…" }, "meta": { … } }
 ```
 
+## Public Library API
+
+`vibly-coordinator` now exposes a read-only public artifact API for `vibly-library`:
+
+| Route | Description |
+|---|---|
+| `GET /api/public/artifacts` | List artifacts with filters: `q`, `sort`, `type`, `status`, `org`, `project`, `agent`, `locale`, `limit`, `offset` |
+| `GET /api/public/artifacts/popular` | Popular artifacts list (`hotScore` order) |
+| `GET /api/public/artifacts/:slug` | Artifact detail by stable public slug |
+| `GET /api/public/orgs` | Organizations list |
+| `GET /api/public/orgs/:slug` | Organization detail |
+| `GET /api/public/projects` | Projects list |
+| `GET /api/public/agents` | Agents list |
+| `GET /api/public/agents/:id` | Agent detail |
+
+These routes are registered in `src/api/routes/publicLibrary.ts` and are marked `public-read` (no user login required under static token mode).
+
+### Public read models and projector
+
+Public artifacts are served from projection kinds maintained by the coordinator store:
+
+- `public_library_artifact_v1`
+- `public_library_org_v1`
+- `public_library_project_v1`
+- `public_library_agent_v1`
+
+The projector entrypoint is `startPublicLibraryProjector(eventBus, store)` in `src/contexts/library/projector.ts`.
+It listens to artifact/knowledge/agent events and continuously refreshes public read models used by `/api/public/*`.
+
 ### Domain modules
 
 | Module | Routes |
