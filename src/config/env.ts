@@ -2,26 +2,66 @@ import { z } from "zod";
 
 const envSchema = z
   .object({
+    // ─────────────────────────────────────────────────────────────────────────
+    // Runtime / server basics
+    // ─────────────────────────────────────────────────────────────────────────
+    // Runtime mode. Production enables extra safety checks in superRefine.
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+    // Fastify bind host.
     HOST: z.string().default("0.0.0.0"),
+    // Fastify listen port.
     PORT: z.coerce.number().default(8787),
+    // Pino/Fastify log level.
     LOG_LEVEL: z.string().default("info"),
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Storage / persistence
+    // ─────────────────────────────────────────────────────────────────────────
+    // Connection string. In sqlite mode this is usually file:./data/*.sqlite.
     DATABASE_URL: z.string().default("file:./data/vibly-coordinator.sqlite"),
+    // Storage backend switch:
+    // - memory: ephemeral process memory (tests/local demos)
+    // - sqlite: local durable file database (default dev mode)
+    // - postgres: production-grade shared persistence
     STORAGE_MODE: z.enum(["memory", "sqlite", "postgres"]).default("sqlite"),
+    // Logical coordinator node identity used in logs/metadata.
     COORDINATOR_ID: z.string().default("local-coordinator"),
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // API auth / OIDC
+    // ─────────────────────────────────────────────────────────────────────────
+    // none/static-token are dev-only. Production must use oidc (enforced below).
     API_AUTH_MODE: z.enum(["none", "static-token", "oidc"]).default("static-token"),
+    // Comma-separated tokens used when API_AUTH_MODE=static-token.
     API_TOKENS: z.string().default("dev-token"),
     OIDC_ISSUER: z.string().optional(),
     OIDC_AUDIENCE: z.string().optional(),
     OIDC_JWKS_URL: z.string().optional(),
+    // JWT claim name that contains accessible project IDs.
     OIDC_PROJECTS_CLAIM: z.string().default("vibly_projects"),
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Background loops / infra toggles
+    // ─────────────────────────────────────────────────────────────────────────
+    // SSE heartbeat interval for stream keepalive.
     SSE_HEARTBEAT_MS: z.coerce.number().default(15000),
+    // Assignment expiry scheduler interval; 0 means disabled.
     ASSIGNMENT_EXPIRY_INTERVAL_MS: z.coerce.number().default(0),
+    // Stake sync scheduler interval; 0 means disabled.
     AGENT_STAKE_SYNC_INTERVAL_MS: z.coerce.number().default(0),
+    // Maximum acceptable staleness for cached stake data.
     AGENT_STAKE_FRESHNESS_MS: z.coerce.number().default(30000),
+    // Local trace output path for debug/event traces.
     TRACE_OUTPUT_DIR: z.string().default("./data/traces"),
+    // OpenAPI/swagger exposure toggle.
     ENABLE_SWAGGER: z.string().transform((v) => v === "true").default("true"),
+    // Enables dev-only routes; forbidden in production.
     ENABLE_DEV_ROUTES: z.string().transform((v) => v === "true").default("false"),
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Governance backend integrations
+    // ─────────────────────────────────────────────────────────────────────────
+    // Comma-separated backend names, e.g. "evm,substrate".
     GOVERNANCE_BACKENDS: z.string().default(""),
     SUBSTRATE_INDEXER_URL: z.string().optional(),
     SUBSTRATE_CHAIN_ID: z.string().default("substrate:vibly-solo"),
@@ -31,6 +71,10 @@ const envSchema = z
     SUBSTRATE_COORDINATOR_AUTHORITY_URI: z.string().default("//Alice"),
     EVM_GOVERNOR_FIXTURE: z.string().transform((v) => v === "true").default("false"),
     EVM_CHAIN_ID: z.string().default("31337"),
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Dot/VIB conversion settings
+    // ─────────────────────────────────────────────────────────────────────────
     VIBLY_DOT_RECEIVING_ADDRESS: z.string().default(""),
     VIBLY_AIRDROP_DOMAIN: z.string().default("vibly.identity.airdrop"),
     VIBLY_CONVERSION_TOTAL_CAP: z.coerce.number().default(0),
@@ -38,17 +82,39 @@ const envSchema = z
     VIBLY_CONVERSION_SLOPE: z.coerce.number().default(0),
     VIBLY_CONVERSION_MIN_DOT: z.coerce.number().default(0.1),
     VIBLY_CONVERSION_MAX_DOT: z.coerce.number().default(1000),
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Observability
+    // ─────────────────────────────────────────────────────────────────────────
+    // Optional OTLP endpoint for telemetry export.
     OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
+
     // ─── Coordination scheduling ──────────────────────────────────────────────
+    // Total round duration in ms.
+    // Set to 0 to disable the coordination round scheduler entirely.
     VIBLY_COORDINATION_ROUND_INTERVAL_MS: z.coerce.number().default(600000),
+    // Observation submission deadline as a ratio of round duration.
+    // Example: interval=10min and ratio=0.5 -> submit deadline at +5min.
     OBSERVATION_SUBMIT_RATIO: z.coerce.number().min(0.1).max(0.9).default(0.5),
+    // Hard cap on reviewers selected per cycle (global safety bound).
     GLOBAL_MAX_REVIEWERS_PER_CYCLE: z.coerce.number().min(1).default(5),
+    // Max number of review cycles allowed per review round.
     MAX_REVIEW_CYCLES: z.coerce.number().min(1).default(5),
+    // Duration of one review cycle in ms.
     REVIEW_CYCLE_INTERVAL_MS: z.coerce.number().default(300000),
+    // Review deadline fallback in ms (used by review-related flows).
     REVIEW_DEADLINE_MS: z.coerce.number().default(300000),
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Agent connectivity / retry
+    // ─────────────────────────────────────────────────────────────────────────
+    // Max reconnect attempts before giving up.
     AGENT_RECONNECT_MAX_ATTEMPTS: z.coerce.number().default(5),
+    // Exponential backoff base delay (ms).
     AGENT_RECONNECT_BASE_DELAY_MS: z.coerce.number().default(1000),
+    // Exponential backoff max delay ceiling (ms).
     AGENT_RECONNECT_MAX_DELAY_MS: z.coerce.number().default(30000),
+    // Debounce window to avoid connect/disconnect flapping (ms).
     AGENT_CONNECTION_DEBOUNCE_MS: z.coerce.number().default(5000),
   })
   .superRefine((val, ctx) => {
@@ -118,19 +184,26 @@ const envSchema = z
   });
 
 export interface CoordinatorConfig {
+  // ─── Runtime / server basics ─────────────────────────────────────────────
   nodeEnv: "development" | "test" | "production";
   host: string;
   port: number;
   logLevel: string;
+
+  // ─── Storage / persistence ───────────────────────────────────────────────
   databaseUrl: string;
   storageMode: "memory" | "sqlite" | "postgres";
   coordinatorId: string;
+
+  // ─── API auth / OIDC ─────────────────────────────────────────────────────
   apiAuthMode: "none" | "static-token" | "oidc";
   apiTokens: string[];
   oidcIssuer?: string;
   oidcAudience?: string;
   oidcJwksUrl?: string;
   oidcProjectsClaim: string;
+
+  // ─── Background loops / infra toggles ───────────────────────────────────
   sseHeartbeatMs: number;
   assignmentExpiryIntervalMs: number;
   agentStakeSyncIntervalMs: number;
@@ -138,6 +211,8 @@ export interface CoordinatorConfig {
   traceOutputDir: string;
   enableSwagger: boolean;
   enableDevRoutes: boolean;
+
+  // ─── Governance backend integrations ─────────────────────────────────────
   governanceBackends: string[];
   substrateIndexerUrl?: string;
   substrateChainId: string;
@@ -147,6 +222,8 @@ export interface CoordinatorConfig {
   substrateCoordinatorAuthorityUri: string;
   evmGovernorFixture: boolean;
   evmChainId: string;
+
+  // ─── Dot/VIB conversion settings ─────────────────────────────────────────
   viblyDotReceivingAddress: string;
   viblyAirdropDomain: string;
   viblyConversionTotalCap: number;
@@ -154,7 +231,10 @@ export interface CoordinatorConfig {
   viblyConversionSlope: number;
   viblyConversionMinDot: number;
   viblyConversionMaxDot: number;
+
+  // ─── Observability ────────────────────────────────────────────────────────
   otelExporterOtlpEndpoint?: string;
+
   // ─── Coordination scheduling ──────────────────────────────────────────────
   viblyCoordinationRoundIntervalMs: number;
   observationSubmitRatio: number;
