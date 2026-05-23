@@ -79,6 +79,8 @@ import reputationV2Routes from "./api/routes/reputationV2.js";
 // v0.2 Obligations + Agent Notifications
 import obligationsRoutes from "./api/routes/obligations.js";
 import agentNotificationsRoutes from "./api/routes/agentNotifications.js";
+// v0.2 Public Library routes
+import publicLibraryRoutes from "./api/routes/publicLibrary.js";
 // v0.2 Agent profile routes
 
 
@@ -197,6 +199,9 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   const { startReputationProjector } = await import("./contexts/reputation/projector.js");
   startReputationProjector(eventBus, coordinatorStore);
 
+  const { startPublicLibraryProjector } = await import("./contexts/library/projector.js");
+  startPublicLibraryProjector(eventBus, coordinatorStore);
+
   fastify.decorate("concord", concord);
   fastify.decorate("coordinatorStore", coordinatorStore);
   fastify.decorate("eventBus", eventBus);
@@ -230,6 +235,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(agentNotificationsRoutes);
   await fastify.register(agentProfileRoutes);
   await fastify.register(personalCenterRoutes);
+  await fastify.register(publicLibraryRoutes);
 
   // ─── Legacy routes (deprecated, retained until Phase 5 cleanup) ───────────
   await fastify.register(projectsRoutes);
