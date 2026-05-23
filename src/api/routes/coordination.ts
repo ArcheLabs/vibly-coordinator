@@ -252,6 +252,69 @@ const coordinationRoutes: FastifyPluginAsync = async (fastify) => {
       return ok({ items: items.slice(0, req.query.limit ?? 50) });
     },
   );
+  // ─── Coordination Rounds ────────────────────────────────────────────────
+
+  fastify.get<{ Querystring: { status?: string; limit?: number } }>(
+    "/coordination/rounds",
+    {
+      ...authPolicy("public-read", {
+        tags: ["CoordinationRounds"],
+        summary: "List coordination rounds",
+        querystring: {
+          type: "object",
+          properties: {
+            status: { type: "string" },
+            limit: { type: "number" },
+          },
+        },
+        response: { 200: envelopeKeyArray("items", ITEM_SCHEMA) },
+      }),
+    },
+    async (req) => {
+      const { RoundRepository } = await import("../../contexts/round/repository.js");
+      const roundRepo = new RoundRepository(fastify.coordinatorStore);
+      let items = await roundRepo.list();
+      if (req.query.status) items = items.filter((r) => r.status === req.query.status);
+      return ok({ items: items.slice(0, req.query.limit ?? 50) });
+    },
+  );
+
+  fastify.get(
+    "/coordination/rounds/current",
+    {
+      ...authPolicy("public-read", {
+        tags: ["CoordinationRounds"],
+        summary: "Get the currently active coordination round",
+        response: { 200: envelopeKey("round") },
+      }),
+    },
+    async () => {
+      const { RoundRepository } = await import("../../contexts/round/repository.js");
+      const roundRepo = new RoundRepository(fastify.coordinatorStore);
+      const round = await roundRepo.findActive();
+      if (!round) throw notFound("CoordinationRound", "active");
+      return ok({ round });
+    },
+  );
+
+  fastify.get<{ Params: { id: string } }>(
+    "/coordination/rounds/:id",
+    {
+      ...authPolicy("public-read", {
+        tags: ["CoordinationRounds"],
+        summary: "Get a coordination round by ID",
+        params: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
+        response: { 200: envelopeKey("round") },
+      }),
+    },
+    async (req) => {
+      const { RoundRepository } = await import("../../contexts/round/repository.js");
+      const roundRepo = new RoundRepository(fastify.coordinatorStore);
+      const round = await roundRepo.get(req.params.id);
+      if (!round) throw notFound("CoordinationRound", req.params.id);
+      return ok({ round });
+    },
+  );
 };
 
 export default coordinationRoutes;

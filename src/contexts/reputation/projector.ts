@@ -18,6 +18,8 @@ const DELTAS: Record<ReputationEventType, number> = {
   "assignment-failed": -3,
   "assignment-timeout": -5,
   "review-completed": +3,
+  "review-missed": -2,
+  "observation-missed": -2,
   "vote-cast": +1,
   "proposal-accepted": +10,
   "task-accepted": +8,

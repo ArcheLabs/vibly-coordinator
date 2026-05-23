@@ -39,6 +39,17 @@ const envSchema = z
     VIBLY_CONVERSION_MIN_DOT: z.coerce.number().default(0.1),
     VIBLY_CONVERSION_MAX_DOT: z.coerce.number().default(1000),
     OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
+    // ─── Coordination scheduling ──────────────────────────────────────────────
+    VIBLY_COORDINATION_ROUND_INTERVAL_MS: z.coerce.number().default(600000),
+    OBSERVATION_SUBMIT_RATIO: z.coerce.number().min(0.1).max(0.9).default(0.5),
+    GLOBAL_MAX_REVIEWERS_PER_CYCLE: z.coerce.number().min(1).default(5),
+    MAX_REVIEW_CYCLES: z.coerce.number().min(1).default(5),
+    REVIEW_CYCLE_INTERVAL_MS: z.coerce.number().default(300000),
+    REVIEW_DEADLINE_MS: z.coerce.number().default(300000),
+    AGENT_RECONNECT_MAX_ATTEMPTS: z.coerce.number().default(5),
+    AGENT_RECONNECT_BASE_DELAY_MS: z.coerce.number().default(1000),
+    AGENT_RECONNECT_MAX_DELAY_MS: z.coerce.number().default(30000),
+    AGENT_CONNECTION_DEBOUNCE_MS: z.coerce.number().default(5000),
   })
   .superRefine((val, ctx) => {
     if (val.NODE_ENV !== "production") return;
@@ -144,6 +155,17 @@ export interface CoordinatorConfig {
   viblyConversionMinDot: number;
   viblyConversionMaxDot: number;
   otelExporterOtlpEndpoint?: string;
+  // ─── Coordination scheduling ──────────────────────────────────────────────
+  viblyCoordinationRoundIntervalMs: number;
+  observationSubmitRatio: number;
+  globalMaxReviewersPerCycle: number;
+  maxReviewCycles: number;
+  reviewCycleIntervalMs: number;
+  reviewDeadlineMs: number;
+  agentReconnectMaxAttempts: number;
+  agentReconnectBaseDelayMs: number;
+  agentReconnectMaxDelayMs: number;
+  agentConnectionDebounceMs: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorConfig {
@@ -187,5 +209,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     viblyConversionMinDot: parsed.VIBLY_CONVERSION_MIN_DOT,
     viblyConversionMaxDot: parsed.VIBLY_CONVERSION_MAX_DOT,
     otelExporterOtlpEndpoint: parsed.OTEL_EXPORTER_OTLP_ENDPOINT?.trim() || undefined,
+    viblyCoordinationRoundIntervalMs: parsed.VIBLY_COORDINATION_ROUND_INTERVAL_MS,
+    observationSubmitRatio: parsed.OBSERVATION_SUBMIT_RATIO,
+    globalMaxReviewersPerCycle: parsed.GLOBAL_MAX_REVIEWERS_PER_CYCLE,
+    maxReviewCycles: parsed.MAX_REVIEW_CYCLES,
+    reviewCycleIntervalMs: parsed.REVIEW_CYCLE_INTERVAL_MS,
+    reviewDeadlineMs: parsed.REVIEW_DEADLINE_MS,
+    agentReconnectMaxAttempts: parsed.AGENT_RECONNECT_MAX_ATTEMPTS,
+    agentReconnectBaseDelayMs: parsed.AGENT_RECONNECT_BASE_DELAY_MS,
+    agentReconnectMaxDelayMs: parsed.AGENT_RECONNECT_MAX_DELAY_MS,
+    agentConnectionDebounceMs: parsed.AGENT_CONNECTION_DEBOUNCE_MS,
   };
 }

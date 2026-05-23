@@ -1,21 +1,22 @@
 /**
- * TaskSubmittedProcess — triggers a ReviewRound when a Task is submitted.
+ * TaskSubmittedProcess — triggers a ReviewRound + initial ReviewCycle (#0)
+ * when a Task is submitted.
  */
 
 import { createEvent, makeId } from "@concord/foundation";
 import type { EventBus, Unsubscribe } from "../services/eventBus.js";
 import type { CoordinatorStorePort } from "../db/coordinatorStorePort.js";
+import type { CoordinatorConfig } from "../config/env.js";
 import { WorkRepository } from "../contexts/work/repository.js";
-import { ReviewRepository } from "../contexts/evaluation/repository.js";
+import { ReviewRepository, ReviewCycleRepository } from "../contexts/evaluation/repository.js";
 import { MechanismRepository } from "../contexts/mechanism/repository.js";
-import { selectParticipants } from "../contexts/mechanism/mechanismEngine.js";
-import { IdentityRepository } from "../contexts/identity/repository.js";
-import type { ReviewRound } from "../contexts/evaluation/types.js";
-import { filterEligibleAgents } from "../application/agentEligibility.js";
+import type { ReviewRound, ReviewCycle } from "../contexts/evaluation/types.js";
+import { selectReviewersForCycle } from "../application/reviewerSelection.js";
 
 export function startTaskSubmittedProcess(
   eventBus: EventBus,
   store: CoordinatorStorePort,
+  config: CoordinatorConfig,
 ): Unsubscribe {
   return eventBus.subscribe(
     async (env) => {
@@ -27,24 +28,47 @@ export function startTaskSubmittedProcess(
       const taskId = task["id"] as string;
       const submissionId = submission["id"] as string;
       const organizationId = task["organizationId"] as string;
+      const submitterId = task["assigneeId"] as string | undefined;
+      const proposerId = task["proposalId"] as string | undefined;
 
       try {
         const mechRepo = new MechanismRepository(store);
-        const identityRepo = new IdentityRepository(store);
         const reviewRepo = new ReviewRepository(store);
+        const cycleRepo = new ReviewCycleRepository(store);
 
-        // Find mechanism (if any) from the task
         const allMechanisms = await mechRepo.list(organizationId);
-        const mechanism = allMechanisms[0]; // use first available mechanism for org
-
-        const rule = mechanism?.reviewerSelection ?? { primitive: "random-selection" as const, count: 3 };
-        const agents = await filterEligibleAgents(store, await identityRepo.listAgentProfiles(), rule);
-        const candidates = agents.map((a) => a.principalId);
-        const { selected: reviewerIds } = selectParticipants(rule, { candidates });
+        const mechanism = allMechanisms[0];
+        const rule = mechanism?.reviewerSelection
+          ? {
+              primitive: mechanism.reviewerSelection.primitive,
+              count: mechanism.reviewerSelection.count,
+              minReputation: mechanism.reviewerSelection.minReputation,
+              minStake: mechanism.reviewerSelection.minStake,
+            }
+          : undefined;
 
         const now = new Date().toISOString();
+        const roundId = makeId("rev");
+        const cycleId = makeId("cyc");
+
+        // ── Reviewer selection (audit recorded inside) ──────────────────────
+        const { selectedIds: reviewerIds, auditId } = await selectReviewersForCycle({
+          store,
+          config,
+          reviewRoundId: roundId,
+          reviewCycleId: cycleId,
+          cycleIndex: 0,
+          submitterId,
+          proposerId,
+          organizationId,
+          rule,
+        });
+
+        const cycleDeadline = new Date(Date.now() + config.reviewCycleIntervalMs).toISOString();
+
+        // ── ReviewRound ──────────────────────────────────────────────────────
         const round: ReviewRound = {
-          id: makeId("rev"),
+          id: roundId,
           taskId,
           submissionId,
           organizationId,
@@ -53,13 +77,44 @@ export function startTaskSubmittedProcess(
           reviewerIds,
           reviews: [],
           status: "pending",
+          currentCycleIndex: 0,
+          totalCycles: 1,
           createdAt: now,
           updatedAt: now,
         };
         await reviewRepo.save(round);
 
-        const event = createEvent({ type: "ReviewRoundCreated", payload: { ...round }, causationId: env.id });
-        eventBus.publish(event);
+        // ── ReviewCycle #0 ───────────────────────────────────────────────────
+        const cycle: ReviewCycle = {
+          id: cycleId,
+          reviewRoundId: roundId,
+          cycleIndex: 0,
+          taskId,
+          submissionId,
+          organizationId,
+          reviewerIds,
+          reviews: [],
+          status: "active",
+          deadline: cycleDeadline,
+          selectionAuditId: auditId,
+          createdAt: now,
+          updatedAt: now,
+        };
+        await cycleRepo.save(cycle);
+
+        const roundEvent = createEvent({
+          type: "ReviewRoundCreated",
+          payload: { ...round },
+          causationId: env.id,
+        });
+        eventBus.publish(roundEvent);
+
+        const cycleEvent = createEvent({
+          type: "ReviewCycleStarted",
+          payload: { ...cycle },
+          causationId: env.id,
+        });
+        eventBus.publish(cycleEvent);
       } catch (err) {
         console.error("[TaskSubmittedProcess]", err);
       }

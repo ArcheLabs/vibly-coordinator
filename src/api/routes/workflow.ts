@@ -38,7 +38,7 @@ const workflowRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
-  fastify.get<{ Querystring: { organizationId?: string; assigneeId?: string; status?: string; limit?: number } }>(
+  fastify.get<{ Querystring: { organizationId?: string; assigneeId?: string; status?: string; kind?: string; limit?: number } }>(
     "/tasks",
     {
       ...authPolicy("public-read", {
@@ -50,6 +50,7 @@ const workflowRoutes: FastifyPluginAsync = async (fastify) => {
             organizationId: { type: "string" },
             assigneeId: { type: "string" },
             status: { type: "string" },
+            kind: { type: "string" },
             limit: { type: "integer", default: 50 },
           },
         },
@@ -60,6 +61,7 @@ const workflowRoutes: FastifyPluginAsync = async (fastify) => {
       let items = await workRepo().listTasks(req.query.organizationId);
       if (req.query.assigneeId) items = items.filter((t) => t.assigneeId === req.query.assigneeId);
       if (req.query.status) items = items.filter((t) => t.status === req.query.status);
+      if (req.query.kind) items = items.filter((t) => (t.kind ?? "ordinary") === req.query.kind);
       return ok({ items: items.slice(0, req.query.limit ?? 50) });
     },
   );
@@ -187,6 +189,43 @@ const workflowRoutes: FastifyPluginAsync = async (fastify) => {
       if (req.query.taskId) items = items.filter((r) => r.taskId === req.query.taskId);
       if (req.query.status) items = items.filter((r) => r.status === req.query.status);
       return ok({ items: items.slice(0, req.query.limit ?? 50) });
+    },
+  );
+
+  // ─── Review Cycles ─────────────────────────────────────────────────────────
+
+  fastify.get<{ Params: { id: string } }>(
+    "/review-rounds/:id/cycles",
+    {
+      ...authPolicy("public-read", {
+        tags: ["ReviewCycles"],
+        summary: "List review cycles for a review round",
+        params: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
+        response: { 200: envelopeKeyArray("items", ITEM_SCHEMA) },
+      }),
+    },
+    async (req) => {
+      const { ReviewCycleRepository } = await import("../../contexts/evaluation/repository.js");
+      const items = await new ReviewCycleRepository(fastify.coordinatorStore).listForRound(req.params.id);
+      return ok({ items });
+    },
+  );
+
+  fastify.get<{ Params: { id: string } }>(
+    "/review-cycles/:id",
+    {
+      ...authPolicy("public-read", {
+        tags: ["ReviewCycles"],
+        summary: "Get a review cycle by ID",
+        params: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
+        response: { 200: envelopeKey("reviewCycle") },
+      }),
+    },
+    async (req) => {
+      const { ReviewCycleRepository } = await import("../../contexts/evaluation/repository.js");
+      const reviewCycle = await new ReviewCycleRepository(fastify.coordinatorStore).get(req.params.id);
+      if (!reviewCycle) throw notFound("ReviewCycle", req.params.id);
+      return ok({ reviewCycle });
     },
   );
 };

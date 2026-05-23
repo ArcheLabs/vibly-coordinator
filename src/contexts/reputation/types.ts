@@ -10,6 +10,8 @@ export type ReputationEventType =
   | "assignment-failed"
   | "assignment-timeout"
   | "review-completed"
+  | "review-missed"
+  | "observation-missed"
   | "vote-cast"
   | "proposal-accepted"
   | "task-accepted"

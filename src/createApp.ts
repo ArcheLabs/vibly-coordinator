@@ -76,6 +76,9 @@ import coordinationRoutes from "./api/routes/coordination.js";
 import workflowRoutes from "./api/routes/workflow.js";
 // v0.2 Reputation / Settlement routes
 import reputationV2Routes from "./api/routes/reputationV2.js";
+// v0.2 Obligations + Agent Notifications
+import obligationsRoutes from "./api/routes/obligations.js";
+import agentNotificationsRoutes from "./api/routes/agentNotifications.js";
 // v0.2 Agent profile routes
 
 
@@ -149,7 +152,17 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   startProposalAcceptedProcess(eventBus, coordinatorStore);
 
   const { startTaskSubmittedProcess } = await import("./process-managers/taskSubmittedProcess.js");
-  startTaskSubmittedProcess(eventBus, coordinatorStore);
+  startTaskSubmittedProcess(eventBus, coordinatorStore, config);
+
+  const { startCoordinationRoundScheduler } = await import("./process-managers/coordinationRoundScheduler.js");
+  const stopCoordinationRoundScheduler = startCoordinationRoundScheduler({
+    config,
+    store: coordinatorStore,
+    eventBus,
+  });
+
+  const { startObservationTaskScheduler } = await import("./process-managers/observationTaskScheduler.js");
+  startObservationTaskScheduler(eventBus, coordinatorStore);
 
   const { startRewardCreationProcess } = await import("./process-managers/rewardCreationProcess.js");
   startRewardCreationProcess(eventBus, coordinatorStore);
@@ -199,6 +212,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   fastify.addHook("onClose", async () => {
     stopAssignmentExpiryScheduler();
     stopAgentStakeIndexerSync();
+    stopCoordinationRoundScheduler();
   });
 
   await fastify.register(healthRoutes, { config, readinessProbe });
@@ -212,6 +226,8 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(coordinationRoutes);
   await fastify.register(workflowRoutes);
   await fastify.register(reputationV2Routes);
+  await fastify.register(obligationsRoutes);
+  await fastify.register(agentNotificationsRoutes);
   await fastify.register(agentProfileRoutes);
   await fastify.register(personalCenterRoutes);
 
