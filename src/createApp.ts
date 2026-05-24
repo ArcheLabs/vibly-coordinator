@@ -195,6 +195,12 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
     concord,
   });
 
+  const { startGetVibRelayDepositWatcher } = await import("./process-managers/getVibRelayDepositWatcher.js");
+  const stopGetVibRelayDepositWatcher = startGetVibRelayDepositWatcher({
+    config,
+    store: coordinatorStore,
+  });
+
   // ─── v0.2 projectors ──────────────────────────────────────────────────────
   const { startReputationProjector } = await import("./contexts/reputation/projector.js");
   startReputationProjector(eventBus, coordinatorStore);
@@ -218,6 +224,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
     stopAssignmentExpiryScheduler();
     stopAgentStakeIndexerSync();
     stopCoordinationRoundScheduler();
+    stopGetVibRelayDepositWatcher();
   });
 
   await fastify.register(healthRoutes, { config, readinessProbe });

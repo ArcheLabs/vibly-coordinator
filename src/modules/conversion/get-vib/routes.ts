@@ -9,8 +9,10 @@ import {
   getCurve,
   getGetVibConfig,
   getOrder,
+  getRelayWatcherState,
   getRecords,
   ingestFinalizedDeposit,
+  listObservedRelayDeposits,
   quoteGetVibAmount,
   recordClaim,
 } from "./domain.js";
@@ -144,9 +146,10 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.post<{
     Body: {
-      sourceId: string;
-      dotAmount: string;
+      sourceId?: string;
+      dotAmount?: string;
       orderId?: string;
+      observedDepositId?: string;
       accountId?: string;
       identityId?: string;
       paymentId?: string;
@@ -160,11 +163,11 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
         summary: "Finalize an observed Relay Chain DOT deposit and create allocation",
         body: {
           type: "object",
-          required: ["sourceId", "dotAmount"],
           properties: {
             sourceId: { type: "string" },
             dotAmount: { type: "string" },
             orderId: { type: "string" },
+            observedDepositId: { type: "string" },
             accountId: { type: "string" },
             identityId: { type: "string" },
             paymentId: { type: "string" },
@@ -180,12 +183,66 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
           store: fastify.coordinatorStore,
           config: fastify.config,
           sourceId: request.body.sourceId,
+          observedDepositId: request.body.observedDepositId,
           dotAmount: request.body.dotAmount,
           orderId: request.body.orderId,
           accountId: request.body.accountId,
           identityId: request.body.identityId,
           paymentId: request.body.paymentId,
           finalizedAt: request.body.finalizedAt,
+        }),
+      }),
+  );
+
+  fastify.get(
+    "/admin/get-vib/relay-watcher/status",
+    {
+      schema: {
+        tags: ["Admin", "Get VIB"],
+        summary: "Get Get VIB relay deposit watcher status",
+        response: { 200: envelopeKey("status") },
+      },
+    },
+    async () =>
+      ok({
+        status: await getRelayWatcherState(fastify.coordinatorStore, fastify.config.getVibRelayChainId) ?? {
+          id: fastify.config.getVibRelayChainId,
+          relayChainId: fastify.config.getVibRelayChainId,
+          status: "disabled",
+          sourceUrl: fastify.config.getVibRelayRpcUrl,
+          depositAddress: fastify.config.viblyDotReceivingAddress,
+          observedCount: 0,
+          updatedAt: new Date().toISOString(),
+        },
+      }),
+  );
+
+  fastify.get<{ Querystring: { status?: "observed" | "confirmed" | "failed"; limit?: number } }>(
+    "/admin/get-vib/relay-deposits",
+    {
+      schema: {
+        tags: ["Admin", "Get VIB"],
+        summary: "List observed Get VIB Relay Chain deposits",
+        querystring: {
+          type: "object",
+          properties: {
+            status: { type: "string", enum: ["observed", "confirmed", "failed"] },
+            limit: { type: "integer", default: 50 },
+          },
+        },
+        response: {
+          200: envelopeKey("deposits", {
+            type: "array",
+            items: { type: "object", additionalProperties: true },
+          }),
+        },
+      },
+    },
+    async (request) =>
+      ok({
+        deposits: await listObservedRelayDeposits(fastify.coordinatorStore, {
+          status: request.query.status,
+          limit: request.query.limit,
         }),
       }),
   );

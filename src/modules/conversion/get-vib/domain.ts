@@ -19,11 +19,15 @@ import {
 const LEAF_DOMAIN = Buffer.from("VIB_CLAIM_LEAF_V1");
 const NODE_DOMAIN = Buffer.from("VIB_CLAIM_NODE_V1");
 const UNIT_DECIMALS = 12;
+export const GET_VIB_RELAY_DEPOSIT = "get-vib.relay-deposit";
+export const GET_VIB_RELAY_WATCHER_STATE = "get-vib.relay-watcher-state";
 
 export type DepositStatus = "observed" | "confirmed" | "failed";
 export type AllocationStatus = "pending_admin" | "confirmed" | "root_included";
 export type ClaimStatus = "pending" | "confirmed" | "failed";
 export type MerklePosition = "left" | "right";
+export type RelayDepositStatus = "observed" | "confirmed" | "failed";
+export type RelayWatcherStatus = "disabled" | "syncing" | "healthy" | "degraded";
 
 export interface GetVibConfig {
   networkId: string;
@@ -130,6 +134,46 @@ export interface AllocationManifest {
   createdAt: string;
 }
 
+export interface ObservedRelayDeposit {
+  id: string;
+  relayChainId: string;
+  sourceId: string;
+  status: RelayDepositStatus;
+  from: string;
+  to: string;
+  amountBaseUnits: string;
+  dotAmount: string;
+  blockNumber: number;
+  blockHash: string;
+  extrinsicIndex: number;
+  eventIndex: number;
+  extrinsicHash?: string;
+  observedAt: string;
+  finalizedAt: string;
+  confirmedAt?: string;
+  confirmedDepositId?: string;
+  allocationId?: string;
+  orderId?: string;
+  accountId?: string;
+  failureReason?: string;
+}
+
+export interface RelayWatcherState {
+  id: string;
+  relayChainId: string;
+  status: RelayWatcherStatus;
+  sourceUrl?: string;
+  depositAddress?: string;
+  lastProcessedBlock?: number;
+  lastFinalizedBlock?: number;
+  lastAttemptAt?: string;
+  lastSuccessfulScanAt?: string;
+  lastErrorAt?: string;
+  lastError?: string;
+  observedCount: number;
+  updatedAt: string;
+}
+
 interface MerkleLeaf {
   accountId: string;
   identityId?: string;
@@ -217,8 +261,9 @@ export async function getOrder(store: CoordinatorStorePort, orderId: string): Pr
 export async function ingestFinalizedDeposit(input: {
   store: CoordinatorStorePort;
   config: CoordinatorConfig;
-  sourceId: string;
-  dotAmount: string;
+  sourceId?: string;
+  observedDepositId?: string;
+  dotAmount?: string;
   accountId?: string;
   orderId?: string;
   paymentId?: string;
@@ -226,8 +271,20 @@ export async function ingestFinalizedDeposit(input: {
   finalizedAt?: string;
 }): Promise<{ deposit: DepositRecord; allocation: AllocationRecord }> {
   const networkId = getNetworkId(input.config);
-  const existing = await input.store.getProjection<DepositRecord>(GET_VIB_DEPOSIT, projectionId(networkId, input.sourceId));
-  if (existing) throw conflict("Get VIB deposit already processed", { sourceId: input.sourceId, depositId: existing.id });
+  const observed = input.observedDepositId
+    ? await getObservedRelayDeposit(input.store, input.observedDepositId)
+    : input.sourceId
+      ? await getObservedRelayDeposit(input.store, input.sourceId)
+      : undefined;
+  const sourceId = input.sourceId ?? observed?.sourceId;
+  const dotAmount = input.dotAmount ?? observed?.dotAmount;
+  const paymentId = input.paymentId ?? observed?.extrinsicHash ?? observed?.sourceId;
+  const finalizedAt = input.finalizedAt ?? observed?.finalizedAt;
+  if (!sourceId) throw badRequest("sourceId or observedDepositId is required");
+  if (!dotAmount) throw badRequest("dotAmount or observedDepositId is required");
+
+  const existing = await input.store.getProjection<DepositRecord>(GET_VIB_DEPOSIT, projectionId(networkId, sourceId));
+  if (existing) throw conflict("Get VIB deposit already processed", { sourceId, depositId: existing.id });
 
   const order = input.orderId ? await getOrder(input.store, input.orderId) : undefined;
   const accountId = input.accountId ?? order?.viblyRootAddress;
@@ -237,28 +294,28 @@ export async function ingestFinalizedDeposit(input: {
   const deposit: DepositRecord = {
     id: makeId("deposit"),
     networkId,
-    sourceId: input.sourceId,
+    sourceId,
     orderId: input.orderId,
-    paymentId: input.paymentId,
+    paymentId,
     accountId,
     identityId: input.identityId ?? order?.identityId,
-    dotAmount: input.dotAmount,
+    dotAmount,
     status: "confirmed",
     observedAt: now,
-    finalizedAt: input.finalizedAt ?? now,
+    finalizedAt: finalizedAt ?? now,
   };
 
   const conversion = await getConversionConfig(input.store, input.config);
   const issued = await completedGetVibAllocationTotal(input.store, networkId);
-  const vibAmount = quoteVibAmount(input.dotAmount, conversion, issued);
+  const vibAmount = quoteVibAmount(dotAmount, conversion, issued);
   const cumulativeAmount = addDecimalStrings(await cumulativeAllocationForAccount(input.store, networkId, accountId), vibAmount);
   const allocation: AllocationRecord = {
     id: makeId("alloc"),
     networkId,
-    sourceId: input.sourceId,
+    sourceId,
     accountId,
     identityId: deposit.identityId,
-    dotAmount: input.dotAmount,
+    dotAmount,
     vibAmount,
     cumulativeAmount,
     saleRuleVersion: "conversion-v1",
@@ -267,19 +324,97 @@ export async function ingestFinalizedDeposit(input: {
     confirmedAt: now,
   };
 
-  await input.store.saveProjection(GET_VIB_DEPOSIT, projectionId(networkId, input.sourceId), deposit);
+  await input.store.saveProjection(GET_VIB_DEPOSIT, projectionId(networkId, sourceId), deposit);
   await input.store.saveProjection(GET_VIB_ALLOCATION, projectionId(networkId, allocation.id), allocation);
   if (order) {
     await input.store.saveProjection(CONVERSION_ORDER, order.id, {
       ...order,
-      dotAmount: input.dotAmount,
+      dotAmount,
       finalVibAmount: vibAmount,
-      paymentId: input.paymentId ?? input.sourceId,
+      paymentId: paymentId ?? sourceId,
       status: "completed",
       updatedAt: now,
     });
   }
+  if (observed) {
+    await input.store.saveProjection(GET_VIB_RELAY_DEPOSIT, observed.id, {
+      ...observed,
+      status: "confirmed",
+      confirmedAt: now,
+      confirmedDepositId: deposit.id,
+      allocationId: allocation.id,
+      orderId: input.orderId,
+      accountId,
+    } satisfies ObservedRelayDeposit);
+  }
   return { deposit, allocation };
+}
+
+export async function saveObservedRelayDeposit(
+  store: CoordinatorStorePort,
+  deposit: Omit<ObservedRelayDeposit, "id" | "status" | "observedAt"> & { id?: string; status?: RelayDepositStatus; observedAt?: string },
+): Promise<{ deposit: ObservedRelayDeposit; created: boolean }> {
+  const id = deposit.id ?? deposit.sourceId;
+  const existing = await store.getProjection<ObservedRelayDeposit>(GET_VIB_RELAY_DEPOSIT, id);
+  if (existing) return { deposit: existing, created: false };
+  const now = new Date().toISOString();
+  const record: ObservedRelayDeposit = {
+    ...deposit,
+    id,
+    status: deposit.status ?? "observed",
+    observedAt: deposit.observedAt ?? now,
+  };
+  await store.saveProjection(GET_VIB_RELAY_DEPOSIT, id, record);
+  return { deposit: record, created: true };
+}
+
+export async function getObservedRelayDeposit(store: CoordinatorStorePort, id: string): Promise<ObservedRelayDeposit | undefined> {
+  return store.getProjection<ObservedRelayDeposit>(GET_VIB_RELAY_DEPOSIT, id);
+}
+
+export async function listObservedRelayDeposits(
+  store: CoordinatorStorePort,
+  input: { status?: RelayDepositStatus; limit?: number } = {},
+): Promise<ObservedRelayDeposit[]> {
+  const limit = input.limit ?? 50;
+  return (await store.listProjections<ObservedRelayDeposit>(GET_VIB_RELAY_DEPOSIT))
+    .filter((record) => !input.status || record.status === input.status)
+    .sort((left, right) => right.blockNumber - left.blockNumber || right.eventIndex - left.eventIndex)
+    .slice(0, limit);
+}
+
+export async function getRelayWatcherState(store: CoordinatorStorePort, relayChainId: string): Promise<RelayWatcherState | undefined> {
+  return store.getProjection<RelayWatcherState>(GET_VIB_RELAY_WATCHER_STATE, relayChainId);
+}
+
+export async function saveRelayWatcherState(
+  store: CoordinatorStorePort,
+  state: Omit<RelayWatcherState, "id" | "updatedAt"> & { id?: string; updatedAt?: string },
+): Promise<RelayWatcherState> {
+  const record: RelayWatcherState = {
+    ...state,
+    id: state.id ?? state.relayChainId,
+    updatedAt: state.updatedAt ?? new Date().toISOString(),
+  };
+  await store.saveProjection(GET_VIB_RELAY_WATCHER_STATE, record.id, record);
+  return record;
+}
+
+export function buildRelayDepositSourceId(input: {
+  relayChainId: string;
+  blockHash: string;
+  extrinsicIndex: number;
+  eventIndex: number;
+}): string {
+  return `${input.relayChainId}:${input.blockHash}:${input.extrinsicIndex}:${input.eventIndex}`;
+}
+
+export function decimalFromBaseUnits(value: string | bigint, decimals: number): string {
+  const amount = typeof value === "bigint" ? value : BigInt(value);
+  const scale = 10n ** BigInt(decimals);
+  const whole = amount / scale;
+  const fraction = String(amount % scale).padStart(decimals, "0").replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : String(whole);
 }
 
 export async function getAllocationSummary(store: CoordinatorStorePort, config: CoordinatorConfig, accountId: string): Promise<AllocationSummary> {

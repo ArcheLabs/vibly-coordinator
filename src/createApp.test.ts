@@ -7,6 +7,7 @@ import { createEventBus } from "./services/eventBus.js";
 import type { Concord } from "@concord/sdk";
 import { Keyring } from "@polkadot/keyring";
 import { cryptoWaitReady } from "@polkadot/util-crypto";
+import { saveObservedRelayDeposit } from "./modules/conversion/get-vib/domain.js";
 
 function makeStore(): CoordinatorStorePort {
   const projections = new Map<string, Map<string, unknown>>();
@@ -173,6 +174,62 @@ describe("createApp governance runtime config", () => {
 
     expect(privateRead.statusCode).toBe(401);
     expect(write.statusCode).toBe(401);
+
+    await app.close();
+  });
+
+  it("exposes Get VIB relay watcher status and finalizes observed relay deposits", async () => {
+    const store = makeStore();
+    const config = loadConfig({
+      NODE_ENV: "test",
+      API_AUTH_MODE: "none",
+      SUBSTRATE_CHAIN_ID: "local:get-vib-test",
+      VIBLY_DOT_RECEIVING_ADDRESS: "deposit",
+      VIBLY_CONVERSION_INITIAL_RATE: "1000",
+      GET_VIB_RELAY_CHAIN_ID: "polkadot-dev",
+    });
+    const observed = await saveObservedRelayDeposit(store, {
+      relayChainId: "polkadot-dev",
+      sourceId: "polkadot-dev:0xabc:0:1",
+      from: "from",
+      to: "deposit",
+      amountBaseUnits: "10000000000",
+      dotAmount: "1",
+      blockNumber: 1,
+      blockHash: "0xabc",
+      extrinsicIndex: 0,
+      eventIndex: 1,
+      extrinsicHash: "0xtx",
+      finalizedAt: "2026-05-24T00:00:00.000Z",
+    });
+    const app = await createApp({
+      config,
+      logger: createLogger(config),
+      concord: makeConcord(),
+      coordinatorStore: store,
+      eventBus: createEventBus(),
+      startGovernanceConsumers: false,
+    });
+
+    const statusRes = await app.inject({ method: "GET", url: "/admin/get-vib/relay-watcher/status" });
+    expect(statusRes.statusCode).toBe(200);
+    expect(statusRes.json<{ data: { status: { status: string } } }>().data.status.status).toBe("disabled");
+
+    const listRes = await app.inject({ method: "GET", url: "/admin/get-vib/relay-deposits?status=observed" });
+    expect(listRes.statusCode).toBe(200);
+    expect(listRes.json<{ data: { deposits: unknown[] } }>().data.deposits).toHaveLength(1);
+
+    const finalizeRes = await app.inject({
+      method: "POST",
+      url: "/admin/get-vib/deposits/finalize",
+      payload: {
+        observedDepositId: observed.deposit.id,
+        accountId: "0x1111111111111111111111111111111111111111111111111111111111111111",
+      },
+    });
+    expect(finalizeRes.statusCode).toBe(200);
+    const finalizeBody = finalizeRes.json<{ data: { result: { allocation: { vibAmount: string } } } }>();
+    expect(finalizeBody.data.result.allocation.vibAmount).toBe("1000");
 
     await app.close();
   });
