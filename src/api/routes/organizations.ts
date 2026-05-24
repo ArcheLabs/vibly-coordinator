@@ -11,6 +11,7 @@ import { envelope, envelopeKey, envelopeKeyArray, listEnvelope } from "../../dom
 import { OrganizationRepository } from "../../contexts/organization/repository.js";
 import { ArtifactRepository } from "../../contexts/artifact/repository.js";
 import { authPolicy } from "../../plugins/authPolicy.js";
+import { checkJoinEligibility, checkExitEligibility } from "../../contexts/membership/eligibility.js";
 
 const organizationsRoutes: FastifyPluginAsync = async (fastify) => {
   // ─── List organizations ────────────────────────────────────────────────
@@ -255,6 +256,109 @@ const organizationsRoutes: FastifyPluginAsync = async (fastify) => {
       const item = allItems.find((i) => i.feedEventId === request.params.feedEventId);
       if (!item) throw notFound("FeedItem", request.params.feedEventId);
       return ok({ feedItem: item });
+    },
+  );
+
+  // ─── Join eligibility ─────────────────────────────────────────────────────
+
+  const eligibilityCheckSchema = {
+    type: "object",
+    required: ["name", "status", "message"],
+    properties: {
+      name: { type: "string" },
+      status: { type: "string", enum: ["ok", "warn", "blocked"] },
+      message: { type: "string" },
+      details: { type: "object", additionalProperties: true },
+    },
+  } as const;
+
+  const eligibilityResultSchema = {
+    type: "object",
+    required: ["eligible", "checks"],
+    properties: {
+      eligible: { type: "boolean" },
+      checks: { type: "array", items: eligibilityCheckSchema },
+      requiredAction: {
+        type: "object",
+        required: ["type", "message"],
+        properties: {
+          type: { type: "string", enum: ["stake", "register-agent", "setup-identity"] },
+          required: { type: "string" },
+          current: { type: "string" },
+          message: { type: "string" },
+        },
+      },
+    },
+  } as const;
+
+  fastify.get<{ Params: { organizationId: string; principalId: string }; Querystring: { chainId?: string; identityId?: string; chainAgentId?: string } }>(
+    "/organizations/:organizationId/agents/:principalId/join-eligibility",
+    {
+      ...authPolicy("public-read", {
+        tags: ["Organizations"],
+        summary: "Check agent join eligibility for an organization",
+        params: {
+          type: "object",
+          required: ["organizationId", "principalId"],
+          properties: {
+            organizationId: { type: "string" },
+            principalId: { type: "string" },
+          },
+        },
+        querystring: {
+          type: "object",
+          properties: {
+            chainId: { type: "string" },
+            identityId: { type: "string" },
+            chainAgentId: { type: "string" },
+          },
+        },
+        response: {
+          200: envelopeKey("eligibility", eligibilityResultSchema),
+        },
+      }),
+    },
+    async (request) => {
+      const { organizationId, principalId } = request.params;
+      const { chainId, identityId, chainAgentId } = request.query;
+      const result = await checkJoinEligibility(
+        {
+          organizationId,
+          principalId,
+          chainId,
+          identityId,
+          chainAgentId,
+          minActiveStake: fastify.config.orgMembershipMinActiveStake,
+        },
+        fastify.coordinatorStore,
+      );
+      return ok({ eligibility: result });
+    },
+  );
+
+  fastify.get<{ Params: { organizationId: string; principalId: string } }>(
+    "/organizations/:organizationId/agents/:principalId/exit-eligibility",
+    {
+      ...authPolicy("public-read", {
+        tags: ["Organizations"],
+        summary: "Check agent exit eligibility for an organization",
+        params: {
+          type: "object",
+          required: ["organizationId", "principalId"],
+          properties: {
+            organizationId: { type: "string" },
+            principalId: { type: "string" },
+          },
+        },
+        response: {
+          200: envelopeKey("eligibility", eligibilityResultSchema),
+        },
+      }),
+    },
+    async (request) => {
+      const { organizationId, principalId } = request.params;
+      const result = await checkExitEligibility({ organizationId, principalId }, fastify.coordinatorStore);
+      return ok({ eligibility: result });
     },
   );
 };

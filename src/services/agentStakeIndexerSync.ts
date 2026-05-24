@@ -7,6 +7,7 @@ import { AGENT_STAKE_INDEXER_HEALTH_ID, StakeRepository } from "../contexts/stak
 import type { Concord } from "@concord/sdk";
 import type { CoordinatorStorePort } from "../db/coordinatorStorePort.js";
 import type { EventBus } from "./eventBus.js";
+import { noopAuthorityResolver } from "./chainAuthorityResolver.js";
 
 type RawLedger = {
   id: string;
@@ -108,6 +109,7 @@ async function syncAgentStakeLedgers(input: {
         concord: input.concord,
         config: input.config,
         principalId: input.config.coordinatorId,
+        authorityResolver: noopAuthorityResolver,
       },
     );
   }

@@ -14,6 +14,7 @@ import { badRequest } from "../../domain/errors.js";
 import { actionIntentResultSchema } from "../../domain/schemas.js";
 import type { ActionIntentDispatcher } from "../../application/actionIntentDispatcher.js";
 import type { ActionIntentType } from "../../application/types.js";
+import type { ChainAuthorityResolver } from "../../services/chainAuthorityResolver.js";
 
 const bodySchema = z.object({
   type: z.string().min(1),
@@ -26,11 +27,12 @@ const bodySchema = z.object({
 
 export interface ActionIntentsPluginOptions {
   dispatcher: ActionIntentDispatcher;
+  authorityResolver: ChainAuthorityResolver;
 }
 
 const actionIntentsRoutes: FastifyPluginAsync<ActionIntentsPluginOptions> = async (
   fastify,
-  { dispatcher },
+  { dispatcher, authorityResolver },
 ) => {
   fastify.post<{ Body: unknown }>(
     "/action-intents",
@@ -80,6 +82,7 @@ const actionIntentsRoutes: FastifyPluginAsync<ActionIntentsPluginOptions> = asyn
           config: fastify.config,
           concord: fastify.concord,
           principalId: intent.principalId,
+          authorityResolver,
         },
       );
 

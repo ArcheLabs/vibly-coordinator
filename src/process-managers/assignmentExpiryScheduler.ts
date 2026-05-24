@@ -4,6 +4,7 @@ import type { EventBus } from "../services/eventBus.js";
 import type { Concord } from "@concord/sdk";
 import type { CoordinatorConfig } from "../config/env.js";
 import { CoordinationRepository } from "../contexts/coordination/repository.js";
+import { noopAuthorityResolver } from "../services/chainAuthorityResolver.js";
 
 export function startAssignmentExpiryScheduler(input: {
   intervalMs: number;
@@ -41,7 +42,7 @@ export function startAssignmentExpiryScheduler(input: {
       }
       await input.dispatcher.dispatch(
         { type: "TickAssignmentExpiry", principalId: input.principalId, payload: {} },
-        { store: input.store, eventBus: input.eventBus, concord: input.concord, config: input.config, principalId: input.principalId },
+        { store: input.store, eventBus: input.eventBus, concord: input.concord, config: input.config, principalId: input.principalId, authorityResolver: noopAuthorityResolver },
       );
     } catch (err) {
       console.error("[AssignmentExpiryScheduler]", err);

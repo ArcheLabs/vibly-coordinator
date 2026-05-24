@@ -10,6 +10,8 @@ import type { Organization, OrganizationHandbook, OrganizationMember, AuthorityA
 export type OrganizationEvent =
   | { type: "OrganizationCreated"; payload: { id: string; name: string; description?: string; createdBy: string; createdAt: string } }
   | { type: "HandbookUpdated"; payload: { organizationId: string; handbook: OrganizationHandbook; updatedAt: string } }
+  | { type: "OrganizationUpdated"; payload: { organizationId: string; name?: string; description?: string; updatedBy: string; updatedAt: string } }
+  | { type: "OrganizationDissolved"; payload: { organizationId: string; dissolvedBy: string; dissolvedAt: string } }
   | { type: "MemberAdded"; payload: { organizationId: string; member: OrganizationMember } }
   | { type: "MemberRemoved"; payload: { organizationId: string; principalId: string; removedAt: string } }
   | { type: "AuthorityGranted"; payload: { organizationId: string; assignment: AuthorityAssignment } }
@@ -45,6 +47,25 @@ export function apply(
     case "HandbookUpdated":
       return { ...state, handbook: event.payload.handbook, updatedAt: event.payload.updatedAt };
 
+    case "OrganizationUpdated": {
+      const { name, description, updatedBy, updatedAt } = event.payload;
+      return {
+        ...state,
+        name: name ?? state.name,
+        description: description !== undefined ? description : state.description,
+        updatedBy,
+        updatedAt,
+      };
+    }
+
+    case "OrganizationDissolved":
+      return {
+        ...state,
+        status: "dissolved",
+        dissolvedAt: event.payload.dissolvedAt,
+        dissolvedBy: event.payload.dissolvedBy,
+        updatedAt: event.payload.dissolvedAt,
+      };
     case "MemberAdded":
       return {
         ...state,

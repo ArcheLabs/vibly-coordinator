@@ -22,6 +22,16 @@ export interface OrganizationMember {
   principalId: string;
   role: string;
   joinedAt: string;
+  /** Identity root owner id if known at join time. */
+  identityId?: string;
+  /** On-chain agent id (SS58 account). */
+  chainAgentId?: string;
+  /** Chain id the agent belongs to. */
+  chainId?: string;
+  /** Principal id of the actor who performed the join operation. */
+  joinedBy?: string;
+  /** How the member was added. */
+  joinMode?: "root-owner" | "guardian-forced" | "admin-forced";
 }
 
 export interface AuthorityAssignment {
@@ -44,6 +54,12 @@ export interface Organization {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  /** Principal id of the last actor to update the organization profile. */
+  updatedBy?: string;
+  /** ISO timestamp set when the organization is dissolved. */
+  dissolvedAt?: string;
+  /** Principal id of the actor who dissolved the organization. */
+  dissolvedBy?: string;
 }
 
 /** Lightweight overview for list responses. */

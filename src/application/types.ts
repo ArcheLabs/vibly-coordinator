@@ -9,9 +9,15 @@
 export type ActionIntentType =
   // ─── Organization / Authority ───────────────────────────────────────────
   | "CreateOrganization"
+  | "UpdateOrganization"
+  | "DissolveOrganization"
   | "UpdateHandbook"
   | "AddMember"
   | "RemoveMember"
+  | "JoinOrganizationAgent"
+  | "LeaveOrganizationAgent"
+  | "GuardianAddOrganizationAgent"
+  | "GuardianRemoveOrganizationAgent"
   | "AssignGuardian"
   | "GrantAuthority"
   | "RevokeAuthority"

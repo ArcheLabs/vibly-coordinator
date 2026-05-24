@@ -15,7 +15,7 @@ import { z } from "zod";
 import { createEvent, makeId } from "@concord/foundation";
 import type { ActionIntentDispatcher, DispatchContext } from "./actionIntentDispatcher.js";
 import type { ActionIntent, ActionIntentResult } from "./types.js";
-import { badRequest, conflict, notFound } from "../domain/errors.js";
+import { badRequest, conflict, notFound, forbidden } from "../domain/errors.js";
 import { OrganizationRepository } from "../contexts/organization/repository.js";
 import { apply, type OrganizationEvent } from "../contexts/organization/aggregate.js";
 import type { OrganizationHandbook, OrganizationMember, AuthorityAssignment } from "../contexts/organization/types.js";
@@ -140,6 +140,44 @@ const seedKnowledgeEntrySchema = z.object({
   sourceRef: z.object({ type: z.string(), id: z.string() }).optional(),
 });
 
+const updateOrganizationSchema = z.object({
+  organizationId: z.string().min(1),
+  name: z.string().min(1).optional(),
+  description: z.string().optional(),
+});
+
+const dissolveOrganizationSchema = z.object({
+  organizationId: z.string().min(1),
+});
+
+const joinOrganizationAgentSchema = z.object({
+  organizationId: z.string().min(1),
+  principalId: z.string().min(1),
+  role: z.string().min(1).default("member"),
+  identityId: z.string().optional(),
+  chainAgentId: z.string().optional(),
+  chainId: z.string().optional(),
+});
+
+const leaveOrganizationAgentSchema = z.object({
+  organizationId: z.string().min(1),
+  principalId: z.string().min(1),
+});
+
+const guardianAddAgentSchema = z.object({
+  organizationId: z.string().min(1),
+  principalId: z.string().min(1),
+  role: z.string().min(1).default("member"),
+  identityId: z.string().optional(),
+  chainAgentId: z.string().optional(),
+  chainId: z.string().optional(),
+});
+
+const guardianRemoveAgentSchema = z.object({
+  organizationId: z.string().min(1),
+  principalId: z.string().min(1),
+});
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function parsePayload<T>(schema: z.ZodSchema<T>, intent: ActionIntent): T {
@@ -163,6 +201,7 @@ function makeResult(event: ReturnType<typeof createEvent>, aggregateKind: string
 
 async function handleCreateOrganization(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
   const { name, description } = parsePayload(createOrganizationSchema, intent);
+  await assertOrgAdmin(intent.principalId, ctx);
   const repo = new OrganizationRepository(ctx.store);
 
   const id = makeId("org");
@@ -558,14 +597,229 @@ async function handleSeedKnowledgeEntry(intent: ActionIntent, ctx: DispatchConte
   return makeResult(env, "KnowledgeEntry", id);
 }
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Assert the requesting principal is a chain Guardian; throws forbidden on failure. */
+async function assertGuardian(principalId: string, ctx: DispatchContext): Promise<void> {
+  const decision = await ctx.authorityResolver.isGuardian(principalId);
+  if (!decision.isGuardian) {
+    throw forbidden(
+      `Principal ${principalId} is not a chain Guardian on ${decision.chainId}${decision.stale ? " (stale cache)" : ""}`,
+    );
+  }
+}
+
+/** Assert that the org-admin authority source allows the calling principal.
+ *  Guardian mode: must be a chain Guardian.
+ *  Local mode: no chain check (dev/testnet default). */
+async function assertOrgAdmin(principalId: string, ctx: DispatchContext): Promise<void> {
+  if (ctx.config.orgAdminAuthoritySource === "guardian") {
+    await assertGuardian(principalId, ctx);
+  }
+  // "local" mode: no check
+}
+
+// ─── New org management handlers ─────────────────────────────────────────────
+
+async function handleUpdateOrganization(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
+  const { organizationId, name, description } = parsePayload(updateOrganizationSchema, intent);
+  await assertOrgAdmin(intent.principalId, ctx);
+
+  const repo = new OrganizationRepository(ctx.store);
+  const org = await repo.get(organizationId);
+  if (!org) throw notFound("Organization", organizationId);
+  if (org.status === "dissolved") throw conflict("Organization is dissolved");
+
+  const now = new Date().toISOString();
+  const domainEvent: OrganizationEvent = {
+    type: "OrganizationUpdated",
+    payload: { organizationId, name, description, updatedBy: intent.principalId, updatedAt: now },
+  };
+  const next = apply(org, domainEvent);
+  await repo.save(next);
+  await repo.saveOverview({ ...next, memberCount: next.members.length });
+
+  const env = createEvent({ type: "OrganizationUpdated", payload: domainEvent.payload, actorId: intent.principalId as never });
+  ctx.eventBus.publish(env);
+  return makeResult(env, "Organization", organizationId);
+}
+
+async function handleDissolveOrganization(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
+  const { organizationId } = parsePayload(dissolveOrganizationSchema, intent);
+  // Dissolve is Guardian-only regardless of ORG_ADMIN_AUTHORITY_SOURCE
+  await assertGuardian(intent.principalId, ctx);
+
+  const repo = new OrganizationRepository(ctx.store);
+  const org = await repo.get(organizationId);
+  if (!org) throw notFound("Organization", organizationId);
+  if (org.status === "dissolved") throw conflict("Organization is already dissolved");
+
+  const now = new Date().toISOString();
+  const domainEvent: OrganizationEvent = {
+    type: "OrganizationDissolved",
+    payload: { organizationId, dissolvedBy: intent.principalId, dissolvedAt: now },
+  };
+  const next = apply(org, domainEvent);
+  await repo.save(next);
+  await repo.saveOverview({ ...next, memberCount: next.members.length });
+
+  const env = createEvent({ type: "OrganizationDissolved", payload: domainEvent.payload, actorId: intent.principalId as never });
+  ctx.eventBus.publish(env);
+  return makeResult(env, "Organization", organizationId);
+}
+
+// ─── Agent join / leave handlers ─────────────────────────────────────────────
+
+async function handleJoinOrganizationAgent(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
+  const data = parsePayload(joinOrganizationAgentSchema, intent);
+  const repo = new OrganizationRepository(ctx.store);
+  const org = await repo.get(data.organizationId);
+  if (!org) throw notFound("Organization", data.organizationId);
+  if (org.status !== "active") throw conflict(`Organization is ${org.status}`);
+
+  const alreadyMember = org.members.some((m) => m.principalId === data.principalId);
+  if (alreadyMember) throw conflict(`Agent ${data.principalId} is already a member`);
+
+  // Stake eligibility check
+  const minStake = BigInt(ctx.config.orgMembershipMinActiveStake);
+  if (minStake > 0n) {
+    const stakeRepo = new StakeRepository(ctx.store);
+    const ledger = await stakeRepo.getLedgerForProfile({
+      chainId: data.chainId,
+      identityId: data.identityId,
+      chainAgentId: data.chainAgentId,
+    });
+    if (!ledger || ledger.status !== "active") {
+      throw conflict("Agent does not have active stake required to join this organization", {
+        required: ctx.config.orgMembershipMinActiveStake,
+        current: ledger?.activeAmount ?? "0",
+        status: ledger?.status ?? "missing",
+      });
+    }
+    const active = BigInt(ledger.activeAmount);
+    if (active < minStake) {
+      throw conflict("Agent active stake is below organization minimum", {
+        required: ctx.config.orgMembershipMinActiveStake,
+        current: ledger.activeAmount,
+      });
+    }
+  }
+
+  const now = new Date().toISOString();
+  const member: OrganizationMember = {
+    principalId: data.principalId,
+    role: data.role ?? "member",
+    joinedAt: now,
+    identityId: data.identityId,
+    chainAgentId: data.chainAgentId,
+    chainId: data.chainId,
+    joinedBy: intent.principalId,
+    joinMode: "root-owner",
+  };
+  const domainEvent: OrganizationEvent = { type: "MemberAdded", payload: { organizationId: data.organizationId, member } };
+  const next = apply(org, domainEvent);
+  await repo.save(next);
+  await repo.saveOverview({ ...next, memberCount: next.members.length });
+
+  const env = createEvent({ type: "MemberAdded", payload: domainEvent.payload, actorId: intent.principalId as never });
+  ctx.eventBus.publish(env);
+  return makeResult(env, "Organization", data.organizationId);
+}
+
+async function handleLeaveOrganizationAgent(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
+  const { organizationId, principalId } = parsePayload(leaveOrganizationAgentSchema, intent);
+  const repo = new OrganizationRepository(ctx.store);
+  const org = await repo.get(organizationId);
+  if (!org) throw notFound("Organization", organizationId);
+
+  const isMember = org.members.some((m) => m.principalId === principalId);
+  if (!isMember) throw conflict(`Agent ${principalId} is not a member of this organization`);
+
+  // Check active obligations that would block exit
+  const blockers = await listBlockingObligations(ctx.store, principalId);
+  if (blockers.length > 0) {
+    throw conflict("Agent has unfinished public obligations that block exit", { blockers });
+  }
+
+  const now = new Date().toISOString();
+  const domainEvent: OrganizationEvent = { type: "MemberRemoved", payload: { organizationId, principalId, removedAt: now } };
+  const next = apply(org, domainEvent);
+  await repo.save(next);
+  await repo.saveOverview({ ...next, memberCount: next.members.length });
+
+  const env = createEvent({ type: "MemberRemoved", payload: domainEvent.payload, actorId: intent.principalId as never });
+  ctx.eventBus.publish(env);
+  return makeResult(env, "Organization", organizationId);
+}
+
+// ─── Guardian force add/remove handlers ──────────────────────────────────────
+
+async function handleGuardianAddOrganizationAgent(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
+  const data = parsePayload(guardianAddAgentSchema, intent);
+  await assertGuardian(intent.principalId, ctx);
+
+  const repo = new OrganizationRepository(ctx.store);
+  const org = await repo.get(data.organizationId);
+  if (!org) throw notFound("Organization", data.organizationId);
+  if (org.status === "dissolved") throw conflict("Organization is dissolved");
+
+  const now = new Date().toISOString();
+  const member: OrganizationMember = {
+    principalId: data.principalId,
+    role: data.role ?? "member",
+    joinedAt: now,
+    identityId: data.identityId,
+    chainAgentId: data.chainAgentId,
+    chainId: data.chainId,
+    joinedBy: intent.principalId,
+    joinMode: "guardian-forced",
+  };
+  const domainEvent: OrganizationEvent = { type: "MemberAdded", payload: { organizationId: data.organizationId, member } };
+  const next = apply(org, domainEvent);
+  await repo.save(next);
+  await repo.saveOverview({ ...next, memberCount: next.members.length });
+
+  const env = createEvent({ type: "MemberAdded", payload: domainEvent.payload, actorId: intent.principalId as never });
+  ctx.eventBus.publish(env);
+  return makeResult(env, "Organization", data.organizationId);
+}
+
+async function handleGuardianRemoveOrganizationAgent(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
+  const { organizationId, principalId } = parsePayload(guardianRemoveAgentSchema, intent);
+  await assertGuardian(intent.principalId, ctx);
+
+  const repo = new OrganizationRepository(ctx.store);
+  const org = await repo.get(organizationId);
+  if (!org) throw notFound("Organization", organizationId);
+
+  const isMember = org.members.some((m) => m.principalId === principalId);
+  if (!isMember) throw conflict(`Agent ${principalId} is not a member of this organization`);
+
+  const now = new Date().toISOString();
+  const domainEvent: OrganizationEvent = { type: "MemberRemoved", payload: { organizationId, principalId, removedAt: now } };
+  const next = apply(org, domainEvent);
+  await repo.save(next);
+  await repo.saveOverview({ ...next, memberCount: next.members.length });
+
+  const env = createEvent({ type: "MemberRemoved", payload: domainEvent.payload, actorId: intent.principalId as never });
+  ctx.eventBus.publish(env);
+  return makeResult(env, "Organization", organizationId);
+}
+
 // ─── Registration ────────────────────────────────────────────────────────────
 
 export function registerOrganizationHandlers(dispatcher: ActionIntentDispatcher): void {
   dispatcher
     .register("CreateOrganization", handleCreateOrganization)
+    .register("UpdateOrganization", handleUpdateOrganization)
+    .register("DissolveOrganization", handleDissolveOrganization)
     .register("UpdateHandbook", handleUpdateHandbook)
     .register("AddMember", handleAddMember)
     .register("RemoveMember", handleRemoveMember)
+    .register("JoinOrganizationAgent", handleJoinOrganizationAgent)
+    .register("LeaveOrganizationAgent", handleLeaveOrganizationAgent)
+    .register("GuardianAddOrganizationAgent", handleGuardianAddOrganizationAgent)
+    .register("GuardianRemoveOrganizationAgent", handleGuardianRemoveOrganizationAgent)
     .register("AssignGuardian", handleAssignGuardian)
     .register("GrantAuthority", handleAssignGuardian)
     .register("RevokeAuthority", handleRevokeAuthority)

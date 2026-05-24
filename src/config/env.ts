@@ -112,6 +112,28 @@ const envSchema = z
     REVIEW_DEADLINE_MS: z.coerce.number().default(300000),
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Chain authority resolver
+    // ─────────────────────────────────────────────────────────────────────────
+    // Which mode to use for Guardian membership checks.
+    // disabled: always returns isGuardian=false (safe default).
+    // rpc: queries chain via WebSocket RPC using @polkadot/api.
+    CHAIN_AUTHORITY_MODE: z.enum(["rpc", "disabled"]).default("disabled"),
+    // WebSocket URL for the chain RPC. Falls back to SUBSTRATE_RPC_URL.
+    CHAIN_AUTHORITY_RPC_URL: z.string().default(""),
+    // Chain ID used for authority decisions.
+    CHAIN_AUTHORITY_CHAIN_ID: z.string().default("substrate:vibly-solo"),
+    // How long (ms) to cache a successful Guardian snapshot before re-querying.
+    CHAIN_AUTHORITY_CACHE_TTL_MS: z.coerce.number().default(60000),
+    // Number of blocks after which a cached snapshot is considered stale.
+    CHAIN_AUTHORITY_MAX_STALENESS_BLOCKS: z.coerce.number().default(50),
+    // Who can perform privileged organization management:
+    // guardian = chain Guardian required; local = no chain check (dev default).
+    ORG_ADMIN_AUTHORITY_SOURCE: z.enum(["guardian", "local"]).default("local"),
+    // Minimum active stake (as bigint string) required to join an organization.
+    // "0" disables the stake requirement.
+    ORG_MEMBERSHIP_MIN_ACTIVE_STAKE: z.string().default("0"),
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Agent connectivity / retry
     // ─────────────────────────────────────────────────────────────────────────
     // Max reconnect attempts before giving up.
@@ -258,6 +280,15 @@ export interface CoordinatorConfig {
   agentReconnectBaseDelayMs: number;
   agentReconnectMaxDelayMs: number;
   agentConnectionDebounceMs: number;
+
+  // ─── Chain authority resolver ─────────────────────────────────────────────
+  chainAuthorityMode: "rpc" | "disabled";
+  chainAuthorityRpcUrl: string;
+  chainAuthorityChainId: string;
+  chainAuthorityCacheTtlMs: number;
+  chainAuthorityMaxStalenessBlocks: number;
+  orgAdminAuthoritySource: "guardian" | "local";
+  orgMembershipMinActiveStake: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorConfig {
@@ -317,5 +348,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     agentReconnectBaseDelayMs: parsed.AGENT_RECONNECT_BASE_DELAY_MS,
     agentReconnectMaxDelayMs: parsed.AGENT_RECONNECT_MAX_DELAY_MS,
     agentConnectionDebounceMs: parsed.AGENT_CONNECTION_DEBOUNCE_MS,
+    chainAuthorityMode: parsed.CHAIN_AUTHORITY_MODE,
+    chainAuthorityRpcUrl: parsed.CHAIN_AUTHORITY_RPC_URL.trim() || parsed.SUBSTRATE_RPC_URL,
+    chainAuthorityChainId: parsed.CHAIN_AUTHORITY_CHAIN_ID,
+    chainAuthorityCacheTtlMs: parsed.CHAIN_AUTHORITY_CACHE_TTL_MS,
+    chainAuthorityMaxStalenessBlocks: parsed.CHAIN_AUTHORITY_MAX_STALENESS_BLOCKS,
+    orgAdminAuthoritySource: parsed.ORG_ADMIN_AUTHORITY_SOURCE,
+    orgMembershipMinActiveStake: parsed.ORG_MEMBERSHIP_MIN_ACTIVE_STAKE,
   };
 }

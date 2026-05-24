@@ -6,7 +6,13 @@ export type NotificationType =
   | "task_rejected"
   | "task_unresolved_timeout"
   | "observation_paused"
-  | "observation_resumed";
+  | "observation_resumed"
+  | "organization_joined"
+  | "organization_removed"
+  | "organization_role_changed"
+  | "organization_paused"
+  | "organization_resumed"
+  | "stake_action_required";
 
 export type NotificationStatus = "created" | "delivered" | "acknowledged" | "expired";
 

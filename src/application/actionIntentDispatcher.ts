@@ -13,6 +13,7 @@ import type { EventBus } from "../services/eventBus.js";
 import type { CoordinatorConfig } from "../config/env.js";
 import type { Concord } from "@concord/sdk";
 import type { ActionIntent, ActionIntentResult, ActionIntentType } from "./types.js";
+import type { ChainAuthorityResolver } from "../services/chainAuthorityResolver.js";
 import { badRequest } from "../domain/errors.js";
 
 export interface DispatchContext {
@@ -22,6 +23,8 @@ export interface DispatchContext {
   concord: Concord;
   /** The resolved principal id from auth middleware. */
   principalId: string;
+  /** Chain Guardian authority resolver. */
+  authorityResolver: ChainAuthorityResolver;
 }
 
 export type IntentHandler = (

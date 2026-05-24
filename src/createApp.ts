@@ -81,6 +81,9 @@ import obligationsRoutes from "./api/routes/obligations.js";
 import agentNotificationsRoutes from "./api/routes/agentNotifications.js";
 // v0.2 Public Library routes
 import publicLibraryRoutes from "./api/routes/publicLibrary.js";
+// v0.2 Guardian authority + membership
+import authorityRoutes from "./api/routes/authority.js";
+import { createChainAuthorityResolver } from "./services/chainAuthorityResolver.js";
 // v0.2 Agent profile routes
 
 
@@ -127,6 +130,8 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
 
   // ─── v0.2 write-path dispatcher (built up by application services below) ─
   const dispatcher = new ActionIntentDispatcher();
+  // Chain authority resolver (Guardian membership, disabled by default)
+  const authorityResolver = createChainAuthorityResolver(config);
   // Application services register their handlers here; imports are lazy so
   // future phases can add services without touching earlier ones.
   const { registerOrganizationHandlers } = await import("./application/organizationApplicationService.js");
@@ -186,6 +191,9 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   const { startAgentStakeReleaseProcess } = await import("./process-managers/agentStakeReleaseProcess.js");
   startAgentStakeReleaseProcess(eventBus, coordinatorStore, config);
 
+  const { startOrganizationMembershipNotificationProcess } = await import("./process-managers/organizationMembershipNotificationProcess.js");
+  startOrganizationMembershipNotificationProcess(eventBus, coordinatorStore);
+
   const { startAgentStakeIndexerSync } = await import("./services/agentStakeIndexerSync.js");
   const stopAgentStakeIndexerSync = startAgentStakeIndexerSync({
     config,
@@ -225,6 +233,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
     stopAgentStakeIndexerSync();
     stopCoordinationRoundScheduler();
     stopGetVibRelayDepositWatcher();
+    await authorityResolver.close();
   });
 
   await fastify.register(healthRoutes, { config, readinessProbe });
@@ -233,7 +242,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(streamsRoutes);
 
   // ─── v0.2 routes (new unified API) ────────────────────────────────────────
-  await fastify.register(actionIntentsRoutes, { dispatcher });
+  await fastify.register(actionIntentsRoutes, { dispatcher, authorityResolver });
   await fastify.register(organizationsRoutes);
   await fastify.register(coordinationRoutes);
   await fastify.register(workflowRoutes);
@@ -243,6 +252,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(agentProfileRoutes);
   await fastify.register(personalCenterRoutes);
   await fastify.register(publicLibraryRoutes);
+  await fastify.register(authorityRoutes, { authorityResolver });
 
   // ─── Legacy routes (deprecated, retained until Phase 5 cleanup) ───────────
   await fastify.register(projectsRoutes);
