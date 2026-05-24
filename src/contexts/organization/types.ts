@@ -84,6 +84,7 @@ export interface FeedItem {
   eventType: string;
   organizationId: string;
   projectId?: string;
+  projectName?: string;
   actorId?: string;
   subject?: { kind: string; id: string };
   summary: string;

@@ -376,6 +376,8 @@ function startCoordinatorEventPersistence(
   store: CoordinatorStorePort,
   concord: Concord,
 ): void {
+  const projectNameCache = new Map<string, string>();
+
   eventBus.subscribe(async (event) => {
     try {
       await concord.state.events.append(event);
@@ -388,11 +390,15 @@ function startCoordinatorEventPersistence(
 
     const scope = extractScope(event);
     if (!scope.organizationId) return;
+    const projectName = scope.projectId
+      ? await resolveProjectName(concord, projectNameCache, scope.projectId)
+      : undefined;
     const feedItem = {
       feedEventId: event.id,
       eventType: event.type,
       organizationId: scope.organizationId,
       projectId: scope.projectId,
+      projectName,
       actorId: typeof event.actorId === "string" ? event.actorId : undefined,
       subject: scope.subject,
       summary: buildFeedSummary(event, scope.subject?.type ?? scope.organizationId),
@@ -405,6 +411,23 @@ function startCoordinatorEventPersistence(
       console.error("[FeedProjection]", err);
     }
   });
+}
+
+async function resolveProjectName(
+  concord: Concord,
+  cache: Map<string, string>,
+  projectId: string,
+): Promise<string | undefined> {
+  const cached = cache.get(projectId);
+  if (cached) return cached;
+  try {
+    const project = await concord.projects.getProject(projectId as never);
+    const name = stringValue(project?.name);
+    if (name) cache.set(projectId, name);
+    return name;
+  } catch {
+    return undefined;
+  }
 }
 
 function buildFeedSummary(event: EventEnvelope<string, unknown>, fallbackSubject: string): string {
