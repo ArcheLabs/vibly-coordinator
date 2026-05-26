@@ -8,7 +8,7 @@
 import type { Organization, OrganizationHandbook, OrganizationMember, AuthorityAssignment } from "./types.js";
 
 export type OrganizationEvent =
-  | { type: "OrganizationCreated"; payload: { id: string; name: string; description?: string; createdBy: string; createdAt: string } }
+  | { type: "OrganizationCreated"; payload: { id: string; name: string; description?: string; chainId?: string; createdBy: string; createdAt: string } }
   | { type: "HandbookUpdated"; payload: { organizationId: string; handbook: OrganizationHandbook; updatedAt: string } }
   | { type: "OrganizationUpdated"; payload: { organizationId: string; name?: string; description?: string; updatedBy: string; updatedAt: string } }
   | { type: "OrganizationDissolved"; payload: { organizationId: string; dissolvedBy: string; dissolvedAt: string } }
@@ -27,11 +27,12 @@ export function apply(
 
   if (event.type === "OrganizationCreated") {
     if (state) throw new Error("Organization already exists");
-    const { id, name, description, createdBy, createdAt } = event.payload;
+    const { id, name, description, chainId, createdBy, createdAt } = event.payload;
     return {
       id,
       name,
       description,
+      chainId,
       status: "active",
       members: [],
       authorities: [],

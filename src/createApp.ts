@@ -393,10 +393,12 @@ function startCoordinatorEventPersistence(
     const projectName = scope.projectId
       ? await resolveProjectName(concord, projectNameCache, scope.projectId)
       : undefined;
-    const feedItem = {
-      feedEventId: event.id,
-      eventType: event.type,
-      organizationId: scope.organizationId,
+      const feedItem = {
+        feedEventId: event.id,
+        eventType: event.type,
+        networkId: scope.networkId,
+        chainId: scope.networkId,
+        organizationId: scope.organizationId,
       projectId: scope.projectId,
       projectName,
       actorId: typeof event.actorId === "string" ? event.actorId : undefined,
@@ -456,6 +458,7 @@ function buildFeedSummary(event: EventEnvelope<string, unknown>, fallbackSubject
 function extractScope(event: EventEnvelope<string, unknown>): {
   organizationId?: string;
   projectId?: string;
+  networkId?: string;
   subject?: { type: string; id?: string };
 } {
   const payload = event.payload as Record<string, unknown>;
@@ -470,6 +473,7 @@ function extractScope(event: EventEnvelope<string, unknown>): {
   const source = nested ?? payload;
   const organizationId = stringValue(source["organizationId"]) ?? stringValue(payload["organizationId"]);
   const projectId = stringValue(source["projectId"]) ?? stringValue(payload["projectId"]);
+  const networkId = stringValue(source["networkId"]) ?? stringValue(source["chainId"]) ?? stringValue(payload["networkId"]) ?? stringValue(payload["chainId"]);
   const id = stringValue(source["id"])
     ?? stringValue(payload["proposalId"])
     ?? stringValue(payload["taskId"])
@@ -480,6 +484,7 @@ function extractScope(event: EventEnvelope<string, unknown>): {
   return {
     organizationId,
     projectId,
+    networkId,
     subject: { type: event.type.replace(/(Created|Submitted|Accepted|Rejected|Updated|Recorded|Started|Completed|Confirmed|Opened|Claimed|Requested|Selected)$/u, ""), id },
   };
 }

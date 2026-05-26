@@ -47,6 +47,7 @@ export interface Organization {
   id: string;
   name: string;
   description?: string;
+  chainId?: string;
   status: OrganizationStatus;
   handbook?: OrganizationHandbook;
   members: OrganizationMember[];
@@ -67,6 +68,7 @@ export interface OrganizationOverview {
   id: string;
   name: string;
   description?: string;
+  chainId?: string;
   status: OrganizationStatus;
   memberCount: number;
   feedCount?: number;
@@ -82,6 +84,8 @@ export interface OrganizationOverview {
 export interface FeedItem {
   feedEventId: string;
   eventType: string;
+  networkId?: string;
+  chainId?: string;
   organizationId: string;
   projectId?: string;
   projectName?: string;

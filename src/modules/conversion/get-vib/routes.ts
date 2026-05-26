@@ -1,4 +1,5 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyRequest } from "fastify";
+import type { CoordinatorConfig } from "../../../config/env.js";
 import { ok } from "../../../domain/apiTypes.js";
 import { envelopeKey } from "../../../domain/schemas.js";
 import {
@@ -17,6 +18,18 @@ import {
   recordClaim,
 } from "./domain.js";
 
+function requestNetworkId(request: FastifyRequest, bodyNetworkId?: string): string | undefined {
+  const header = request.headers["x-vibly-network-id"];
+  const value = bodyNetworkId ?? (Array.isArray(header) ? header[0] : header);
+  if (!value || !/^[a-zA-Z0-9:_./-]{1,128}$/.test(value)) return undefined;
+  return value;
+}
+
+function configForRequest(config: CoordinatorConfig, request: FastifyRequest, bodyNetworkId?: string): CoordinatorConfig {
+  const networkId = requestNetworkId(request, bodyNetworkId);
+  return networkId ? { ...config, substrateChainId: networkId } : config;
+}
+
 const getVibRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     "/get-vib/config",
@@ -27,7 +40,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
         response: { 200: envelopeKey("config") },
       },
     },
-    async () => ok({ config: await getGetVibConfig(fastify.coordinatorStore, fastify.config) }),
+    async (request) => ok({ config: await getGetVibConfig(fastify.coordinatorStore, configForRequest(fastify.config, request)) }),
   );
 
   fastify.get<{ Querystring: { amount: string } }>(
@@ -44,10 +57,10 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
         response: { 200: envelopeKey("quote") },
       },
     },
-    async (request) => ok({ quote: await quoteGetVibAmount(fastify.coordinatorStore, fastify.config, request.query.amount) }),
+    async (request) => ok({ quote: await quoteGetVibAmount(fastify.coordinatorStore, configForRequest(fastify.config, request), request.query.amount) }),
   );
 
-  fastify.post<{ Body: { dotAmount: string; accountId: string; identityId?: string; evmAddress?: string } }>(
+  fastify.post<{ Body: { networkId?: string; dotAmount: string; accountId: string; identityId?: string; evmAddress?: string } }>(
     "/get-vib/orders",
     {
       schema: {
@@ -59,6 +72,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
           properties: {
             dotAmount: { type: "string" },
             accountId: { type: "string" },
+            networkId: { type: "string" },
             identityId: { type: "string" },
             evmAddress: { type: "string" },
           },
@@ -70,7 +84,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
       ok({
         order: await createGetVibOrder({
           store: fastify.coordinatorStore,
-          config: fastify.config,
+          config: configForRequest(fastify.config, request, request.body.networkId),
           dotAmount: request.body.dotAmount,
           accountId: request.body.accountId,
           identityId: request.body.identityId,
@@ -103,7 +117,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) =>
-      ok({ summary: await getAllocationSummary(fastify.coordinatorStore, fastify.config, request.params.accountId) }),
+      ok({ summary: await getAllocationSummary(fastify.coordinatorStore, configForRequest(fastify.config, request), request.params.accountId) }),
   );
 
   fastify.get<{ Params: { accountId: string } }>(
@@ -116,7 +130,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
         response: { 200: envelopeKey("proof") },
       },
     },
-    async (request) => ok({ proof: await getClaimProof(fastify.coordinatorStore, fastify.config, request.params.accountId) }),
+    async (request) => ok({ proof: await getClaimProof(fastify.coordinatorStore, configForRequest(fastify.config, request), request.params.accountId) }),
   );
 
   fastify.get<{ Params: { accountId: string } }>(
@@ -129,7 +143,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
         response: { 200: envelopeKey("records") },
       },
     },
-    async (request) => ok({ records: await getRecords(fastify.coordinatorStore, fastify.config, request.params.accountId) }),
+    async (request) => ok({ records: await getRecords(fastify.coordinatorStore, configForRequest(fastify.config, request), request.params.accountId) }),
   );
 
   fastify.get(
@@ -141,12 +155,13 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
         response: { 200: envelopeKey("curve") },
       },
     },
-    async () => ok({ curve: await getCurve(fastify.coordinatorStore, fastify.config) }),
+    async (request) => ok({ curve: await getCurve(fastify.coordinatorStore, configForRequest(fastify.config, request)) }),
   );
 
   fastify.post<{
     Body: {
       sourceId?: string;
+      networkId?: string;
       dotAmount?: string;
       orderId?: string;
       observedDepositId?: string;
@@ -165,6 +180,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
           type: "object",
           properties: {
             sourceId: { type: "string" },
+            networkId: { type: "string" },
             dotAmount: { type: "string" },
             orderId: { type: "string" },
             observedDepositId: { type: "string" },
@@ -181,7 +197,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
       ok({
         result: await ingestFinalizedDeposit({
           store: fastify.coordinatorStore,
-          config: fastify.config,
+          config: configForRequest(fastify.config, request, request.body.networkId),
           sourceId: request.body.sourceId,
           observedDepositId: request.body.observedDepositId,
           dotAmount: request.body.dotAmount,
@@ -256,12 +272,13 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
         response: { 200: envelopeKey("manifest") },
       },
     },
-    async () => ok({ manifest: await buildAndSaveManifest(fastify.coordinatorStore, fastify.config) }),
+    async (request) => ok({ manifest: await buildAndSaveManifest(fastify.coordinatorStore, configForRequest(fastify.config, request)) }),
   );
 
   fastify.post<{
     Body: {
       accountId: string;
+      networkId?: string;
       rootVersion: number;
       cumulativeAmount: string;
       claimedDelta: string;
@@ -280,6 +297,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
           required: ["accountId", "rootVersion", "cumulativeAmount", "claimedDelta"],
           properties: {
             accountId: { type: "string" },
+            networkId: { type: "string" },
             identityId: { type: "string" },
             rootVersion: { type: "integer" },
             cumulativeAmount: { type: "string" },
@@ -295,7 +313,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
       ok({
         claim: await recordClaim({
           store: fastify.coordinatorStore,
-          config: fastify.config,
+          config: configForRequest(fastify.config, request, request.body.networkId),
           accountId: request.body.accountId,
           identityId: request.body.identityId,
           rootVersion: request.body.rootVersion,

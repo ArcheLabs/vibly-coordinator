@@ -193,7 +193,7 @@ const agentEnrollmentsRoutes: FastifyPluginAsync = async (fastify) => {
         capabilities: descriptor.capabilities ?? [],
         organizationIds: descriptor.organizationIds ?? ["default"],
         sessionKeys: [...activeKeys, sessionKey],
-        chainId: descriptor.chainId ?? existingProfile?.chainId,
+        chainId: descriptor.chainId ?? existingProfile?.chainId ?? fastify.config.substrateChainId,
         identityId: descriptor.identityId ?? existingProfile?.identityId,
         chainAgentId: descriptor.chainAgentId ?? existingProfile?.chainAgentId,
         dutyStatus: existingProfile?.dutyStatus ?? "active",

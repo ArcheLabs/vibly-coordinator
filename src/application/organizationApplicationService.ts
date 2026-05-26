@@ -35,6 +35,7 @@ import { WorkRepository } from "../contexts/work/repository.js";
 const createOrganizationSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
+  chainId: z.string().optional(),
 });
 
 const updateHandbookSchema = z.object({
@@ -200,16 +201,17 @@ function makeResult(event: ReturnType<typeof createEvent>, aggregateKind: string
 // ─── Handlers ───────────────────────────────────────────────────────────────
 
 async function handleCreateOrganization(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
-  const { name, description } = parsePayload(createOrganizationSchema, intent);
+  const { name, description, chainId: requestedChainId } = parsePayload(createOrganizationSchema, intent);
   await assertOrgAdmin(intent.principalId, ctx);
   const repo = new OrganizationRepository(ctx.store);
 
   const id = makeId("org");
   const now = new Date().toISOString();
+  const chainId = requestedChainId ?? ctx.config.substrateChainId;
 
   const domainEvent: OrganizationEvent = {
     type: "OrganizationCreated",
-    payload: { id, name, description, createdBy: intent.principalId, createdAt: now },
+    payload: { id, name, description, chainId, createdBy: intent.principalId, createdAt: now },
   };
 
   const org = apply(undefined, domainEvent);
@@ -218,6 +220,7 @@ async function handleCreateOrganization(intent: ActionIntent, ctx: DispatchConte
     id: org.id,
     name: org.name,
     description: org.description,
+    chainId: org.chainId,
     status: org.status,
     memberCount: 0,
     createdAt: org.createdAt,

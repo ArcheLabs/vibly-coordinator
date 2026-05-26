@@ -27,6 +27,7 @@ function toOverview(org: ReturnType<typeof apply>): OrganizationOverview {
     id: org.id,
     name: org.name,
     description: org.description,
+    chainId: org.chainId,
     status: org.status,
     memberCount: org.members.length,
     createdAt: org.createdAt,
@@ -67,6 +68,8 @@ export function startOrganizationProjector(
           const feedItem: FeedItem = {
             feedEventId: env.id,
             eventType: event.type,
+            networkId: next.chainId,
+            chainId: next.chainId,
             organizationId,
             actorId: typeof env.actorId === "string" ? env.actorId : undefined,
             summary: `${event.type} on ${organizationId}`,

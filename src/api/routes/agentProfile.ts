@@ -3,7 +3,8 @@
  * All writes go through POST /action-intents (RegisterPrincipal, UpdateAgentProfile).
  */
 
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyRequest } from "fastify";
+import type { CoordinatorConfig } from "../../config/env.js";
 import { ok } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
 import { envelopeKey, envelopeKeyArray } from "../../domain/schemas.js";
@@ -14,10 +15,21 @@ import { WorkRepository } from "../../contexts/work/repository.js";
 import { SettlementRepository } from "../../contexts/settlement/repository.js";
 import { StakeRepository } from "../../contexts/stake/repository.js";
 import { authPolicy } from "../../plugins/authPolicy.js";
+import type { AgentProfile } from "../../contexts/identity/types.js";
 
 const ITEM_SCHEMA = { type: "object" as const, additionalProperties: true };
 const NOTIFICATION_KIND = "agent_notification_v2";
 const KNOWLEDGE_KIND = "knowledge_entry_v2";
+
+function activeNetworkId(config: CoordinatorConfig, request: FastifyRequest): string {
+  const header = request.headers["x-vibly-network-id"];
+  const value = Array.isArray(header) ? header[0] : header;
+  return value && /^[a-zA-Z0-9:_./-]{1,128}$/.test(value) ? value : config.substrateChainId;
+}
+
+function agentMatchesNetwork(agent: AgentProfile, networkId: string, defaultNetworkId: string): boolean {
+  return agent.chainId ? agent.chainId === networkId : networkId === defaultNetworkId;
+}
 
 const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
   const repo = () => new IdentityRepository(fastify.coordinatorStore);
@@ -36,12 +48,15 @@ const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
     async (req) => {
       const profile = await repo().getAgentProfile(req.params.id);
       if (!profile) throw notFound("AgentProfile", req.params.id);
+      if (!agentMatchesNetwork(profile, activeNetworkId(fastify.config, req), fastify.config.substrateChainId)) {
+        throw notFound("AgentProfile", req.params.id);
+      }
       const stakeLedger = await stakeRepo().getLedgerForProfile(profile);
       return ok({ agent: { ...profile, stakeLedger } });
     },
   );
 
-  fastify.get<{ Querystring: { organizationId?: string; limit?: number } }>(
+  fastify.get<{ Querystring: { organizationId?: string; chainId?: string; limit?: number } }>(
     "/agent-profiles",
     {
       ...authPolicy("public-read", {
@@ -51,6 +66,7 @@ const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
           type: "object",
           properties: {
             organizationId: { type: "string" },
+            chainId: { type: "string" },
             limit: { type: "integer", default: 50 },
           },
         },
@@ -59,7 +75,9 @@ const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (req) => {
       const all = await repo().listAgentProfiles();
-      const items = req.query.organizationId ? all.filter((agent) => agent.organizationIds.includes(req.query.organizationId!)) : all;
+      const networkId = req.query.chainId ?? activeNetworkId(fastify.config, req);
+      let items = all.filter((agent) => agentMatchesNetwork(agent, networkId, fastify.config.substrateChainId));
+      if (req.query.organizationId) items = items.filter((agent) => agent.organizationIds.includes(req.query.organizationId!));
       const page = await Promise.all(items.slice(0, req.query.limit ?? 50).map(async (agent) => ({
         ...agent,
         stakeLedger: await stakeRepo().getLedgerForProfile(agent),
