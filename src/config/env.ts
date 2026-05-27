@@ -84,6 +84,7 @@ const envSchema = z
     VIBLY_CONVERSION_MAX_DOT: z.coerce.number().default(1000),
     GET_VIB_RELAY_RPC_URL: z.string().optional(),
     GET_VIB_RELAY_CHAIN_ID: z.string().default("polkadot-dev"),
+    GET_VIB_RELAY_TOKEN_SYMBOL: z.string().default("DOT"),
     GET_VIB_RELAY_TOKEN_DECIMALS: z.coerce.number().int().min(0).max(30).default(10),
     GET_VIB_DEPOSIT_SCAN_INTERVAL_MS: z.coerce.number().default(0),
     GET_VIB_DEPOSIT_START_BLOCK: z.coerce.number().int().min(0).default(0),
@@ -261,6 +262,7 @@ export interface CoordinatorConfig {
   viblyConversionMaxDot: number;
   getVibRelayRpcUrl?: string;
   getVibRelayChainId: string;
+  getVibRelayTokenSymbol: string;
   getVibRelayTokenDecimals: number;
   getVibDepositScanIntervalMs: number;
   getVibDepositStartBlock: number;
@@ -333,6 +335,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     viblyConversionMaxDot: parsed.VIBLY_CONVERSION_MAX_DOT,
     getVibRelayRpcUrl: parsed.GET_VIB_RELAY_RPC_URL?.trim() || undefined,
     getVibRelayChainId: parsed.GET_VIB_RELAY_CHAIN_ID,
+    getVibRelayTokenSymbol: parsed.GET_VIB_RELAY_TOKEN_SYMBOL.trim() || "DOT",
     getVibRelayTokenDecimals: parsed.GET_VIB_RELAY_TOKEN_DECIMALS,
     getVibDepositScanIntervalMs: parsed.GET_VIB_DEPOSIT_SCAN_INTERVAL_MS,
     getVibDepositStartBlock: parsed.GET_VIB_DEPOSIT_START_BLOCK,

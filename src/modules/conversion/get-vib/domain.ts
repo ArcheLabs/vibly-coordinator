@@ -192,7 +192,7 @@ export async function getGetVibConfig(store: CoordinatorStorePort, config: Coord
     purchaseEnabled: Boolean(conversion.dotReceivingAddress),
     claimEnabled: true,
     depositAddress: conversion.dotReceivingAddress,
-    relayTokenSymbol: "DOT",
+    relayTokenSymbol: config.getVibRelayTokenSymbol,
     vibTokenSymbol: "VIB",
     saleRuleVersion: "conversion-v1",
   };

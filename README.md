@@ -52,6 +52,9 @@ vibly-coordinator (REST/SSE :8787)  ←── @concord/sdk (protocol kernel)
 | `SUBSTRATE_STAKE_TX_MODE` | `prepare-only` \| `fixture` \| `unsafe-papi` |
 | `SUBSTRATE_CHAIN_ID` | Logical chain identifier (e.g. `substrate:vibly-solo`) |
 | `GOVERNANCE_BACKENDS` | Comma-separated backend names to register (`substrate-opengov`, `evm-governor`, …) |
+| `GET_VIB_RELAY_RPC_URL` | Relay-chain RPC observed by Get VIB deposit watcher |
+| `GET_VIB_RELAY_CHAIN_ID` | Relay-chain id used in observed Get VIB deposit source ids |
+| `GET_VIB_RELAY_TOKEN_SYMBOL` | Relay token displayed by Get VIB (`DOT` for Polkadot mainnet, `PLA` for testnet) |
 
 ### Optional
 

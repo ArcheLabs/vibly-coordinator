@@ -52,6 +52,9 @@ vibly-coordinator（REST/SSE :8787）  ←── @concord/sdk（协议内核）
 | `SUBSTRATE_STAKE_TX_MODE` | `prepare-only` \| `fixture` \| `unsafe-papi` |
 | `SUBSTRATE_CHAIN_ID` | 逻辑链标识符（如 `substrate:vibly-solo`） |
 | `GOVERNANCE_BACKENDS` | 要注册的后端名称（逗号分隔，如 `substrate-opengov`、`evm-governor`） |
+| `GET_VIB_RELAY_RPC_URL` | Get VIB deposit watcher 观察的 Relay Chain RPC |
+| `GET_VIB_RELAY_CHAIN_ID` | Get VIB observed deposit source id 使用的 Relay Chain id |
+| `GET_VIB_RELAY_TOKEN_SYMBOL` | Get VIB 展示的 Relay token（波卡主网为 `DOT`，测试网为 `PLA`） |
 
 ### 可选
 

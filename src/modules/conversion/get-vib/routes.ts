@@ -2,6 +2,7 @@ import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import type { CoordinatorConfig } from "../../../config/env.js";
 import { ok } from "../../../domain/apiTypes.js";
 import { envelopeKey } from "../../../domain/schemas.js";
+import { authPolicy } from "../../../plugins/authPolicy.js";
 import {
   buildAndSaveManifest,
   createGetVibOrder,
@@ -34,11 +35,11 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     "/get-vib/config",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Get VIB"],
         summary: "Get production Get VIB configuration for the active network",
         response: { 200: envelopeKey("config") },
-      },
+      }),
     },
     async (request) => ok({ config: await getGetVibConfig(fastify.coordinatorStore, configForRequest(fastify.config, request)) }),
   );
@@ -46,7 +47,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { amount: string } }>(
     "/get-vib/quote",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Get VIB"],
         summary: "Quote DOT to VIB for the active network",
         querystring: {
@@ -55,7 +56,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
           properties: { amount: { type: "string" } },
         },
         response: { 200: envelopeKey("quote") },
-      },
+      }),
     },
     async (request) => ok({ quote: await quoteGetVibAmount(fastify.coordinatorStore, configForRequest(fastify.config, request), request.query.amount) }),
   );
@@ -96,12 +97,12 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { orderId: string } }>(
     "/get-vib/orders/:orderId",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Get VIB"],
         summary: "Get a Get VIB DOT deposit order",
         params: { type: "object", required: ["orderId"], properties: { orderId: { type: "string" } } },
         response: { 200: envelopeKey("order") },
-      },
+      }),
     },
     async (request) => ok({ order: await getOrder(fastify.coordinatorStore, request.params.orderId) }),
   );
@@ -109,12 +110,12 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { accountId: string } }>(
     "/get-vib/account/:accountId/summary",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Get VIB"],
         summary: "Get a user's Get VIB allocation summary",
         params: { type: "object", required: ["accountId"], properties: { accountId: { type: "string" } } },
         response: { 200: envelopeKey("summary") },
-      },
+      }),
     },
     async (request) =>
       ok({ summary: await getAllocationSummary(fastify.coordinatorStore, configForRequest(fastify.config, request), request.params.accountId) }),
@@ -123,12 +124,12 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { accountId: string } }>(
     "/get-vib/account/:accountId/proof",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Get VIB"],
         summary: "Get a user's current Get VIB Merkle claim proof",
         params: { type: "object", required: ["accountId"], properties: { accountId: { type: "string" } } },
         response: { 200: envelopeKey("proof") },
-      },
+      }),
     },
     async (request) => ok({ proof: await getClaimProof(fastify.coordinatorStore, configForRequest(fastify.config, request), request.params.accountId) }),
   );
@@ -136,12 +137,12 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { accountId: string } }>(
     "/get-vib/account/:accountId/records",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Get VIB"],
         summary: "Get a user's Get VIB deposits, allocations, and claims",
         params: { type: "object", required: ["accountId"], properties: { accountId: { type: "string" } } },
         response: { 200: envelopeKey("records") },
-      },
+      }),
     },
     async (request) => ok({ records: await getRecords(fastify.coordinatorStore, configForRequest(fastify.config, request), request.params.accountId) }),
   );
@@ -149,11 +150,11 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     "/get-vib/curve",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Get VIB"],
         summary: "Get Get VIB bonding curve display points",
         response: { 200: envelopeKey("curve") },
-      },
+      }),
     },
     async (request) => ok({ curve: await getCurve(fastify.coordinatorStore, configForRequest(fastify.config, request)) }),
   );

@@ -43,6 +43,7 @@ describe("loadConfig", () => {
       NODE_ENV: "test",
       GET_VIB_RELAY_RPC_URL: "ws://127.0.0.1:9944",
       GET_VIB_RELAY_CHAIN_ID: "polkadot-dev",
+      GET_VIB_RELAY_TOKEN_SYMBOL: "PLA",
       GET_VIB_RELAY_TOKEN_DECIMALS: "10",
       GET_VIB_DEPOSIT_SCAN_INTERVAL_MS: "3000",
       GET_VIB_DEPOSIT_START_BLOCK: "12",
@@ -51,6 +52,7 @@ describe("loadConfig", () => {
 
     expect(config.getVibRelayRpcUrl).toBe("ws://127.0.0.1:9944");
     expect(config.getVibRelayChainId).toBe("polkadot-dev");
+    expect(config.getVibRelayTokenSymbol).toBe("PLA");
     expect(config.getVibRelayTokenDecimals).toBe(10);
     expect(config.getVibDepositScanIntervalMs).toBe(3000);
     expect(config.getVibDepositStartBlock).toBe(12);
