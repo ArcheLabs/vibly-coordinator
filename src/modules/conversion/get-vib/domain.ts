@@ -9,12 +9,21 @@ import {
   GET_VIB_CLAIM,
   GET_VIB_DEPOSIT,
   GET_VIB_MANIFEST,
-  completedConversionTotal,
-  getConversionConfig,
   makeId,
-  quoteVibAmount,
   type ConversionOrderRecord,
 } from "../../identity/onboarding/domain.js";
+import {
+  DEFAULT_CURVE_CONFIG,
+  PURCHASE_LIMITS,
+  generateCurvePoints,
+  getPurchasePhase,
+  marketCapAtSold,
+  priceAtSold,
+  quoteBuyVib,
+  quoteVibFromUsd,
+  validatePurchase,
+  type QuoteResult,
+} from "./vibCurve.js";
 
 const LEAF_DOMAIN = Buffer.from("VIB_CLAIM_LEAF_V1");
 const NODE_DOMAIN = Buffer.from("VIB_CLAIM_NODE_V1");
@@ -33,22 +42,43 @@ export interface GetVibConfig {
   networkId: string;
   purchaseEnabled: boolean;
   claimEnabled: boolean;
+  paused: boolean;
   depositAddress: string;
   relayTokenSymbol: string;
   vibTokenSymbol: "VIB";
   saleRuleVersion: string;
+  dotUsdPrice: number;
+  purchaseLimits: {
+    minPurchaseUsd: number;
+    maxPurchaseUsd: number;
+    minPurchaseVib: string;
+    maxPurchaseVibPerTx: string;
+    maxPurchaseVibPerAccount: string;
+    slippageBpsDefault: number;
+  };
 }
 
 export interface GetVibQuote {
   networkId: string;
   inputAmount: string;
   dotAmount: string;
+  paymentAsset: "DOT";
+  paymentAmount: string;
+  assetUsdPrice: number;
+  costUsd: number;
   vibAmount: string;
   vibAmountBaseUnits: string;
+  averagePriceUsd: number;
+  startPriceUsd: number;
+  endPriceUsd: number;
+  soldBefore: string;
+  soldAfter: string;
+  effectiveMarketCapUsd: number;
   depositAddress: string;
   dotReceivingAddress: string;
   saleRuleVersion: string;
   expiresAt: string;
+  requiresAdminReview: boolean;
 }
 
 export interface DepositRecord {
@@ -60,6 +90,14 @@ export interface DepositRecord {
   accountId: string;
   identityId?: string;
   dotAmount: string;
+  paymentAsset?: "DOT" | "USDC";
+  paymentAmount?: string;
+  costUsd?: number;
+  averagePriceUsd?: number;
+  startPriceUsd?: number;
+  endPriceUsd?: number;
+  soldBefore?: string;
+  soldAfter?: string;
   status: DepositStatus;
   observedAt: string;
   finalizedAt?: string;
@@ -74,6 +112,12 @@ export interface AllocationRecord {
   identityId?: string;
   dotAmount: string;
   vibAmount: string;
+  costUsd?: number;
+  averagePriceUsd?: number;
+  startPriceUsd?: number;
+  endPriceUsd?: number;
+  soldBefore?: string;
+  soldAfter?: string;
   cumulativeAmount: string;
   saleRuleVersion: string;
   status: AllocationStatus;
@@ -104,6 +148,18 @@ export interface AllocationSummary {
   claimedAmount: string;
   latestRootVersion: number;
   latestMerkleRoot?: string;
+}
+
+export interface CurveState {
+  sold: string;
+  raisedUsd: number;
+  curveAllocation: string;
+  soldProgressPercent: number;
+  currentPriceUsd: number;
+  nextPriceUsd: number;
+  effectiveMarketCapUsd: number;
+  paused: boolean;
+  phase: 1 | 2 | 3;
 }
 
 export interface MerkleProofItem {
@@ -185,42 +241,72 @@ export function getNetworkId(config: CoordinatorConfig): string {
   return config.substrateChainId || "substrate:vibly-solo";
 }
 
-export async function getGetVibConfig(store: CoordinatorStorePort, config: CoordinatorConfig): Promise<GetVibConfig> {
-  const conversion = await getConversionConfig(store, config);
+export async function getGetVibConfig(_store: CoordinatorStorePort, config: CoordinatorConfig): Promise<GetVibConfig> {
   return {
     networkId: getNetworkId(config),
-    purchaseEnabled: Boolean(conversion.dotReceivingAddress),
+    purchaseEnabled: Boolean(config.viblyDotReceivingAddress) && !config.getVibCurvePaused,
     claimEnabled: true,
-    depositAddress: conversion.dotReceivingAddress,
+    paused: config.getVibCurvePaused,
+    depositAddress: config.viblyDotReceivingAddress,
     relayTokenSymbol: config.getVibRelayTokenSymbol,
     vibTokenSymbol: "VIB",
-    saleRuleVersion: "conversion-v1",
+    saleRuleVersion: "capped-launch-curve-v1",
+    dotUsdPrice: config.getVibDotUsdPrice,
+    purchaseLimits: {
+      minPurchaseUsd: PURCHASE_LIMITS.MIN_PURCHASE_USD,
+      maxPurchaseUsd: PURCHASE_LIMITS.MAX_PURCHASE_USD,
+      minPurchaseVib: String(PURCHASE_LIMITS.MIN_PURCHASE_VIB),
+      maxPurchaseVibPerTx: String(PURCHASE_LIMITS.MAX_PURCHASE_VIB_PER_TX),
+      maxPurchaseVibPerAccount: String(PURCHASE_LIMITS.MAX_PURCHASE_VIB_PER_ACCOUNT),
+      slippageBpsDefault: PURCHASE_LIMITS.SLIPPAGE_BPS_DEFAULT,
+    },
   };
 }
 
 export async function quoteGetVibAmount(store: CoordinatorStorePort, config: CoordinatorConfig, dotAmount: string): Promise<GetVibQuote> {
-  const conversion = await getConversionConfig(store, config);
-  const issued = await completedGetVibAllocationTotal(store, getNetworkId(config));
-  const vibAmount = quoteVibAmount(dotAmount, conversion, issued);
+  if (config.getVibCurvePaused) throw badRequest("Get VIB curve is paused");
+  const networkId = getNetworkId(config);
+  const soldBefore = await completedGetVibAllocationTotal(store, networkId);
+  const accountPurchasedTotal = 0n;
+  const budgetUsd = paymentUsdFromDot(dotAmount, config);
+  const curveQuote = quoteVibFromUsd(soldBefore, budgetUsd, DEFAULT_CURVE_CONFIG);
+  validatePurchase({
+    soldBefore,
+    vibAmount: curveQuote.vibAmount,
+    accountPurchasedTotal,
+    costUsd: curveQuote.costUsd,
+    config: DEFAULT_CURVE_CONFIG,
+  });
+  const vibAmount = String(curveQuote.vibAmount);
   return {
-    networkId: getNetworkId(config),
+    networkId,
     inputAmount: dotAmount,
     dotAmount,
+    paymentAsset: "DOT",
+    paymentAmount: dotAmount,
+    assetUsdPrice: config.getVibDotUsdPrice,
+    costUsd: roundUsd(curveQuote.costUsd),
     vibAmount,
     vibAmountBaseUnits: toBaseUnits(vibAmount),
-    depositAddress: conversion.dotReceivingAddress,
-    dotReceivingAddress: conversion.dotReceivingAddress,
-    saleRuleVersion: "conversion-v1",
+    averagePriceUsd: curveQuote.averagePriceUsd,
+    startPriceUsd: curveQuote.startPriceUsd,
+    endPriceUsd: curveQuote.endPriceUsd,
+    soldBefore: String(curveQuote.soldBefore),
+    soldAfter: String(curveQuote.soldAfter),
+    effectiveMarketCapUsd: marketCapAtSold(curveQuote.soldAfter, DEFAULT_CURVE_CONFIG),
+    depositAddress: config.viblyDotReceivingAddress,
+    dotReceivingAddress: config.viblyDotReceivingAddress,
+    saleRuleVersion: "capped-launch-curve-v1",
     expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+    requiresAdminReview: curveQuote.costUsd >= config.getVibAdminReviewUsd,
   };
 }
 
-export async function completedGetVibAllocationTotal(store: CoordinatorStorePort, networkId: string): Promise<number> {
+export async function completedGetVibAllocationTotal(store: CoordinatorStorePort, networkId: string): Promise<bigint> {
   const allocations = await listNetworkAllocations(store, networkId);
-  const allocated = allocations
+  return allocations
     .filter((allocation) => allocation.status === "confirmed" || allocation.status === "root_included")
-    .reduce((sum, allocation) => sum + Number(allocation.vibAmount), 0);
-  return allocated || completedConversionTotal(store);
+    .reduce((sum, allocation) => sum + BigInt(toWholeVib(allocation.vibAmount)), 0n);
 }
 
 export async function createGetVibOrder(input: {
@@ -231,7 +317,12 @@ export async function createGetVibOrder(input: {
   identityId?: string;
   evmAddress?: string;
 }): Promise<ConversionOrderRecord> {
-  const quote = await quoteGetVibAmount(input.store, input.config, input.dotAmount);
+  const quote = await quoteGetVibByBudget({
+    store: input.store,
+    config: input.config,
+    accountId: input.accountId,
+    dotAmount: input.dotAmount,
+  });
   const now = new Date().toISOString();
   const id = makeId("getvib");
   const order: ConversionOrderRecord = {
@@ -241,6 +332,16 @@ export async function createGetVibOrder(input: {
     viblyRootAddress: input.accountId,
     dotAmount: input.dotAmount,
     quotedVibAmount: quote.vibAmount,
+    paymentAsset: "DOT",
+    paymentAmount: input.dotAmount,
+    costUsd: quote.costUsd,
+    assetUsdPrice: quote.assetUsdPrice,
+    averagePriceUsd: quote.averagePriceUsd,
+    startPriceUsd: quote.startPriceUsd,
+    endPriceUsd: quote.endPriceUsd,
+    soldBefore: quote.soldBefore,
+    soldAfter: quote.soldAfter,
+    requiresAdminReview: quote.requiresAdminReview,
     memo: id,
     dotReceivingAddress: quote.depositAddress,
     quoteExpiresAt: quote.expiresAt,
@@ -271,6 +372,7 @@ export async function ingestFinalizedDeposit(input: {
   finalizedAt?: string;
 }): Promise<{ deposit: DepositRecord; allocation: AllocationRecord }> {
   const networkId = getNetworkId(input.config);
+  if (input.config.getVibCurvePaused) throw badRequest("Get VIB curve is paused");
   const observed = input.observedDepositId
     ? await getObservedRelayDeposit(input.store, input.observedDepositId)
     : input.sourceId
@@ -278,76 +380,129 @@ export async function ingestFinalizedDeposit(input: {
       : undefined;
   const sourceId = input.sourceId ?? observed?.sourceId;
   const dotAmount = input.dotAmount ?? observed?.dotAmount;
-  const paymentId = input.paymentId ?? observed?.extrinsicHash ?? observed?.sourceId;
+  let paymentId = input.paymentId ?? observed?.extrinsicHash ?? observed?.sourceId;
   const finalizedAt = input.finalizedAt ?? observed?.finalizedAt;
   if (!sourceId) throw badRequest("sourceId or observedDepositId is required");
   if (!dotAmount) throw badRequest("dotAmount or observedDepositId is required");
 
   const existing = await input.store.getProjection<DepositRecord>(GET_VIB_DEPOSIT, projectionId(networkId, sourceId));
   if (existing) throw conflict("Get VIB deposit already processed", { sourceId, depositId: existing.id });
+  const paymentDuplicate = paymentId ? await findDepositByPaymentId(input.store, networkId, paymentId) : undefined;
+  if (paymentDuplicate) throw conflict("Get VIB payment already processed", { paymentId, depositId: paymentDuplicate.id });
 
   const order = input.orderId ? await getOrder(input.store, input.orderId) : undefined;
+  if (order?.paymentId && paymentId && order.paymentId !== paymentId) {
+    throw badRequest("Get VIB payment tx hash does not match submitted quote", { orderId: order.id, paymentId });
+  }
+  paymentId = paymentId ?? order?.paymentId;
+  if (order?.quoteExpiresAt && new Date(order.quoteExpiresAt).getTime() <= Date.now()) {
+    throw badRequest("Get VIB quote expired", { orderId: order.id, quoteExpiresAt: order.quoteExpiresAt });
+  }
+  if (order && order.status !== "pending_payment" && order.status !== "payment_finalized") {
+    throw conflict("Get VIB order cannot be reused", { orderId: order.id, status: order.status });
+  }
   const accountId = input.accountId ?? order?.viblyRootAddress;
   if (!accountId) throw badRequest("accountId or orderId is required");
 
-  const now = new Date().toISOString();
-  const deposit: DepositRecord = {
-    id: makeId("deposit"),
-    networkId,
-    sourceId,
-    orderId: input.orderId,
-    paymentId,
-    accountId,
-    identityId: input.identityId ?? order?.identityId,
-    dotAmount,
-    status: "confirmed",
-    observedAt: now,
-    finalizedAt: finalizedAt ?? now,
-  };
+  const lease = await input.store.tryAcquireLease({
+    kind: "get-vib.curve",
+    resourceId: networkId,
+    holderId: "deposit-finalize",
+    ttlMs: 30_000,
+  });
+  if (!lease) throw conflict("Get VIB curve update is busy");
 
-  const conversion = await getConversionConfig(input.store, input.config);
-  const issued = await completedGetVibAllocationTotal(input.store, networkId);
-  const vibAmount = quoteVibAmount(dotAmount, conversion, issued);
-  const cumulativeAmount = addDecimalStrings(await cumulativeAllocationForAccount(input.store, networkId, accountId), vibAmount);
-  const allocation: AllocationRecord = {
-    id: makeId("alloc"),
-    networkId,
-    sourceId,
-    accountId,
-    identityId: deposit.identityId,
-    dotAmount,
-    vibAmount,
-    cumulativeAmount,
-    saleRuleVersion: "conversion-v1",
-    status: "confirmed",
-    createdAt: now,
-    confirmedAt: now,
-  };
-
-  await input.store.saveProjection(GET_VIB_DEPOSIT, projectionId(networkId, sourceId), deposit);
-  await input.store.saveProjection(GET_VIB_ALLOCATION, projectionId(networkId, allocation.id), allocation);
-  if (order) {
-    await input.store.saveProjection(CONVERSION_ORDER, order.id, {
-      ...order,
-      dotAmount,
-      finalVibAmount: vibAmount,
-      paymentId: paymentId ?? sourceId,
-      status: "completed",
-      updatedAt: now,
+  try {
+    const now = new Date().toISOString();
+    const soldBefore = await completedGetVibAllocationTotal(input.store, networkId);
+    const costUsd = paymentUsdFromDot(dotAmount, input.config);
+    const curveQuote = quoteVibFromUsd(soldBefore, costUsd, DEFAULT_CURVE_CONFIG);
+    const accountPurchasedTotal = BigInt(toWholeVib(await cumulativeAllocationForAccount(input.store, networkId, accountId)));
+    validatePurchase({
+      soldBefore,
+      vibAmount: curveQuote.vibAmount,
+      accountPurchasedTotal,
+      costUsd: curveQuote.costUsd,
+      config: DEFAULT_CURVE_CONFIG,
     });
-  }
-  if (observed) {
-    await input.store.saveProjection(GET_VIB_RELAY_DEPOSIT, observed.id, {
-      ...observed,
-      status: "confirmed",
-      confirmedAt: now,
-      confirmedDepositId: deposit.id,
-      allocationId: allocation.id,
+    const vibAmount = String(curveQuote.vibAmount);
+    const deposit: DepositRecord = {
+      id: makeId("deposit"),
+      networkId,
+      sourceId,
       orderId: input.orderId,
+      paymentId,
       accountId,
-    } satisfies ObservedRelayDeposit);
+      identityId: input.identityId ?? order?.identityId,
+      dotAmount,
+      paymentAsset: "DOT",
+      paymentAmount: dotAmount,
+      costUsd: roundUsd(curveQuote.costUsd),
+      averagePriceUsd: curveQuote.averagePriceUsd,
+      startPriceUsd: curveQuote.startPriceUsd,
+      endPriceUsd: curveQuote.endPriceUsd,
+      soldBefore: String(curveQuote.soldBefore),
+      soldAfter: String(curveQuote.soldAfter),
+      status: "confirmed",
+      observedAt: now,
+      finalizedAt: finalizedAt ?? now,
+    };
+
+    const cumulativeAmount = addDecimalStrings(await cumulativeAllocationForAccount(input.store, networkId, accountId), vibAmount);
+    const allocation: AllocationRecord = {
+      id: makeId("alloc"),
+      networkId,
+      sourceId,
+      accountId,
+      identityId: deposit.identityId,
+      dotAmount,
+      vibAmount,
+      costUsd: deposit.costUsd,
+      averagePriceUsd: deposit.averagePriceUsd,
+      startPriceUsd: deposit.startPriceUsd,
+      endPriceUsd: deposit.endPriceUsd,
+      soldBefore: deposit.soldBefore,
+      soldAfter: deposit.soldAfter,
+      cumulativeAmount,
+      saleRuleVersion: "capped-launch-curve-v1",
+      status: "confirmed",
+      createdAt: now,
+      confirmedAt: now,
+    };
+
+    await input.store.saveProjection(GET_VIB_DEPOSIT, projectionId(networkId, sourceId), deposit);
+    await input.store.saveProjection(GET_VIB_ALLOCATION, projectionId(networkId, allocation.id), allocation);
+    if (order) {
+      await input.store.saveProjection(CONVERSION_ORDER, order.id, {
+        ...order,
+        dotAmount,
+        finalVibAmount: vibAmount,
+        paymentId: paymentId ?? sourceId,
+        costUsd: deposit.costUsd,
+        averagePriceUsd: deposit.averagePriceUsd,
+        startPriceUsd: deposit.startPriceUsd,
+        endPriceUsd: deposit.endPriceUsd,
+        soldBefore: deposit.soldBefore,
+        soldAfter: deposit.soldAfter,
+        status: "completed",
+        updatedAt: now,
+      });
+    }
+    if (observed) {
+      await input.store.saveProjection(GET_VIB_RELAY_DEPOSIT, observed.id, {
+        ...observed,
+        status: "confirmed",
+        confirmedAt: now,
+        confirmedDepositId: deposit.id,
+        allocationId: allocation.id,
+        orderId: input.orderId,
+        accountId,
+      } satisfies ObservedRelayDeposit);
+    }
+    return { deposit, allocation };
+  } finally {
+    await input.store.releaseLease(lease.id);
   }
-  return { deposit, allocation };
 }
 
 export async function saveObservedRelayDeposit(
@@ -535,22 +690,95 @@ export async function recordClaim(input: {
   return claim;
 }
 
+export async function quoteGetVibByBudget(input: {
+  store: CoordinatorStorePort;
+  config: CoordinatorConfig;
+  accountId?: string;
+  budgetUsd?: number;
+  dotAmount?: string;
+  vibAmount?: string;
+}): Promise<GetVibQuote> {
+  if (input.config.getVibCurvePaused) throw badRequest("Get VIB curve is paused");
+  const networkId = getNetworkId(input.config);
+  const soldBefore = await completedGetVibAllocationTotal(input.store, networkId);
+  const accountPurchasedTotal = input.accountId
+    ? BigInt(toWholeVib(await cumulativeAllocationForAccount(input.store, networkId, input.accountId)))
+    : 0n;
+  const curveQuote = input.vibAmount
+    ? quoteBuyVib(soldBefore, BigInt(toWholeVib(input.vibAmount)), DEFAULT_CURVE_CONFIG)
+    : quoteVibFromUsd(
+        soldBefore,
+        input.budgetUsd ?? paymentUsdFromDot(input.dotAmount ?? "0", input.config),
+        DEFAULT_CURVE_CONFIG,
+      );
+  validatePurchase({
+    soldBefore,
+    vibAmount: curveQuote.vibAmount,
+    accountPurchasedTotal,
+    costUsd: curveQuote.costUsd,
+    config: DEFAULT_CURVE_CONFIG,
+  });
+  const dotAmount = input.dotAmount ?? trimDecimal(curveQuote.costUsd / input.config.getVibDotUsdPrice);
+  return quoteFromCurveQuote({
+    networkId,
+    dotAmount,
+    config: input.config,
+    curveQuote,
+  });
+}
+
+export async function submitGetVibPayment(input: {
+  store: CoordinatorStorePort;
+  quoteId: string;
+  paymentTxHash: string;
+}): Promise<ConversionOrderRecord> {
+  const order = await getOrder(input.store, input.quoteId);
+  if (new Date(order.quoteExpiresAt).getTime() <= Date.now()) throw badRequest("Get VIB quote expired", { quoteId: input.quoteId });
+  if (order.status !== "pending_payment") throw conflict("Get VIB quote cannot be reused", { quoteId: input.quoteId, status: order.status });
+  const existingPayment = await findAnyOrderByPaymentId(input.store, input.paymentTxHash);
+  if (existingPayment) throw conflict("Get VIB payment tx hash already submitted", { paymentTxHash: input.paymentTxHash });
+  const updated: ConversionOrderRecord = {
+    ...order,
+    paymentId: input.paymentTxHash,
+    status: "payment_finalized",
+    updatedAt: new Date().toISOString(),
+  };
+  await input.store.saveProjection(CONVERSION_ORDER, order.id, updated);
+  return updated;
+}
+
+export async function getCurveState(store: CoordinatorStorePort, config: CoordinatorConfig): Promise<CurveState> {
+  const sold = await completedGetVibAllocationTotal(store, getNetworkId(config));
+  const nextSold = sold < DEFAULT_CURVE_CONFIG.curveAllocation ? sold + 1n : sold;
+  const raisedUsd = await completedGetVibRaiseUsd(store, getNetworkId(config));
+  return {
+    sold: String(sold),
+    raisedUsd: roundUsd(raisedUsd),
+    curveAllocation: String(DEFAULT_CURVE_CONFIG.curveAllocation),
+    soldProgressPercent: Number(sold * 10_000n / DEFAULT_CURVE_CONFIG.curveAllocation) / 100,
+    currentPriceUsd: priceAtSold(sold, DEFAULT_CURVE_CONFIG),
+    nextPriceUsd: priceAtSold(nextSold, DEFAULT_CURVE_CONFIG),
+    effectiveMarketCapUsd: marketCapAtSold(sold, DEFAULT_CURVE_CONFIG),
+    paused: config.getVibCurvePaused,
+    phase: getPurchasePhase(sold),
+  };
+}
+
 export async function getCurve(store: CoordinatorStorePort, config: CoordinatorConfig) {
-  const conversion = await getConversionConfig(store, config);
-  const points = [];
-  const cap = Number(conversion.totalCapVib) > 0 ? Number(conversion.totalCapVib) : 100_000;
-  for (let index = 0; index <= 12; index += 1) {
-    const soldVib = (cap * index) / 12;
-    const slope = Number(conversion.slope);
-    const initialRate = Number(conversion.initialRate) || 1;
-    const rate = Math.max(initialRate / (1 + slope * soldVib), 0.000001);
-    points.push({
-      soldVib: trimDecimal(soldVib),
-      price: trimDecimal(1 / rate),
-      cumulativeDot: trimDecimal(soldVib / rate),
-    });
-  }
-  return { points };
+  const [state, generated] = await Promise.all([
+    getCurveState(store, config),
+    Promise.resolve(generateCurvePoints(DEFAULT_CURVE_CONFIG)),
+  ]);
+  const points = generated
+    .filter((_, index) => index % 20 === 0 || index === generated.length - 1)
+    .map((point) => ({
+      soldVib: String(point.sold),
+      price: trimDecimal(point.priceUsd),
+      priceUsd: point.priceUsd,
+      marketCapUsd: point.marketCapUsd,
+      effectiveCirculation: String(point.effectiveCirculation),
+    }));
+  return { state, points };
 }
 
 function buildMerkleTree(rows: Array<{ accountId: string; identityId?: string; cumulativeAmount: string }>): { root: string; proofs: Map<string, MerkleProofItem[]> } {
@@ -665,6 +893,59 @@ function maxDecimalString(left: string, right: string): string {
   return BigInt(toBaseUnits(left)) >= BigInt(toBaseUnits(right)) ? left : right;
 }
 
+function quoteFromCurveQuote(input: {
+  networkId: string;
+  dotAmount: string;
+  config: CoordinatorConfig;
+  curveQuote: QuoteResult;
+}): GetVibQuote {
+  const vibAmount = String(input.curveQuote.vibAmount);
+  return {
+    networkId: input.networkId,
+    inputAmount: input.dotAmount,
+    dotAmount: input.dotAmount,
+    paymentAsset: "DOT",
+    paymentAmount: input.dotAmount,
+    assetUsdPrice: input.config.getVibDotUsdPrice,
+    costUsd: roundUsd(input.curveQuote.costUsd),
+    vibAmount,
+    vibAmountBaseUnits: toBaseUnits(vibAmount),
+    averagePriceUsd: input.curveQuote.averagePriceUsd,
+    startPriceUsd: input.curveQuote.startPriceUsd,
+    endPriceUsd: input.curveQuote.endPriceUsd,
+    soldBefore: String(input.curveQuote.soldBefore),
+    soldAfter: String(input.curveQuote.soldAfter),
+    effectiveMarketCapUsd: marketCapAtSold(input.curveQuote.soldAfter, DEFAULT_CURVE_CONFIG),
+    depositAddress: input.config.viblyDotReceivingAddress,
+    dotReceivingAddress: input.config.viblyDotReceivingAddress,
+    saleRuleVersion: "capped-launch-curve-v1",
+    expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+    requiresAdminReview: input.curveQuote.costUsd >= input.config.getVibAdminReviewUsd,
+  };
+}
+
+function paymentUsdFromDot(dotAmountRaw: string, config: CoordinatorConfig): number {
+  const dotAmount = Number(dotAmountRaw);
+  if (!Number.isFinite(dotAmount) || dotAmount <= 0) throw badRequest("DOT amount must be positive");
+  if (config.viblyConversionMinDot > 0 && dotAmount < config.viblyConversionMinDot) {
+    throw badRequest("DOT amount is below minimum", { minDot: config.viblyConversionMinDot });
+  }
+  if (config.viblyConversionMaxDot > 0 && dotAmount > config.viblyConversionMaxDot) {
+    throw badRequest("DOT amount exceeds maximum", { maxDot: config.viblyConversionMaxDot });
+  }
+  return dotAmount * config.getVibDotUsdPrice;
+}
+
+function roundUsd(value: number): number {
+  return Math.round(value * 1_000_000) / 1_000_000;
+}
+
+function toWholeVib(value: string): string {
+  const trimmed = String(value || "0").trim();
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) throw badRequest("Invalid VIB amount", { value });
+  return trimmed.split(".")[0] || "0";
+}
+
 function trimDecimal(value: number): string {
   return value.toFixed(6).replace(/\.?0+$/, "");
 }
@@ -681,6 +962,21 @@ async function claimedAmountForAccount(store: CoordinatorStorePort, networkId: s
   return claims
     .filter((claim) => claim.accountId === accountId && claim.status === "confirmed")
     .reduce((sum, claim) => addDecimalStrings(sum, claim.claimedDelta), "0");
+}
+
+async function completedGetVibRaiseUsd(store: CoordinatorStorePort, networkId: string): Promise<number> {
+  const allocations = await listNetworkAllocations(store, networkId);
+  return allocations
+    .filter((allocation) => allocation.status === "confirmed" || allocation.status === "root_included")
+    .reduce((sum, allocation) => sum + (allocation.costUsd ?? 0), 0);
+}
+
+async function findDepositByPaymentId(store: CoordinatorStorePort, networkId: string, paymentId: string): Promise<DepositRecord | undefined> {
+  return (await listNetworkDeposits(store, networkId)).find((deposit) => deposit.paymentId === paymentId);
+}
+
+async function findAnyOrderByPaymentId(store: CoordinatorStorePort, paymentId: string): Promise<ConversionOrderRecord | undefined> {
+  return (await store.listProjections<ConversionOrderRecord>(CONVERSION_ORDER)).find((order) => order.paymentId === paymentId);
 }
 
 function cumulativeAllocations(allocations: AllocationRecord[]): Array<{ accountId: string; identityId?: string; cumulativeAmount: string }> {

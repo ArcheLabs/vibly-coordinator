@@ -9,9 +9,17 @@ import {
   listObservedRelayDeposits,
   saveObservedRelayDeposit,
 } from "./domain.js";
+import {
+  DEFAULT_CURVE_CONFIG,
+  getPurchasePhase,
+  priceAtSold,
+  quoteBuyVib,
+  validatePurchase,
+} from "./vibCurve.js";
 
 function makeStore(): CoordinatorStorePort {
   const projections = new Map<string, Map<string, unknown>>();
+  const leases = new Map<string, { id: string; kind: string; resourceId: string; holderId: string; expiresAt: string; createdAt: string; renewedAt?: string }>();
   return {
     async saveProjection(kind: string, id: string, value: unknown) {
       const bucket = projections.get(kind) ?? new Map<string, unknown>();
@@ -28,10 +36,20 @@ function makeStore(): CoordinatorStorePort {
       projections.get(kind)?.delete(id);
     },
     async createLease() {
-      throw new Error("not implemented");
+      const id = `lease_${leases.size + 1}`;
+      const now = new Date().toISOString();
+      const lease = { id, kind: "test", resourceId: "test", holderId: "test", expiresAt: new Date(Date.now() + 60_000).toISOString(), createdAt: now };
+      leases.set(id, lease);
+      return lease;
     },
-    async tryAcquireLease() {
-      throw new Error("not implemented");
+    async tryAcquireLease(input) {
+      const active = Array.from(leases.values()).find((lease) => lease.kind === input.kind && lease.resourceId === input.resourceId && new Date(lease.expiresAt).getTime() > Date.now());
+      if (active) return undefined;
+      const id = `lease_${leases.size + 1}`;
+      const now = new Date().toISOString();
+      const lease = { id, kind: input.kind, resourceId: input.resourceId, holderId: input.holderId, expiresAt: new Date(Date.now() + input.ttlMs).toISOString(), createdAt: now };
+      leases.set(id, lease);
+      return lease;
     },
     async getLease() {
       return undefined;
@@ -42,7 +60,9 @@ function makeStore(): CoordinatorStorePort {
     async renewLease() {
       return undefined;
     },
-    async releaseLease() {},
+    async releaseLease(id) {
+      leases.delete(id);
+    },
     async sweepExpiredLeases() {
       return [];
     },
@@ -50,6 +70,36 @@ function makeStore(): CoordinatorStorePort {
 }
 
 describe("Get VIB relay deposits", () => {
+  it("matches the capped launch curve price checkpoints", () => {
+    expect(priceAtSold(0n)).toBeCloseTo(0.01, 6);
+    expect(priceAtSold(10_000_000n)).toBeCloseTo(0.013207, 6);
+    expect(priceAtSold(20_000_000n)).toBeCloseTo(0.017942, 6);
+    expect(priceAtSold(30_000_000n)).toBeCloseTo(0.024882, 6);
+    expect(priceAtSold(40_000_000n)).toBeCloseTo(0.035053, 6);
+    expect(priceAtSold(50_000_000n)).toBeCloseTo(0.05, 6);
+  });
+
+  it("enforces curve allocation boundaries", () => {
+    expect(() => quoteBuyVib(49_999_000n, 1_000n)).not.toThrow();
+    expect(() => quoteBuyVib(49_999_000n, 2_000n)).toThrow("VIB curve allocation exceeded");
+    expect(() => quoteBuyVib(50_000_000n, 1n)).toThrow("VIB curve allocation exceeded");
+  });
+
+  it("enforces phase account limits", () => {
+    expect(getPurchasePhase(0n)).toBe(1);
+    expect(getPurchasePhase(10_000_000n)).toBe(2);
+    expect(getPurchasePhase(30_000_000n)).toBe(3);
+    expect(() =>
+      validatePurchase({ soldBefore: 0n, vibAmount: 100_001n, accountPurchasedTotal: 0n, costUsd: 1200, config: DEFAULT_CURVE_CONFIG }),
+    ).toThrow("VIB account phase limit exceeded");
+    expect(() =>
+      validatePurchase({ soldBefore: 10_000_000n, vibAmount: 500_001n, accountPurchasedTotal: 0n, costUsd: 7000, config: DEFAULT_CURVE_CONFIG }),
+    ).toThrow("VIB account phase limit exceeded");
+    expect(() =>
+      validatePurchase({ soldBefore: 30_000_000n, vibAmount: 1_000_000n, accountPurchasedTotal: 1_000_001n, costUsd: 8000, config: DEFAULT_CURVE_CONFIG }),
+    ).toThrow("VIB account phase limit exceeded");
+  });
+
   it("builds stable source IDs and converts relay base units", () => {
     expect(buildRelayDepositSourceId({
       relayChainId: "polkadot-dev",
@@ -131,8 +181,8 @@ describe("Get VIB relay deposits", () => {
 
     expect(result.deposit.sourceId).toBe(observed.deposit.sourceId);
     expect(result.deposit.paymentId).toBe("0xtx");
-    expect(result.allocation.vibAmount).toBe("1000");
-    expect(summary.purchasedAllocation).toBe("1000");
+    expect(result.allocation.vibAmount).toBe("1097");
+    expect(summary.purchasedAllocation).toBe("1097");
     expect(relayDeposits[0]).toMatchObject({
       id: observed.deposit.id,
       status: "confirmed",

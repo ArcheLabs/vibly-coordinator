@@ -9,14 +9,17 @@ import {
   getAllocationSummary,
   getClaimProof,
   getCurve,
+  getCurveState,
   getGetVibConfig,
   getOrder,
   getRelayWatcherState,
   getRecords,
   ingestFinalizedDeposit,
   listObservedRelayDeposits,
+  quoteGetVibByBudget,
   quoteGetVibAmount,
   recordClaim,
+  submitGetVibPayment,
 } from "./domain.js";
 
 function requestNetworkId(request: FastifyRequest, bodyNetworkId?: string): string | undefined {
@@ -59,6 +62,62 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
       }),
     },
     async (request) => ok({ quote: await quoteGetVibAmount(fastify.coordinatorStore, configForRequest(fastify.config, request), request.query.amount) }),
+  );
+
+  fastify.get(
+    "/get-vib/curve/state",
+    {
+      ...authPolicy("public-read", {
+        tags: ["Get VIB"],
+        summary: "Get Get VIB bonding curve state",
+        response: { 200: envelopeKey("state") },
+      }),
+    },
+    async (request) => ok({ state: await getCurveState(fastify.coordinatorStore, configForRequest(fastify.config, request)) }),
+  );
+
+  fastify.post<{
+    Body: {
+      networkId?: string;
+      account?: string;
+      accountId?: string;
+      paymentAsset?: "DOT";
+      budgetUsd?: number;
+      dotAmount?: string;
+      vibAmount?: string;
+    };
+  }>(
+    "/get-vib/curve/quote",
+    {
+      ...authPolicy("public-read", {
+        tags: ["Get VIB"],
+        summary: "Quote a Get VIB curve purchase",
+        body: {
+          type: "object",
+          properties: {
+            networkId: { type: "string" },
+            account: { type: "string" },
+            accountId: { type: "string" },
+            paymentAsset: { type: "string", enum: ["DOT"] },
+            budgetUsd: { type: "number" },
+            dotAmount: { type: "string" },
+            vibAmount: { type: "string" },
+          },
+        },
+        response: { 200: envelopeKey("quote") },
+      }),
+    },
+    async (request) =>
+      ok({
+        quote: await quoteGetVibByBudget({
+          store: fastify.coordinatorStore,
+          config: configForRequest(fastify.config, request, request.body.networkId),
+          accountId: request.body.accountId ?? request.body.account,
+          budgetUsd: request.body.budgetUsd,
+          dotAmount: request.body.dotAmount,
+          vibAmount: request.body.vibAmount,
+        }),
+      }),
   );
 
   fastify.post<{ Body: { networkId?: string; dotAmount: string; accountId: string; identityId?: string; evmAddress?: string } }>(
@@ -105,6 +164,33 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
       }),
     },
     async (request) => ok({ order: await getOrder(fastify.coordinatorStore, request.params.orderId) }),
+  );
+
+  fastify.post<{ Body: { quoteId: string; paymentTxHash: string } }>(
+    "/get-vib/curve/submit-payment",
+    {
+      schema: {
+        tags: ["Get VIB"],
+        summary: "Bind a payment transaction hash to a Get VIB quote",
+        body: {
+          type: "object",
+          required: ["quoteId", "paymentTxHash"],
+          properties: {
+            quoteId: { type: "string" },
+            paymentTxHash: { type: "string" },
+          },
+        },
+        response: { 200: envelopeKey("order") },
+      },
+    },
+    async (request) =>
+      ok({
+        order: await submitGetVibPayment({
+          store: fastify.coordinatorStore,
+          quoteId: request.body.quoteId,
+          paymentTxHash: request.body.paymentTxHash,
+        }),
+      }),
   );
 
   fastify.get<{ Params: { accountId: string } }>(

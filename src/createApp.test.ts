@@ -11,6 +11,7 @@ import { saveObservedRelayDeposit } from "./modules/conversion/get-vib/domain.js
 
 function makeStore(): CoordinatorStorePort {
   const projections = new Map<string, Map<string, unknown>>();
+  const leases = new Map<string, { id: string; kind: string; resourceId: string; holderId: string; expiresAt: string; createdAt: string; renewedAt?: string }>();
   return {
     async saveProjection(kind: string, id: string, value: unknown) {
       const bucket = projections.get(kind) ?? new Map<string, unknown>();
@@ -26,11 +27,21 @@ function makeStore(): CoordinatorStorePort {
     async deleteProjection(kind: string, id: string) {
       projections.get(kind)?.delete(id);
     },
-    async createLease() {
-      throw new Error("not implemented");
+    async createLease(input) {
+      const id = `lease_${leases.size + 1}`;
+      const now = new Date().toISOString();
+      const lease = { id, kind: input.kind, resourceId: input.resourceId, holderId: input.holderId, expiresAt: new Date(Date.now() + input.ttlMs).toISOString(), createdAt: now };
+      leases.set(id, lease);
+      return lease;
     },
-    async tryAcquireLease() {
-      throw new Error("not implemented");
+    async tryAcquireLease(input) {
+      const active = Array.from(leases.values()).find((lease) => lease.kind === input.kind && lease.resourceId === input.resourceId && new Date(lease.expiresAt).getTime() > Date.now());
+      if (active) return undefined;
+      const id = `lease_${leases.size + 1}`;
+      const now = new Date().toISOString();
+      const lease = { id, kind: input.kind, resourceId: input.resourceId, holderId: input.holderId, expiresAt: new Date(Date.now() + input.ttlMs).toISOString(), createdAt: now };
+      leases.set(id, lease);
+      return lease;
     },
     async getLease() {
       return undefined;
@@ -41,7 +52,9 @@ function makeStore(): CoordinatorStorePort {
     async renewLease() {
       return undefined;
     },
-    async releaseLease() {},
+    async releaseLease(id) {
+      leases.delete(id);
+    },
     async sweepExpiredLeases() {
       return [];
     },
@@ -229,7 +242,7 @@ describe("createApp governance runtime config", () => {
     });
     expect(finalizeRes.statusCode).toBe(200);
     const finalizeBody = finalizeRes.json<{ data: { result: { allocation: { vibAmount: string } } } }>();
-    expect(finalizeBody.data.result.allocation.vibAmount).toBe("1000");
+    expect(finalizeBody.data.result.allocation.vibAmount).toBe("1097");
 
     await app.close();
   });

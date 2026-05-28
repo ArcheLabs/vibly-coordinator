@@ -94,6 +94,16 @@ export interface ConversionOrderRecord {
   dotAmount: string;
   quotedVibAmount: string;
   finalVibAmount?: string;
+  paymentAsset?: "DOT" | "USDC";
+  paymentAmount?: string;
+  costUsd?: number;
+  assetUsdPrice?: number;
+  averagePriceUsd?: number;
+  startPriceUsd?: number;
+  endPriceUsd?: number;
+  soldBefore?: string;
+  soldAfter?: string;
+  requiresAdminReview?: boolean;
   memo: string;
   dotReceivingAddress: string;
   quoteExpiresAt: string;
