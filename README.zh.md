@@ -15,6 +15,8 @@ pnpm build && pnpm start  # 生产模式
 
 默认端点：`http://localhost:8787`
 
+协调器脚本会在 `.env` 存在时自动加载它。部署平台注入的环境变量仍然优先，因此同一套脚本可用于本地开发、E2E 运行，以及没有 `.env` 文件的托管部署。
+
 ## 架构
 
 ```
@@ -52,9 +54,22 @@ vibly-coordinator（REST/SSE :8787）  ←── @concord/sdk（协议内核）
 | `SUBSTRATE_STAKE_TX_MODE` | `prepare-only` \| `fixture` \| `unsafe-papi` |
 | `SUBSTRATE_CHAIN_ID` | 逻辑链标识符（如 `substrate:vibly-solo`） |
 | `GOVERNANCE_BACKENDS` | 要注册的后端名称（逗号分隔，如 `substrate-opengov`、`evm-governor`） |
-| `GET_VIB_RELAY_RPC_URL` | Get VIB deposit watcher 观察的 Relay Chain RPC |
-| `GET_VIB_RELAY_CHAIN_ID` | Get VIB observed deposit source id 使用的 Relay Chain id |
-| `GET_VIB_RELAY_TOKEN_SYMBOL` | Get VIB 展示的 Relay token（波卡主网为 `DOT`，测试网为 `PLA`） |
+
+### Get VIB
+
+| 变量 | 说明 |
+|---|---|
+| `VIBLY_DOT_RECEIVING_ADDRESS` | `GET /get-vib/config` 暴露给前端的收款地址。该值为空时，Console 会显示“当前网络暂未开启购买，或尚未配置收款地址。”，且无法创建订单。 |
+| `GET_VIB_CURVE_PAUSED` | Get VIB 曲线的紧急暂停开关。设为 `true` 后，配置仍可读取，但报价和购买会被禁用。 |
+| `GET_VIB_DOT_USD_PRICE` | 协调器将 DOT 支付预算换算成 USD 计价启动曲线报价时使用的链下 DOT/USD 参考价。 |
+| `GET_VIB_ADMIN_REVIEW_USD` | 报价 / 订单达到该 USD 金额及以上时，标记为需要 admin review。 |
+| `GET_VIB_RELAY_TOKEN_SYMBOL` | Get VIB UI 展示的 Relay token 名称（波卡主网通常为 `DOT`，测试网可用 `PLA` 等）。 |
+| `GET_VIB_RELAY_TOKEN_DECIMALS` | 解析被监听充值时使用的 Relay token decimals（DOT 为 `10`）。 |
+| `GET_VIB_RELAY_RPC_URL` | Get VIB deposit watcher 观察的 Relay Chain RPC。若只需要报价 / 手动确认流程，可留空。 |
+| `GET_VIB_RELAY_CHAIN_ID` | 写入 observed deposit source id 的稳定 Relay Chain id。 |
+| `GET_VIB_DEPOSIT_SCAN_INTERVAL_MS` | 后台扫描 Relay deposit 的间隔毫秒数；`0` 表示禁用扫描。 |
+| `GET_VIB_DEPOSIT_START_BLOCK` | watcher 开始扫描的起始 Relay block。 |
+| `GET_VIB_DEPOSIT_FINALITY_BLOCKS` | 在将 Relay deposit 视为已确认前额外等待的 finalized block 数。 |
 
 ### 可选
 
@@ -63,6 +78,39 @@ vibly-coordinator（REST/SSE :8787）  ←── @concord/sdk（协议内核）
 | `LOG_LEVEL` | Pino 日志级别（默认 `info`） |
 | `ENABLE_DEV_ROUTES` | 设为 `true` 以暴露场景 / 仅开发端点 |
 | `ASSIGNMENT_EXPIRY_INTERVAL_MS` | 任务分配过期检查间隔（默认 `60000`） |
+
+### Get VIB 最小配置
+
+如果你只是希望 Get VIB 页面能够正常报价并创建订单，协调器至少需要：
+
+```env
+SUBSTRATE_CHAIN_ID=substrate:vibly-solo
+VIBLY_DOT_RECEIVING_ADDRESS=5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
+GET_VIB_CURVE_PAUSED=false
+GET_VIB_RELAY_TOKEN_SYMBOL=DOT
+GET_VIB_DOT_USD_PRICE=10.98
+```
+
+这样 `/get-vib/config` 会返回：
+
+- `purchaseEnabled: true`
+- 非空的 `depositAddress`
+
+### Relay watcher 配置
+
+如果你还希望协调器自动监听 finalized 的 Relay deposit 并生成 allocation，再补上：
+
+```env
+GET_VIB_RELAY_RPC_URL=wss://rpc.polkadot.io
+GET_VIB_RELAY_CHAIN_ID=polkadot
+GET_VIB_RELAY_TOKEN_SYMBOL=DOT
+GET_VIB_RELAY_TOKEN_DECIMALS=10
+GET_VIB_DEPOSIT_SCAN_INTERVAL_MS=5000
+GET_VIB_DEPOSIT_START_BLOCK=0
+GET_VIB_DEPOSIT_FINALITY_BLOCKS=2
+```
+
+修改这些环境变量后，需要重启 `vibly-coordinator`。package scripts 会自动加载 `.env`，Get VIB 配置是在进程启动时从环境变量计算出来的。
 
 ## API 概览
 

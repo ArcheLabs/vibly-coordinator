@@ -1,5 +1,4 @@
-import { createHash } from "crypto";
-import { decodeAddress } from "@polkadot/util-crypto";
+import { decodeAddress, blake2AsU8a } from "@polkadot/util-crypto";
 import type { CoordinatorConfig } from "../../../config/env.js";
 import type { CoordinatorStorePort } from "../../../db/coordinatorStorePort.js";
 import { badRequest, conflict, notFound } from "../../../domain/errors.js";
@@ -267,16 +266,8 @@ export async function quoteGetVibAmount(store: CoordinatorStorePort, config: Coo
   if (config.getVibCurvePaused) throw badRequest("Get VIB curve is paused");
   const networkId = getNetworkId(config);
   const soldBefore = await completedGetVibAllocationTotal(store, networkId);
-  const accountPurchasedTotal = 0n;
   const budgetUsd = paymentUsdFromDot(dotAmount, config);
   const curveQuote = quoteVibFromUsd(soldBefore, budgetUsd, DEFAULT_CURVE_CONFIG);
-  validatePurchase({
-    soldBefore,
-    vibAmount: curveQuote.vibAmount,
-    accountPurchasedTotal,
-    costUsd: curveQuote.costUsd,
-    config: DEFAULT_CURVE_CONFIG,
-  });
   const vibAmount = String(curveQuote.vibAmount);
   return {
     networkId,
@@ -417,14 +408,6 @@ export async function ingestFinalizedDeposit(input: {
     const soldBefore = await completedGetVibAllocationTotal(input.store, networkId);
     const costUsd = paymentUsdFromDot(dotAmount, input.config);
     const curveQuote = quoteVibFromUsd(soldBefore, costUsd, DEFAULT_CURVE_CONFIG);
-    const accountPurchasedTotal = BigInt(toWholeVib(await cumulativeAllocationForAccount(input.store, networkId, accountId)));
-    validatePurchase({
-      soldBefore,
-      vibAmount: curveQuote.vibAmount,
-      accountPurchasedTotal,
-      costUsd: curveQuote.costUsd,
-      config: DEFAULT_CURVE_CONFIG,
-    });
     const vibAmount = String(curveQuote.vibAmount);
     const deposit: DepositRecord = {
       id: makeId("deposit"),
@@ -523,6 +506,22 @@ export async function saveObservedRelayDeposit(
   return { deposit: record, created: true };
 }
 
+export async function markObservedRelayDepositFailed(
+  store: CoordinatorStorePort,
+  deposit: ObservedRelayDeposit,
+  failureReason: string,
+): Promise<ObservedRelayDeposit> {
+  const record: ObservedRelayDeposit = {
+    ...deposit,
+    status: "failed",
+    failureReason,
+    accountId: deposit.accountId ?? deposit.from,
+    confirmedAt: new Date().toISOString(),
+  };
+  await store.saveProjection(GET_VIB_RELAY_DEPOSIT, record.id, record);
+  return record;
+}
+
 export async function getObservedRelayDeposit(store: CoordinatorStorePort, id: string): Promise<ObservedRelayDeposit | undefined> {
   return store.getProjection<ObservedRelayDeposit>(GET_VIB_RELAY_DEPOSIT, id);
 }
@@ -536,6 +535,10 @@ export async function listObservedRelayDeposits(
     .filter((record) => !input.status || record.status === input.status)
     .sort((left, right) => right.blockNumber - left.blockNumber || right.eventIndex - left.eventIndex)
     .slice(0, limit);
+}
+
+async function listNetworkRelayDeposits(store: CoordinatorStorePort, relayChainId: string): Promise<ObservedRelayDeposit[]> {
+  return (await store.listProjections<ObservedRelayDeposit>(GET_VIB_RELAY_DEPOSIT)).filter((record) => record.relayChainId === relayChainId);
 }
 
 export async function getRelayWatcherState(store: CoordinatorStorePort, relayChainId: string): Promise<RelayWatcherState | undefined> {
@@ -590,12 +593,16 @@ export async function getAllocationSummary(store: CoordinatorStorePort, config: 
 
 export async function getRecords(store: CoordinatorStorePort, config: CoordinatorConfig, accountId: string) {
   const networkId = getNetworkId(config);
-  const [deposits, allocations, claims] = await Promise.all([
+  const [relayDeposits, deposits, allocations, claims] = await Promise.all([
+    listNetworkRelayDeposits(store, config.getVibRelayChainId),
     listNetworkDeposits(store, networkId),
     listNetworkAllocations(store, networkId),
     listNetworkClaims(store, networkId),
   ]);
   return {
+    relayDeposits: relayDeposits
+      .filter((record) => record.accountId === accountId || sameAccountAddress(record.from, accountId))
+      .sort(descTime("finalizedAt")),
     deposits: deposits.filter((record) => record.accountId === accountId).sort(descTime("observedAt")),
     allocations: allocations.filter((record) => record.accountId === accountId).sort(descTime("createdAt")),
     claims: claims.filter((record) => record.accountId === accountId).sort(descTime("createdAt")),
@@ -701,9 +708,6 @@ export async function quoteGetVibByBudget(input: {
   if (input.config.getVibCurvePaused) throw badRequest("Get VIB curve is paused");
   const networkId = getNetworkId(input.config);
   const soldBefore = await completedGetVibAllocationTotal(input.store, networkId);
-  const accountPurchasedTotal = input.accountId
-    ? BigInt(toWholeVib(await cumulativeAllocationForAccount(input.store, networkId, input.accountId)))
-    : 0n;
   const curveQuote = input.vibAmount
     ? quoteBuyVib(soldBefore, BigInt(toWholeVib(input.vibAmount)), DEFAULT_CURVE_CONFIG)
     : quoteVibFromUsd(
@@ -711,13 +715,6 @@ export async function quoteGetVibByBudget(input: {
         input.budgetUsd ?? paymentUsdFromDot(input.dotAmount ?? "0", input.config),
         DEFAULT_CURVE_CONFIG,
       );
-  validatePurchase({
-    soldBefore,
-    vibAmount: curveQuote.vibAmount,
-    accountPurchasedTotal,
-    costUsd: curveQuote.costUsd,
-    config: DEFAULT_CURVE_CONFIG,
-  });
   const dotAmount = input.dotAmount ?? trimDecimal(curveQuote.costUsd / input.config.getVibDotUsdPrice);
   return quoteFromCurveQuote({
     networkId,
@@ -826,7 +823,7 @@ function hashHex(input: Buffer): string {
 }
 
 function hash(input: Buffer): Buffer {
-  return createHash("blake2b512", { outputLength: 32 }).update(input).digest();
+  return Buffer.from(blake2AsU8a(input, 256));
 }
 
 function toHex(buffer: Buffer): string {
@@ -893,6 +890,14 @@ function maxDecimalString(left: string, right: string): string {
   return BigInt(toBaseUnits(left)) >= BigInt(toBaseUnits(right)) ? left : right;
 }
 
+function sameAccountAddress(left: string, right: string): boolean {
+  try {
+    return Buffer.compare(Buffer.from(decodeAddress(left)), Buffer.from(decodeAddress(right))) === 0;
+  } catch {
+    return left === right;
+  }
+}
+
 function quoteFromCurveQuote(input: {
   networkId: string;
   dotAmount: string;
@@ -927,12 +932,6 @@ function quoteFromCurveQuote(input: {
 function paymentUsdFromDot(dotAmountRaw: string, config: CoordinatorConfig): number {
   const dotAmount = Number(dotAmountRaw);
   if (!Number.isFinite(dotAmount) || dotAmount <= 0) throw badRequest("DOT amount must be positive");
-  if (config.viblyConversionMinDot > 0 && dotAmount < config.viblyConversionMinDot) {
-    throw badRequest("DOT amount is below minimum", { minDot: config.viblyConversionMinDot });
-  }
-  if (config.viblyConversionMaxDot > 0 && dotAmount > config.viblyConversionMaxDot) {
-    throw badRequest("DOT amount exceeds maximum", { maxDot: config.viblyConversionMaxDot });
-  }
   return dotAmount * config.getVibDotUsdPrice;
 }
 
@@ -1022,7 +1021,7 @@ function canonicalJson(value: unknown): string {
   return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
 }
 
-function descTime<T extends { observedAt?: string; createdAt?: string }>(field: "observedAt" | "createdAt") {
+function descTime<T extends { observedAt?: string; createdAt?: string; finalizedAt?: string }>(field: "observedAt" | "createdAt" | "finalizedAt") {
   return (left: T, right: T) =>
     new Date(right[field] ?? 0).getTime() - new Date(left[field] ?? 0).getTime();
 }

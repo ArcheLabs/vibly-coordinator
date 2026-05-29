@@ -34,6 +34,37 @@ function configForRequest(config: CoordinatorConfig, request: FastifyRequest, bo
   return networkId ? { ...config, substrateChainId: networkId } : config;
 }
 
+const recordsSchema = {
+  type: "object" as const,
+  required: ["relayDeposits", "deposits", "allocations", "claims"],
+  properties: {
+    relayDeposits: {
+      type: "array" as const,
+      items: {
+        type: "object" as const,
+        additionalProperties: true,
+        properties: {
+          sourceId: { type: "string" as const },
+          from: { type: "string" as const },
+          to: { type: "string" as const },
+          dotAmount: { type: "string" as const },
+          paymentAmount: { type: "string" as const },
+          extrinsicHash: { type: "string" as const },
+          blockNumber: { type: "number" as const },
+          finalizedAt: { type: "string" as const },
+          status: { type: "string" as const },
+          failureReason: { type: "string" as const },
+          accountId: { type: "string" as const },
+        },
+      },
+    },
+    deposits: { type: "array" as const, items: { type: "object" as const, additionalProperties: true } },
+    allocations: { type: "array" as const, items: { type: "object" as const, additionalProperties: true } },
+    claims: { type: "array" as const, items: { type: "object" as const, additionalProperties: true } },
+  },
+  additionalProperties: true,
+};
+
 const getVibRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     "/get-vib/config",
@@ -227,7 +258,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Get VIB"],
         summary: "Get a user's Get VIB deposits, allocations, and claims",
         params: { type: "object", required: ["accountId"], properties: { accountId: { type: "string" } } },
-        response: { 200: envelopeKey("records") },
+        response: { 200: envelopeKey("records", recordsSchema) },
       }),
     },
     async (request) => ok({ records: await getRecords(fastify.coordinatorStore, configForRequest(fastify.config, request), request.params.accountId) }),

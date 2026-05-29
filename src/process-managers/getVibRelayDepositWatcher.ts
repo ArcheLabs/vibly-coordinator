@@ -6,6 +6,8 @@ import {
   buildRelayDepositSourceId,
   decimalFromBaseUnits,
   getRelayWatcherState,
+  ingestFinalizedDeposit,
+  markObservedRelayDepositFailed,
   saveObservedRelayDeposit,
   saveRelayWatcherState,
 } from "../modules/conversion/get-vib/domain.js";
@@ -159,9 +161,32 @@ async function scanBlock(input: {
       extrinsicHash: signedBlock.block.extrinsics[extrinsicIndex]?.hash?.toHex(),
       finalizedAt: new Date().toISOString(),
     });
+    if (result.created) await confirmObservedRelayDeposit(input, result.deposit);
     if (result.created) observed += 1;
   }
   return observed;
+}
+
+async function confirmObservedRelayDeposit(input: {
+  config: CoordinatorConfig;
+  store: CoordinatorStorePort;
+}, deposit: Awaited<ReturnType<typeof saveObservedRelayDeposit>>["deposit"]): Promise<void> {
+  try {
+    await ingestFinalizedDeposit({
+      store: input.store,
+      config: input.config,
+      observedDepositId: deposit.id,
+      accountId: deposit.from,
+      paymentId: deposit.extrinsicHash ?? deposit.sourceId,
+      finalizedAt: deposit.finalizedAt,
+    });
+  } catch (cause) {
+    await markObservedRelayDepositFailed(
+      input.store,
+      deposit,
+      cause instanceof Error ? cause.message : String(cause),
+    );
+  }
 }
 
 function applyExtrinsicIndex(phase: unknown): number | undefined {

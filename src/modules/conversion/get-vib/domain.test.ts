@@ -5,8 +5,11 @@ import {
   buildRelayDepositSourceId,
   decimalFromBaseUnits,
   getAllocationSummary,
+  getRecords,
   ingestFinalizedDeposit,
   listObservedRelayDeposits,
+  markObservedRelayDepositFailed,
+  quoteGetVibAmount,
   saveObservedRelayDeposit,
 } from "./domain.js";
 import {
@@ -188,6 +191,81 @@ describe("Get VIB relay deposits", () => {
       status: "confirmed",
       confirmedDepositId: result.deposit.id,
       allocationId: result.allocation.id,
+    });
+  });
+
+  it("quotes direct wallet transfers without per-transaction purchase caps", async () => {
+    const store = makeStore();
+    const config = loadConfig({
+      NODE_ENV: "test",
+      SUBSTRATE_CHAIN_ID: "local:get-vib-test",
+      VIBLY_DOT_RECEIVING_ADDRESS: "deposit",
+      VIBLY_GET_VIB_DOT_USD_PRICE: "10",
+    });
+
+    await expect(quoteGetVibAmount(store, config, "1500")).resolves.toMatchObject({
+      dotAmount: "1500",
+      paymentAmount: "1500",
+    });
+  });
+
+  it("exposes observed relay deposits in account records", async () => {
+    const store = makeStore();
+    const config = loadConfig({
+      NODE_ENV: "test",
+      SUBSTRATE_CHAIN_ID: "local:get-vib-test",
+      VIBLY_DOT_RECEIVING_ADDRESS: "deposit",
+      VIBLY_GET_VIB_RELAY_CHAIN_ID: "polkadot-dev",
+    });
+    const accountId = "0x1111111111111111111111111111111111111111111111111111111111111111";
+    await saveObservedRelayDeposit(store, {
+      relayChainId: "polkadot-dev",
+      sourceId: "polkadot-dev:0xabc:0:1",
+      from: accountId,
+      to: "deposit",
+      amountBaseUnits: "10000000000",
+      dotAmount: "1",
+      blockNumber: 1,
+      blockHash: "0xabc",
+      extrinsicIndex: 0,
+      eventIndex: 1,
+      extrinsicHash: "0xtx",
+      finalizedAt: "2026-05-24T00:00:00.000Z",
+    });
+
+    const records = await getRecords(store, config, accountId);
+    expect(records.relayDeposits).toHaveLength(1);
+    expect(records.relayDeposits[0]).toMatchObject({
+      sourceId: "polkadot-dev:0xabc:0:1",
+      from: accountId,
+      status: "observed",
+      extrinsicHash: "0xtx",
+    });
+  });
+
+  it("marks observed relay deposits failed with an account fallback", async () => {
+    const store = makeStore();
+    const accountId = "0x1111111111111111111111111111111111111111111111111111111111111111";
+    const observed = await saveObservedRelayDeposit(store, {
+      relayChainId: "polkadot-dev",
+      sourceId: "polkadot-dev:0xabc:0:1",
+      from: accountId,
+      to: "deposit",
+      amountBaseUnits: "10000000000",
+      dotAmount: "1",
+      blockNumber: 1,
+      blockHash: "0xabc",
+      extrinsicIndex: 0,
+      eventIndex: 1,
+      extrinsicHash: "0xtx",
+      finalizedAt: "2026-05-24T00:00:00.000Z",
+    });
+
+    const failed = await markObservedRelayDepositFailed(store, observed.deposit, "allocation failed");
+    expect(failed).toMatchObject({
+      status: "failed",
+      accountId,
+      failureReason: "allocation failed",
     });
   });
 });
