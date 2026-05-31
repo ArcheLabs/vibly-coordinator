@@ -184,8 +184,10 @@ describe("Get VIB relay deposits", () => {
 
     expect(result.deposit.sourceId).toBe(observed.deposit.sourceId);
     expect(result.deposit.paymentId).toBe("0xtx");
-    expect(result.allocation.vibAmount).toBe("1097");
-    expect(summary.purchasedAllocation).toBe("1097");
+    expect(Number(result.allocation.vibAmount)).toBeGreaterThanOrEqual(1097);
+    expect(Number(result.allocation.vibAmount)).toBeLessThan(1098);
+    expect(Number(summary.purchasedAllocation)).toBeGreaterThanOrEqual(1097);
+    expect(Number(summary.purchasedAllocation)).toBeLessThan(1098);
     expect(relayDeposits[0]).toMatchObject({
       id: observed.deposit.id,
       status: "confirmed",

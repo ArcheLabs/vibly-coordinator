@@ -14,6 +14,7 @@ import {
 import {
   DEFAULT_CURVE_CONFIG,
   PURCHASE_LIMITS,
+  VIB_SCALE,
   generateCurvePoints,
   getPurchasePhase,
   marketCapAtSold,
@@ -43,10 +44,9 @@ export interface GetVibConfig {
   claimEnabled: boolean;
   paused: boolean;
   depositAddress: string;
-  relayTokenSymbol: string;
+  relayTokenSymbol?: string;
   vibTokenSymbol: "VIB";
   saleRuleVersion: string;
-  dotUsdPrice: number;
   purchaseLimits: {
     minPurchaseUsd: number;
     maxPurchaseUsd: number;
@@ -63,16 +63,10 @@ export interface GetVibQuote {
   dotAmount: string;
   paymentAsset: "DOT";
   paymentAmount: string;
-  assetUsdPrice: number;
-  costUsd: number;
   vibAmount: string;
   vibAmountBaseUnits: string;
-  averagePriceUsd: number;
-  startPriceUsd: number;
-  endPriceUsd: number;
   soldBefore: string;
   soldAfter: string;
-  effectiveMarketCapUsd: number;
   depositAddress: string;
   dotReceivingAddress: string;
   saleRuleVersion: string;
@@ -151,12 +145,10 @@ export interface AllocationSummary {
 
 export interface CurveState {
   sold: string;
-  raisedUsd: number;
   curveAllocation: string;
   soldProgressPercent: number;
-  currentPriceUsd: number;
-  nextPriceUsd: number;
-  effectiveMarketCapUsd: number;
+  soldOut: boolean;
+  remainingAllocation: string;
   paused: boolean;
   phase: 1 | 2 | 3;
 }
@@ -247,10 +239,9 @@ export async function getGetVibConfig(_store: CoordinatorStorePort, config: Coor
     claimEnabled: true,
     paused: config.getVibCurvePaused,
     depositAddress: config.viblyDotReceivingAddress,
-    relayTokenSymbol: config.getVibRelayTokenSymbol,
+    relayTokenSymbol: config.getVibRelayTokenSymbol || undefined,
     vibTokenSymbol: "VIB",
     saleRuleVersion: "capped-launch-curve-v1",
-    dotUsdPrice: config.getVibDotUsdPrice,
     purchaseLimits: {
       minPurchaseUsd: PURCHASE_LIMITS.MIN_PURCHASE_USD,
       maxPurchaseUsd: PURCHASE_LIMITS.MAX_PURCHASE_USD,
@@ -266,25 +257,26 @@ export async function quoteGetVibAmount(store: CoordinatorStorePort, config: Coo
   if (config.getVibCurvePaused) throw badRequest("Get VIB curve is paused");
   const networkId = getNetworkId(config);
   const soldBefore = await completedGetVibAllocationTotal(store, networkId);
+  if (soldBefore >= DEFAULT_CURVE_CONFIG.curveAllocation) throw badRequest("VIB curve is fully sold out");
   const budgetUsd = paymentUsdFromDot(dotAmount, config);
+  const remaining = DEFAULT_CURVE_CONFIG.curveAllocation - soldBefore;
+  const maxQuote = quoteBuyVib(soldBefore, remaining, DEFAULT_CURVE_CONFIG);
+  if (budgetUsd > maxQuote.costUsd + 0.001) {
+    throw badRequest(`DOT amount exceeds remaining VIB. Only ${String(remaining)} VIB available`, { code: "VIB_INSUFFICIENT", remainingVib: String(remaining) });
+  }
   const curveQuote = quoteVibFromUsd(soldBefore, budgetUsd, DEFAULT_CURVE_CONFIG);
-  const vibAmount = String(curveQuote.vibAmount);
+  const vibAmountBaseUnits = String(curveQuote.vibAmount);
+  const vibAmount = fromBaseUnits(curveQuote.vibAmount);
   return {
     networkId,
     inputAmount: dotAmount,
     dotAmount,
     paymentAsset: "DOT",
     paymentAmount: dotAmount,
-    assetUsdPrice: config.getVibDotUsdPrice,
-    costUsd: roundUsd(curveQuote.costUsd),
     vibAmount,
-    vibAmountBaseUnits: toBaseUnits(vibAmount),
-    averagePriceUsd: curveQuote.averagePriceUsd,
-    startPriceUsd: curveQuote.startPriceUsd,
-    endPriceUsd: curveQuote.endPriceUsd,
+    vibAmountBaseUnits,
     soldBefore: String(curveQuote.soldBefore),
     soldAfter: String(curveQuote.soldAfter),
-    effectiveMarketCapUsd: marketCapAtSold(curveQuote.soldAfter, DEFAULT_CURVE_CONFIG),
     depositAddress: config.viblyDotReceivingAddress,
     dotReceivingAddress: config.viblyDotReceivingAddress,
     saleRuleVersion: "capped-launch-curve-v1",
@@ -295,9 +287,10 @@ export async function quoteGetVibAmount(store: CoordinatorStorePort, config: Coo
 
 export async function completedGetVibAllocationTotal(store: CoordinatorStorePort, networkId: string): Promise<bigint> {
   const allocations = await listNetworkAllocations(store, networkId);
-  return allocations
+  const totalBaseUnits = allocations
     .filter((allocation) => allocation.status === "confirmed" || allocation.status === "root_included")
-    .reduce((sum, allocation) => sum + BigInt(toWholeVib(allocation.vibAmount)), 0n);
+    .reduce((sum, allocation) => sum + BigInt(toBaseUnits(allocation.vibAmount)), 0n);
+  return totalBaseUnits / VIB_SCALE;
 }
 
 export async function createGetVibOrder(input: {
@@ -325,11 +318,6 @@ export async function createGetVibOrder(input: {
     quotedVibAmount: quote.vibAmount,
     paymentAsset: "DOT",
     paymentAmount: input.dotAmount,
-    costUsd: quote.costUsd,
-    assetUsdPrice: quote.assetUsdPrice,
-    averagePriceUsd: quote.averagePriceUsd,
-    startPriceUsd: quote.startPriceUsd,
-    endPriceUsd: quote.endPriceUsd,
     soldBefore: quote.soldBefore,
     soldAfter: quote.soldAfter,
     requiresAdminReview: quote.requiresAdminReview,
@@ -408,7 +396,7 @@ export async function ingestFinalizedDeposit(input: {
     const soldBefore = await completedGetVibAllocationTotal(input.store, networkId);
     const costUsd = paymentUsdFromDot(dotAmount, input.config);
     const curveQuote = quoteVibFromUsd(soldBefore, costUsd, DEFAULT_CURVE_CONFIG);
-    const vibAmount = String(curveQuote.vibAmount);
+    const vibAmount = fromBaseUnits(curveQuote.vibAmount);
     const deposit: DepositRecord = {
       id: makeId("deposit"),
       networkId,
@@ -708,6 +696,7 @@ export async function quoteGetVibByBudget(input: {
   if (input.config.getVibCurvePaused) throw badRequest("Get VIB curve is paused");
   const networkId = getNetworkId(input.config);
   const soldBefore = await completedGetVibAllocationTotal(input.store, networkId);
+  if (soldBefore >= DEFAULT_CURVE_CONFIG.curveAllocation) throw badRequest("VIB curve is fully sold out");
   const curveQuote = input.vibAmount
     ? quoteBuyVib(soldBefore, BigInt(toWholeVib(input.vibAmount)), DEFAULT_CURVE_CONFIG)
     : quoteVibFromUsd(
@@ -746,16 +735,13 @@ export async function submitGetVibPayment(input: {
 
 export async function getCurveState(store: CoordinatorStorePort, config: CoordinatorConfig): Promise<CurveState> {
   const sold = await completedGetVibAllocationTotal(store, getNetworkId(config));
-  const nextSold = sold < DEFAULT_CURVE_CONFIG.curveAllocation ? sold + 1n : sold;
-  const raisedUsd = await completedGetVibRaiseUsd(store, getNetworkId(config));
+  const remaining = sold >= DEFAULT_CURVE_CONFIG.curveAllocation ? 0n : DEFAULT_CURVE_CONFIG.curveAllocation - sold;
   return {
     sold: String(sold),
-    raisedUsd: roundUsd(raisedUsd),
     curveAllocation: String(DEFAULT_CURVE_CONFIG.curveAllocation),
     soldProgressPercent: Number(sold * 10_000n / DEFAULT_CURVE_CONFIG.curveAllocation) / 100,
-    currentPriceUsd: priceAtSold(sold, DEFAULT_CURVE_CONFIG),
-    nextPriceUsd: priceAtSold(nextSold, DEFAULT_CURVE_CONFIG),
-    effectiveMarketCapUsd: marketCapAtSold(sold, DEFAULT_CURVE_CONFIG),
+    soldOut: sold >= DEFAULT_CURVE_CONFIG.curveAllocation,
+    remainingAllocation: String(remaining),
     paused: config.getVibCurvePaused,
     phase: getPurchasePhase(sold),
   };
@@ -904,23 +890,18 @@ function quoteFromCurveQuote(input: {
   config: CoordinatorConfig;
   curveQuote: QuoteResult;
 }): GetVibQuote {
-  const vibAmount = String(input.curveQuote.vibAmount);
+  const vibAmountBaseUnits = String(input.curveQuote.vibAmount);
+  const vibAmount = fromBaseUnits(input.curveQuote.vibAmount);
   return {
     networkId: input.networkId,
     inputAmount: input.dotAmount,
     dotAmount: input.dotAmount,
     paymentAsset: "DOT",
     paymentAmount: input.dotAmount,
-    assetUsdPrice: input.config.getVibDotUsdPrice,
-    costUsd: roundUsd(input.curveQuote.costUsd),
     vibAmount,
-    vibAmountBaseUnits: toBaseUnits(vibAmount),
-    averagePriceUsd: input.curveQuote.averagePriceUsd,
-    startPriceUsd: input.curveQuote.startPriceUsd,
-    endPriceUsd: input.curveQuote.endPriceUsd,
+    vibAmountBaseUnits,
     soldBefore: String(input.curveQuote.soldBefore),
     soldAfter: String(input.curveQuote.soldAfter),
-    effectiveMarketCapUsd: marketCapAtSold(input.curveQuote.soldAfter, DEFAULT_CURVE_CONFIG),
     depositAddress: input.config.viblyDotReceivingAddress,
     dotReceivingAddress: input.config.viblyDotReceivingAddress,
     saleRuleVersion: "capped-launch-curve-v1",

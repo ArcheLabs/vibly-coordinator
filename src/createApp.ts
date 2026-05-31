@@ -207,6 +207,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   const stopGetVibRelayDepositWatcher = startGetVibRelayDepositWatcher({
     config,
     store: coordinatorStore,
+    eventBus,
   });
 
   // ─── v0.2 projectors ──────────────────────────────────────────────────────

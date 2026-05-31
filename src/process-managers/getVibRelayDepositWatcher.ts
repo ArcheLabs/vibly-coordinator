@@ -1,10 +1,13 @@
 import { ApiPromise, WsProvider } from "@polkadot/api";
 import { decodeAddress } from "@polkadot/util-crypto";
+import { createEvent } from "@concord/foundation";
 import type { CoordinatorConfig } from "../config/env.js";
 import type { CoordinatorStorePort } from "../db/coordinatorStorePort.js";
+import type { EventBus } from "../services/eventBus.js";
 import {
   buildRelayDepositSourceId,
   decimalFromBaseUnits,
+  getNetworkId,
   getRelayWatcherState,
   ingestFinalizedDeposit,
   markObservedRelayDepositFailed,
@@ -38,6 +41,7 @@ const LEASE_KIND = "get-vib-relay-deposit-watcher";
 export function startGetVibRelayDepositWatcher(input: {
   config: CoordinatorConfig;
   store: CoordinatorStorePort;
+  eventBus?: EventBus;
 }): () => void {
   if (
     !input.config.getVibRelayRpcUrl ||
@@ -89,6 +93,7 @@ async function scanRelayDeposits(input: {
   config: CoordinatorConfig;
   store: CoordinatorStorePort;
   api: ApiPromise;
+  eventBus?: EventBus;
 }): Promise<void> {
   const finalizedHash = await input.api.rpc.chain.getFinalizedHead();
   const finalizedHeader = await input.api.rpc.chain.getHeader(finalizedHash);
@@ -125,6 +130,7 @@ async function scanBlock(input: {
   config: CoordinatorConfig;
   store: CoordinatorStorePort;
   api: ApiPromise;
+  eventBus?: EventBus;
 }, blockNumber: number): Promise<number> {
   const hash = await input.api.rpc.chain.getBlockHash(blockNumber);
   const blockHash = hash.toHex();
@@ -161,8 +167,16 @@ async function scanBlock(input: {
       extrinsicHash: signedBlock.block.extrinsics[extrinsicIndex]?.hash?.toHex(),
       finalizedAt: new Date().toISOString(),
     });
-    if (result.created) await confirmObservedRelayDeposit(input, result.deposit);
-    if (result.created) observed += 1;
+    if (result.created) {
+      const confirmed = await confirmObservedRelayDeposit(input, result.deposit);
+      if (confirmed) {
+        input.eventBus?.publish(createEvent({
+          type: "GetVibCurveUpdated",
+          payload: { networkId: getNetworkId(input.config), depositId: result.deposit.id },
+        }));
+      }
+      observed += 1;
+    }
   }
   return observed;
 }
@@ -170,7 +184,8 @@ async function scanBlock(input: {
 async function confirmObservedRelayDeposit(input: {
   config: CoordinatorConfig;
   store: CoordinatorStorePort;
-}, deposit: Awaited<ReturnType<typeof saveObservedRelayDeposit>>["deposit"]): Promise<void> {
+  eventBus?: EventBus;
+}, deposit: Awaited<ReturnType<typeof saveObservedRelayDeposit>>["deposit"]): Promise<boolean> {
   try {
     await ingestFinalizedDeposit({
       store: input.store,
@@ -180,12 +195,14 @@ async function confirmObservedRelayDeposit(input: {
       paymentId: deposit.extrinsicHash ?? deposit.sourceId,
       finalizedAt: deposit.finalizedAt,
     });
+    return true;
   } catch (cause) {
     await markObservedRelayDepositFailed(
       input.store,
       deposit,
       cause instanceof Error ? cause.message : String(cause),
     );
+    return false;
   }
 }
 

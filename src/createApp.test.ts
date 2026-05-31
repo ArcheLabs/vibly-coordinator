@@ -242,7 +242,9 @@ describe("createApp governance runtime config", () => {
     });
     expect(finalizeRes.statusCode).toBe(200);
     const finalizeBody = finalizeRes.json<{ data: { result: { allocation: { vibAmount: string } } } }>();
-    expect(finalizeBody.data.result.allocation.vibAmount).toBe("1097");
+    expect(finalizeBody.data.result.allocation.vibAmount).toMatch(/^1097\./);
+    expect(Number(finalizeBody.data.result.allocation.vibAmount)).toBeGreaterThanOrEqual(1097);
+    expect(Number(finalizeBody.data.result.allocation.vibAmount)).toBeLessThan(1098);
 
     await app.close();
   });

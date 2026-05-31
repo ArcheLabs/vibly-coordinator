@@ -41,6 +41,9 @@ export const DEFAULT_CURVE_CONFIG: CurveConfig = {
   segments: 1000,
 };
 
+/** 1 VIB = 10^12 base units (12 decimal places, matches on-chain UNIT_DECIMALS) */
+export const VIB_SCALE = 10n ** 12n;
+
 export const PURCHASE_LIMITS = {
   MIN_PURCHASE_USD: 10,
   MAX_PURCHASE_USD: 10_000,
@@ -103,7 +106,7 @@ export function quoteBuyVib(
   }
 
   return {
-    vibAmount,
+    vibAmount: vibAmount * VIB_SCALE,
     costUsd,
     averagePriceUsd: costUsd / Number(vibAmount),
     startPriceUsd: priceAtSold(soldBefore, config),
@@ -119,28 +122,60 @@ export function quoteVibFromUsd(
   config: CurveConfig = DEFAULT_CURVE_CONFIG,
 ): QuoteResult {
   assertSoldInRange(soldBefore, config);
+  if (soldBefore >= config.curveAllocation) throw badRequest("VIB curve allocation is fully sold out");
   if (!Number.isFinite(budgetUsd) || budgetUsd <= 0) throw badRequest("USD budget must be positive");
+
+  // Phase 1: binary search over whole VIBs
   let low = 0n;
   let high = config.curveAllocation - soldBefore;
-  let best = 0n;
-
+  let bestWholeVibs = 0n;
   while (low <= high) {
     const mid = (low + high) / 2n;
     if (mid === 0n) {
       low = 1n;
       continue;
     }
-    const quote = quoteBuyVib(soldBefore, mid, config);
-    if (quote.costUsd <= budgetUsd) {
-      best = mid;
+    if (quoteBuyVib(soldBefore, mid, config).costUsd <= budgetUsd) {
+      bestWholeVibs = mid;
       low = mid + 1n;
     } else {
       high = mid - 1n;
     }
   }
 
-  if (best <= 0n) throw badRequest("USD budget is too small for 1 VIB");
-  return quoteBuyVib(soldBefore, best, config);
+  // Phase 2: binary search over fractional base units within remaining budget
+  const wholeCostUsd = bestWholeVibs > 0n ? quoteBuyVib(soldBefore, bestWholeVibs, config).costUsd : 0;
+  let bestFrac = 0n;
+  if (soldBefore + bestWholeVibs < config.curveAllocation) {
+    const pricePerWholeVib = linearPriceAt(soldBefore + bestWholeVibs, config);
+    let fLow = 1n;
+    let fHigh = VIB_SCALE - 1n;
+    while (fLow <= fHigh) {
+      const fMid = (fLow + fHigh) / 2n;
+      if (wholeCostUsd + (Number(fMid) / Number(VIB_SCALE)) * pricePerWholeVib <= budgetUsd) {
+        bestFrac = fMid;
+        fLow = fMid + 1n;
+      } else {
+        fHigh = fMid - 1n;
+      }
+    }
+  }
+
+  const totalBaseUnits = bestWholeVibs * VIB_SCALE + bestFrac;
+  if (totalBaseUnits <= 0n) throw badRequest("USD budget is too small for 1 VIB");
+
+  const fracCostUsd = (Number(bestFrac) / Number(VIB_SCALE)) * linearPriceAt(soldBefore + bestWholeVibs, config);
+  const totalCostUsd = wholeCostUsd + fracCostUsd;
+  const totalVib = Number(bestWholeVibs) + Number(bestFrac) / Number(VIB_SCALE);
+  return {
+    vibAmount: totalBaseUnits,
+    costUsd: totalCostUsd,
+    averagePriceUsd: totalCostUsd / totalVib,
+    startPriceUsd: priceAtSold(soldBefore, config),
+    endPriceUsd: linearPriceAt(soldBefore + bestWholeVibs, config),
+    soldBefore,
+    soldAfter: soldBefore + bestWholeVibs,
+  };
 }
 
 export function getPurchasePhase(sold: bigint): 1 | 2 | 3 {
