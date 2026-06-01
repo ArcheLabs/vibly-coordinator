@@ -5,7 +5,7 @@ import type { CoordinatorConfig } from "../config/env.js";
 import { unauthorized } from "../domain/errors.js";
 import { getRouteAuthPolicy } from "./authPolicy.js";
 
-const PUBLIC_PATHS = new Set(["/health", "/ready", "/metrics", "/docs", "/openapi.json", "/documentation"]);
+const PUBLIC_PATHS = new Set(["/health", "/ready", "/metrics", "/docs", "/openapi.json", "/documentation", "/version-policy"]);
 
 function isPublicPath(path: string): boolean {
   if (PUBLIC_PATHS.has(path)) return true;

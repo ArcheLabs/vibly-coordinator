@@ -148,6 +148,17 @@ const envSchema = z
     AGENT_RECONNECT_MAX_DELAY_MS: z.coerce.number().default(30000),
     // Debounce window to avoid connect/disconnect flapping (ms).
     AGENT_CONNECTION_DEBOUNCE_MS: z.coerce.number().default(5000),
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Client version policy / upgrade gates
+    // ─────────────────────────────────────────────────────────────────────────
+    CLIENT_VERSION_ENFORCEMENT: z.string().transform((v) => v === "true").default("false"),
+    MINIMUM_CLIENT_VERSION: z.string().default("0.1.0"),
+    RECOMMENDED_CLIENT_VERSION: z.string().default("0.1.0"),
+    MINIMUM_CONTRACT_VERSION: z.string().default("0.1.0"),
+    UPGRADE_DEADLINE: z.string().optional(),
+    UPGRADE_INSTRUCTIONS_URL: z.string().default("https://docs.vibly.dev/agent/upgrade"),
+    PROTOCOL_VERSION: z.string().default("2026-06-01"),
   })
   .superRefine((val, ctx) => {
     if (val.NODE_ENV !== "production") return;
@@ -211,6 +222,14 @@ const envSchema = z
         code: z.ZodIssueCode.custom,
         message: "production forbids ENABLE_DEV_ROUTES=true",
         path: ["ENABLE_DEV_ROUTES"],
+      });
+    }
+
+    if (!val.CLIENT_VERSION_ENFORCEMENT) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "production requires CLIENT_VERSION_ENFORCEMENT=true",
+        path: ["CLIENT_VERSION_ENFORCEMENT"],
       });
     }
   });
@@ -289,6 +308,15 @@ export interface CoordinatorConfig {
   agentReconnectMaxDelayMs: number;
   agentConnectionDebounceMs: number;
 
+  // ─── Client version policy / upgrade gates ───────────────────────────────
+  clientVersionEnforcement: boolean;
+  minimumClientVersion: string;
+  recommendedClientVersion: string;
+  minimumContractVersion: string;
+  upgradeDeadline?: string;
+  upgradeInstructionsUrl: string;
+  protocolVersion: string;
+
   // ─── Chain authority resolver ─────────────────────────────────────────────
   chainAuthorityMode: "rpc" | "disabled";
   chainAuthorityRpcUrl: string;
@@ -360,6 +388,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     agentReconnectBaseDelayMs: parsed.AGENT_RECONNECT_BASE_DELAY_MS,
     agentReconnectMaxDelayMs: parsed.AGENT_RECONNECT_MAX_DELAY_MS,
     agentConnectionDebounceMs: parsed.AGENT_CONNECTION_DEBOUNCE_MS,
+    clientVersionEnforcement: parsed.CLIENT_VERSION_ENFORCEMENT,
+    minimumClientVersion: parsed.MINIMUM_CLIENT_VERSION,
+    recommendedClientVersion: parsed.RECOMMENDED_CLIENT_VERSION,
+    minimumContractVersion: parsed.MINIMUM_CONTRACT_VERSION,
+    upgradeDeadline: parsed.UPGRADE_DEADLINE?.trim() || undefined,
+    upgradeInstructionsUrl: parsed.UPGRADE_INSTRUCTIONS_URL,
+    protocolVersion: parsed.PROTOCOL_VERSION,
     chainAuthorityMode: parsed.CHAIN_AUTHORITY_MODE,
     chainAuthorityRpcUrl: parsed.CHAIN_AUTHORITY_RPC_URL.trim() || parsed.SUBSTRATE_RPC_URL,
     chainAuthorityChainId: parsed.CHAIN_AUTHORITY_CHAIN_ID,

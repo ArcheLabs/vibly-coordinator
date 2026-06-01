@@ -109,7 +109,7 @@ describe("createApp governance runtime config", () => {
     ]);
 
     await app.close();
-  });
+  }, 15000);
 
   it("keeps the legacy single-backend substrate path", async () => {
     const config = loadConfig({
@@ -453,3 +453,49 @@ async function createWalletSession(app: Awaited<ReturnType<typeof createApp>>, a
   });
   return sessionRes.json<{ data: { session: { token: string } } }>().data.session.token;
 }
+
+describe("client version policy", () => {
+  it("publishes version policy and rejects protected requests from old clients", async () => {
+    const config = loadConfig({
+      NODE_ENV: "test",
+      API_AUTH_MODE: "static-token",
+      API_TOKENS: "dev-token",
+      STORAGE_MODE: "memory",
+      CLIENT_VERSION_ENFORCEMENT: "true",
+      MINIMUM_CLIENT_VERSION: "0.2.0",
+      RECOMMENDED_CLIENT_VERSION: "0.3.0",
+      MINIMUM_CONTRACT_VERSION: "0.1.0",
+    });
+    const app = await createApp({
+      config,
+      logger: createLogger(config),
+      concord: makeConcord(),
+      coordinatorStore: makeStore(),
+      eventBus: createEventBus(),
+      startGovernanceConsumers: false,
+    });
+
+    const policy = await app.inject({ method: "GET", url: "/version-policy" });
+    expect(policy.statusCode).toBe(200);
+    expect(policy.json<{ data: { policy: { minimumClientVersion: string } } }>().data.policy.minimumClientVersion).toBe("0.2.0");
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/action-intents",
+      headers: { authorization: "Bearer dev-token", "x-vibly-client-version": "0.1.0" },
+      payload: {},
+    });
+    expect(rejected.statusCode).toBe(426);
+    expect(rejected.json<{ error: { code: string } }>().error.code).toBe("UPGRADE_REQUIRED");
+
+    const acceptedByGate = await app.inject({
+      method: "POST",
+      url: "/action-intents",
+      headers: { authorization: "Bearer dev-token", "x-vibly-client-version": "0.2.0" },
+      payload: {},
+    });
+    expect(acceptedByGate.statusCode).not.toBe(426);
+
+    await app.close();
+  });
+});

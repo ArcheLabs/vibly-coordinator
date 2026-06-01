@@ -11,6 +11,7 @@ export const ERROR_CODES = {
   KNOWLEDGE_HASH_MISMATCH: "KNOWLEDGE_HASH_MISMATCH",
   LEASE_EXPIRED: "LEASE_EXPIRED",
   INTERNAL_ERROR: "INTERNAL_ERROR",
+  UPGRADE_REQUIRED: "UPGRADE_REQUIRED",
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_CODES;
@@ -45,4 +46,8 @@ export function forbidden(message: string): CoordinatorError {
 
 export function unauthorized(message: string = "Unauthorized"): CoordinatorError {
   return new CoordinatorError("UNAUTHORIZED", message, 401);
+}
+
+export function upgradeRequired(message: string, details?: unknown): CoordinatorError {
+  return new CoordinatorError("UPGRADE_REQUIRED", message, 426, details);
 }

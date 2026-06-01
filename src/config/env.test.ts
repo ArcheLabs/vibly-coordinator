@@ -68,6 +68,7 @@ describe("loadConfig", () => {
     OIDC_AUDIENCE: "coordinator-api",
     OIDC_JWKS_URL: "https://idp.example/.well-known/jwks.json",
     ENABLE_DEV_ROUTES: "false",
+    CLIENT_VERSION_ENFORCEMENT: "true",
   };
 
   it("accepts a minimal valid production configuration", () => {

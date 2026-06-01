@@ -11,12 +11,14 @@ import type { EventBus } from "./services/eventBus.js";
 import errorHandlerPlugin from "./plugins/error-handler.js";
 import authPlugin from "./plugins/auth.js";
 import authorizationPlugin from "./plugins/authorization.js";
+import versionPolicyPlugin from "./plugins/version-policy.js";
 import corsPlugin from "./plugins/cors.js";
 import swaggerPlugin from "./plugins/swagger.js";
 import ssePlugin from "./plugins/sse.js";
 
 // Domain module route imports (see modules/<domain>/… layout in AGENTS.md)
 import healthRoutes from "./modules/platform/health/routes.js";
+import versionPolicyRoutes from "./modules/platform/version-policy/routes.js";
 import metricsRoutes from "./modules/platform/metrics/routes.js";
 import eventsRoutes from "./modules/platform/events/routes.js";
 import streamsRoutes from "./modules/platform/streams/routes.js";
@@ -227,6 +229,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(corsPlugin, { config });
   await fastify.register(swaggerPlugin, { config });
   await fastify.register(authPlugin, { config });
+  await fastify.register(versionPolicyPlugin, { config });
   await fastify.register(authorizationPlugin, { config });
   await fastify.register(ssePlugin, { heartbeatMs: config.sseHeartbeatMs });
   fastify.addHook("onClose", async () => {
@@ -238,6 +241,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   });
 
   await fastify.register(healthRoutes, { config, readinessProbe });
+  await fastify.register(versionPolicyRoutes, { config });
   await fastify.register(metricsRoutes);
   await fastify.register(eventsRoutes);
   await fastify.register(streamsRoutes);

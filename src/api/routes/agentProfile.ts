@@ -226,6 +226,59 @@ const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
       });
     },
   );
+
+  fastify.post<{
+    Params: { id: string };
+    Body: {
+      clientVersion?: string;
+      daemonVersion?: string;
+      contractVersion?: string;
+      protocolVersion?: string;
+      availability?: string;
+      upgradePhase?: string;
+      metadata?: Record<string, unknown>;
+    };
+  }>(
+    "/agents/:id/heartbeat",
+    {
+      ...authPolicy("wallet-session", {
+        tags: ["Agents"],
+        summary: "Record an agent daemon heartbeat",
+        params: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
+        body: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            clientVersion: { type: "string" },
+            daemonVersion: { type: "string" },
+            contractVersion: { type: "string" },
+            protocolVersion: { type: "string" },
+            availability: { type: "string" },
+            upgradePhase: { type: "string" },
+            metadata: { type: "object", additionalProperties: true },
+          },
+        },
+        response: { 200: envelopeKey("heartbeat", ITEM_SCHEMA) },
+      }),
+    },
+    async (req) => {
+      const now = new Date().toISOString();
+      const heartbeat = {
+        agentId: req.params.id,
+        lastSeenAt: now,
+        clientVersion: req.body?.clientVersion,
+        daemonVersion: req.body?.daemonVersion,
+        contractVersion: req.body?.contractVersion,
+        protocolVersion: req.body?.protocolVersion,
+        availability: req.body?.availability ?? "unknown",
+        upgradePhase: req.body?.upgradePhase,
+        metadata: req.body?.metadata ?? {},
+      };
+      await fastify.coordinatorStore.saveProjection("agent_heartbeat_v1", req.params.id, heartbeat);
+      return ok({ heartbeat });
+    },
+  );
+
 };
 
 export default agentProfileRoutes;
