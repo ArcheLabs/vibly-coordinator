@@ -10,13 +10,13 @@ import { GovernanceProjectorService } from "../../services/governanceProjector.j
 import { GovernanceIndexConsumer } from "../../services/governanceIndexConsumer.js";
 import { GovernanceBackendRegistry } from "../../services/governanceBackendRegistry.js";
 import governanceRoutes from "./routes.js";
-import type { NormalizedChainEvent } from "@concord/core";
+import type { NormalizedChainEvent } from "@vibly-ai/concord-core";
 import type {
   GovernanceCheckpointView,
   GovernanceEventType,
   GovernanceProposalSummary,
   GovernanceIndexFeedPort,
-} from "@concord/governance";
+} from "@vibly-ai/concord-governance";
 
 const CHAIN = { namespace: "substrate", chainId: "vibly-solo" } as const;
 const EVM_CHAIN = { namespace: "eip155", chainId: "31337" } as const;

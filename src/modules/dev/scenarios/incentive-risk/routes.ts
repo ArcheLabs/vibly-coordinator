@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { createEvent, makeId } from "@concord/foundation";
+import { createEvent, makeId } from "@vibly-ai/concord-foundation";
 import { ok, okList } from "../../../../domain/apiTypes.js";
 import { envelopeKey, errorEnvelope, listEnvelope } from "../../../../domain/schemas.js";
 import { GUARDIAN_REQUEST, PROJECT_TIMELINE_ENTRY, REPUTATION_EVIDENCE, REWARD_INTENT, SCENARIO_RUN, SLASH_REQUEST } from "../../../../db/projectionKinds.js";

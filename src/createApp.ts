@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import type { CoordinatorConfig } from "./config/env.js";
 import type { Logger } from "./config/logger.js";
 import type { Concord } from "@concord/sdk";
-import type { EventEnvelope } from "@concord/foundation";
+import type { EventEnvelope } from "@vibly-ai/concord-foundation";
 import type { CoordinatorStorePort } from "./db/coordinatorStorePort.js";
 import type { EventBus } from "./services/eventBus.js";
 
@@ -296,8 +296,8 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   }
 
   if (isGovernanceBackendEnabled(config, "substrate-local", Boolean(config.substrateIndexerUrl)) && config.substrateIndexerUrl) {
-    const { SubQueryGovernanceIndexAdapter } = await import("@concord/adapter-substrate-indexer");
-    const { defaultSubstrateCapabilities } = await import("@concord/governance");
+    const { SubQueryGovernanceIndexAdapter } = await import("@vibly-ai/concord-adapter-substrate-indexer");
+    const { defaultSubstrateCapabilities } = await import("@vibly-ai/concord-governance");
     const indexerAdapter = new SubQueryGovernanceIndexAdapter(config.substrateIndexerUrl);
     const projector = new GovernanceProjectorService();
     const consumer = new GovernanceIndexConsumer({
@@ -333,7 +333,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
 
   if (isGovernanceBackendEnabled(config, "evm-fixture", config.evmGovernorFixture)) {
     const { EvmFixtureGovernanceIndexAdapter } = await import("@concord/adapter-evm-indexer");
-    const { defaultEvmCapabilities } = await import("@concord/governance");
+    const { defaultEvmCapabilities } = await import("@vibly-ai/concord-governance");
     const evmChain = { namespace: "eip155" as const, chainId: config.evmChainId };
     const evmAdapter = new EvmFixtureGovernanceIndexAdapter();
     const projector = new GovernanceProjectorService();

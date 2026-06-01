@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { GovernanceVoteStance } from "@concord/governance";
+import type { GovernanceVoteStance } from "@vibly-ai/concord-governance";
 import { forbidden, notFound } from "../../../domain/errors.js";
 import { GovernanceProjectionRepository } from "../shared/repository.js";
 import { createSubstrateGovernanceActionsAdapter } from "../shared/substrateAdapter.js";
@@ -62,7 +62,7 @@ export async function castSubjectVoteOpenGov(
   };
   await repo.saveTxReceipt(id, receipt);
 
-  const { createEvent } = await import("@concord/foundation");
+  const { createEvent } = await import("@vibly-ai/concord-foundation");
   const evt = createEvent({
     type: "GovernanceVoteSubmittedOpenGov",
     payload: { subjectId: subject.id, receipt },

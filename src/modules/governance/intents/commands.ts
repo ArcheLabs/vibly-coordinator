@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import type { ChainRef, TxReceipt } from "@concord/core";
-import type { GovernanceIntentChainLink } from "@concord/governance";
+import type { ChainRef, TxReceipt } from "@vibly-ai/concord-core";
+import type { GovernanceIntentChainLink } from "@vibly-ai/concord-governance";
 import { notFound } from "../../../domain/errors.js";
 import { GovernanceProjectionRepository } from "../shared/repository.js";
 import { createSubstrateGovernanceActionsAdapter } from "../shared/substrateAdapter.js";
@@ -45,7 +45,7 @@ export async function createIntent(
   repo: GovernanceProjectionRepository,
   input: CreateIntentInput,
 ) {
-  const { createEvent, makeId } = await import("@concord/foundation");
+  const { createEvent, makeId } = await import("@vibly-ai/concord-foundation");
   const now = new Date().toISOString();
   const intent = {
     id: makeId("GovernanceIntentId"),
@@ -198,7 +198,7 @@ export async function submitIntentOpenGov(
     tx,
   });
 
-  const { createEvent } = await import("@concord/foundation");
+  const { createEvent } = await import("@vibly-ai/concord-foundation");
   const evt = createEvent({
     type: "GovernanceSubmittedOpenGov",
     payload: { governanceIntentId: intent.id, receipt, link },
@@ -233,7 +233,7 @@ export async function submitIntentMock(
   const updated = { ...intent, status: "submitted", mockResult: result, updatedAt: new Date().toISOString() };
   await repo.saveIntent(intent.id, updated);
 
-  const { createEvent } = await import("@concord/foundation");
+  const { createEvent } = await import("@vibly-ai/concord-foundation");
   const evt = createEvent({
     type: "GovernanceSubmittedMock",
     payload: { governanceIntentId: intent.id, result },

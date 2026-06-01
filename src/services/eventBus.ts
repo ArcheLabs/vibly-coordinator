@@ -1,5 +1,5 @@
 import EventEmitter from "node:events";
-import type { EventEnvelope } from "@concord/foundation";
+import type { EventEnvelope } from "@vibly-ai/concord-foundation";
 import type { Logger } from "../config/logger.js";
 import type postgres from "postgres";
 

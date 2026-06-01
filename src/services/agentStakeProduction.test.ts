@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createServer, type Server } from "node:http";
-import { createEvent } from "@concord/foundation";
+import { createEvent } from "@vibly-ai/concord-foundation";
 import { ActionIntentDispatcher } from "../application/actionIntentDispatcher.js";
 import { loadConfig } from "../config/env.js";
 import type { AgentProfile } from "../contexts/identity/types.js";

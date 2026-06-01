@@ -9,7 +9,7 @@
  * (useful in test environments or when driven by external triggers).
  */
 
-import { createEvent, makeId } from "@concord/foundation";
+import { createEvent, makeId } from "@vibly-ai/concord-foundation";
 import type { CoordinatorConfig } from "../config/env.js";
 import type { CoordinatorStorePort } from "../db/coordinatorStorePort.js";
 import type { EventBus } from "../services/eventBus.js";

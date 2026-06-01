@@ -73,7 +73,7 @@ const assignmentsRoutes: FastifyPluginAsync = async (fastify) => {
 
       await fastify.coordinatorStore.saveProjection("assignment", assignment.id, assignment);
 
-      const { createEvent } = await import("@concord/foundation");
+      const { createEvent } = await import("@vibly-ai/concord-foundation");
       const evt = createEvent({ type: "RoleAssigned", payload: assignment });
       await fastify.concord.state.events.append(evt);
       fastify.eventBus.publish(evt);
@@ -142,7 +142,7 @@ const assignmentsRoutes: FastifyPluginAsync = async (fastify) => {
       assignment.leaseId = lease.id;
       await fastify.coordinatorStore.saveProjection("assignment", assignment.id, assignment);
 
-      const { createEvent } = await import("@concord/foundation");
+      const { createEvent } = await import("@vibly-ai/concord-foundation");
       const evt = createEvent({ type: "RoleAssigned", payload: assignment });
       await fastify.concord.state.events.append(evt);
       fastify.eventBus.publish(evt);
@@ -248,7 +248,7 @@ const assignmentsRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(403).send({ ok: false, error: { code: "FORBIDDEN", message: "Dev routes disabled" }, meta: { requestId: "" } });
       }
       const expired = await fastify.coordinatorStore.sweepExpiredLeases();
-      const { createEvent } = await import("@concord/foundation");
+      const { createEvent } = await import("@vibly-ai/concord-foundation");
       for (const lease of expired) {
         const evt = createEvent({ type: "LeaseExpired", payload: lease });
         await fastify.concord.state.events.append(evt);

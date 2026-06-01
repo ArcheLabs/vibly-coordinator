@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import type { GovernanceCheckpointView } from "@concord/governance";
+import type { GovernanceCheckpointView } from "@vibly-ai/concord-governance";
 import { GovernanceProjectionRepository } from "../shared/repository.js";
 
-/** Indexer `getGovernanceCheckpoint` returns Concord chain-indexing checkpoint shapes; keep loose to avoid coupling to `@concord/chain-indexing`. */
+/** Indexer `getGovernanceCheckpoint` returns Concord chain-indexing checkpoint shapes; keep loose to avoid coupling to `@vibly-ai/concord-chain-indexing`. */
 export type GovernanceCheckpointQueryResult =
   | { checkpoint: GovernanceCheckpointView | null; items: GovernanceCheckpointView[] }
   | { checkpoint: GovernanceCheckpointView | null; note: string }

@@ -102,7 +102,7 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
       const contextBundle = request.body.contextBundleId
         ? await fastify.concord.context.getBundle(request.body.contextBundleId)
         : null;
-      const { makeId, nowTimestamp } = await import("@concord/foundation");
+      const { makeId, nowTimestamp } = await import("@vibly-ai/concord-foundation");
       const candidate = {
         id: makeId("KnowledgeCandidateId"),
         proposedBy: request.body.proposedBy as never,
@@ -113,7 +113,7 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
         createdAt: nowTimestamp(),
       };
       await fastify.concord.knowledge.saveCandidate(candidate);
-      const { createEvent } = await import("@concord/foundation");
+      const { createEvent } = await import("@vibly-ai/concord-foundation");
       const evt = createEvent({ type: "KnowledgeCandidateProposed", payload: candidate });
       await fastify.concord.state.events.append(evt);
       fastify.eventBus.publish(evt);
@@ -173,7 +173,7 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
         parentVersionId: request.body.parentVersionId as never,
         createdBy: request.body.createdBy as never,
       });
-      const { createEvent } = await import("@concord/foundation");
+      const { createEvent } = await import("@vibly-ai/concord-foundation");
       const evt = createEvent({ type: "KnowledgeCommitted", payload: version });
       await fastify.concord.state.events.append(evt);
       fastify.eventBus.publish(evt);

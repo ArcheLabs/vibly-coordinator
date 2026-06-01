@@ -1,4 +1,4 @@
-import { createEvent } from "@concord/foundation";
+import { createEvent } from "@vibly-ai/concord-foundation";
 import { listBlockingObligations } from "../application/organizationApplicationService.js";
 import { IdentityRepository } from "../contexts/identity/repository.js";
 import { StakeRepository } from "../contexts/stake/repository.js";

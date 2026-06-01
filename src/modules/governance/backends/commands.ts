@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { GovernanceCheckpointView, GovernanceSubjectView } from "@concord/governance";
+import type { GovernanceCheckpointView, GovernanceSubjectView } from "@vibly-ai/concord-governance";
 import { GovernanceProjectionRepository } from "../shared/repository.js";
 
 export async function seedPhaseD5GovernanceDemo(

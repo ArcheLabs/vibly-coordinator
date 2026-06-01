@@ -6,7 +6,7 @@
  * and the system hard-cap (globalMaxReviewersPerCycle).
  */
 
-import { makeId } from "@concord/foundation";
+import { makeId } from "@vibly-ai/concord-foundation";
 import type { CoordinatorStorePort } from "../db/coordinatorStorePort.js";
 import type { CoordinatorConfig } from "../config/env.js";
 import type { SelectionRule } from "../contexts/mechanism/types.js";

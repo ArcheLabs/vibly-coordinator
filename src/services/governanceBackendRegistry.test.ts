@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { GovernanceBackendRegistry } from "./governanceBackendRegistry.js";
-import type { GovernanceBackendDescriptor } from "@concord/governance";
+import type { GovernanceBackendDescriptor } from "@vibly-ai/concord-governance";
 import type { GovernanceIndexConsumer } from "./governanceIndexConsumer.js";
 
 function makeDescriptor(id: string, backend: "substrate-opengov" | "evm-governor"): GovernanceBackendDescriptor {

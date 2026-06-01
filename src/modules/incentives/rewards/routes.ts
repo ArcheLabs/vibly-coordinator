@@ -115,7 +115,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
       };
       await fastify.coordinatorStore.saveProjection(REWARD_INTENT, intent.id, intent);
 
-      const { createEvent } = await import("@concord/foundation");
+      const { createEvent } = await import("@vibly-ai/concord-foundation");
       const event = createEvent({ type: "RewardIntentCreated", payload: intent });
       await fastify.concord.state.events.append(event);
       fastify.eventBus.publish(event);
@@ -149,7 +149,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
       const updated: RewardIntent = { ...intent, status: "reserved", fundingReceipt, updatedAt: new Date().toISOString() };
       await fastify.coordinatorStore.saveProjection(REWARD_INTENT, intent.id, updated);
 
-      const { createEvent } = await import("@concord/foundation");
+      const { createEvent } = await import("@vibly-ai/concord-foundation");
       const event = createEvent({ type: "FundingReserved", payload: { projectId: updated.projectId, rewardIntentId: intent.id, fundingReceipt } });
       await fastify.concord.state.events.append(event);
       fastify.eventBus.publish(event);
@@ -189,7 +189,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
       const updated: RewardIntent = { ...intent, status: "claimed", settlementReceipt, updatedAt: new Date().toISOString() };
       await fastify.coordinatorStore.saveProjection(REWARD_INTENT, intent.id, updated);
 
-      const { createEvent } = await import("@concord/foundation");
+      const { createEvent } = await import("@vibly-ai/concord-foundation");
       const event = createEvent({ type: "RewardClaimed", payload: { projectId: updated.projectId, rewardIntentId: intent.id, settlementReceipt } });
       await fastify.concord.state.events.append(event);
       fastify.eventBus.publish(event);

@@ -1,8 +1,8 @@
 import type { FastifyPluginAsync } from "fastify";
-import type { Actor } from "@concord/core";
-import type { EventEnvelope } from "@concord/foundation";
+import type { Actor } from "@vibly-ai/concord-core";
+import type { EventEnvelope } from "@vibly-ai/concord-foundation";
 import type { Agent, Principal, Project, Objective, RuntimeBinding } from "@concord/project";
-import { createEvent, makeId, sha256, withDeterministicMode } from "@concord/foundation";
+import { createEvent, makeId, sha256, withDeterministicMode } from "@vibly-ai/concord-foundation";
 import { ok, okList } from "../../../../domain/apiTypes.js";
 import { envelopeKey, errorEnvelope, listEnvelope } from "../../../../domain/schemas.js";
 import { GUARDIAN_REQUEST, PROJECT_TIMELINE_ENTRY, SCENARIO_RUN, TRACE } from "../../../../db/projectionKinds.js";

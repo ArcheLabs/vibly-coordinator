@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../../domain/apiTypes.js";
 import { notFound } from "../../../domain/errors.js";
-import type { EventEnvelope } from "@concord/foundation";
+import type { EventEnvelope } from "@vibly-ai/concord-foundation";
 import { envelope, errorEnvelope, listEnvelope } from "../../../domain/schemas.js";
 import { authPolicy } from "../../../plugins/authPolicy.js";
 

@@ -10,7 +10,7 @@
  * - `startAll()` — start all registered consumers
  */
 
-import type { GovernanceBackendDescriptor } from "@concord/governance";
+import type { GovernanceBackendDescriptor } from "@vibly-ai/concord-governance";
 import type { GovernanceIndexConsumer } from "./governanceIndexConsumer.js";
 
 export interface RegisteredBackend {

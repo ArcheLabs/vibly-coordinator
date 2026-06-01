@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createEvent } from "@concord/foundation";
+import { createEvent } from "@vibly-ai/concord-foundation";
 import { loadConfig } from "../config/env.js";
 import type { ActionIntentDispatcher } from "../application/actionIntentDispatcher.js";
 import type { ActionIntent, ActionIntentResult } from "../application/types.js";

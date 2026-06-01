@@ -75,7 +75,7 @@ const observationsRoutes: FastifyPluginAsync = async (fastify) => {
       await fastify.coordinatorStore.saveProjection("observation", observation.id, observation);
 
       // Emit event
-      const { createEvent } = await import("@concord/foundation");
+      const { createEvent } = await import("@vibly-ai/concord-foundation");
       const event = createEvent({ type: "ObservationSubmitted", payload: observation });
       await fastify.concord.state.events.append(event);
       fastify.eventBus.publish(event);

@@ -3,7 +3,7 @@
  * RewardIntent for the assignee based on the mechanism's reward rule.
  */
 
-import { createEvent, makeId } from "@concord/foundation";
+import { createEvent, makeId } from "@vibly-ai/concord-foundation";
 import type { EventBus, Unsubscribe } from "../services/eventBus.js";
 import type { CoordinatorStorePort } from "../db/coordinatorStorePort.js";
 import { WorkRepository } from "../contexts/work/repository.js";

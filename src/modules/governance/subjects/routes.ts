@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok } from "../../../domain/apiTypes.js";
 import { notFound } from "../../../domain/errors.js";
-import type { GovernanceVoteStance } from "@concord/governance";
+import type { GovernanceVoteStance } from "@vibly-ai/concord-governance";
 import { GovernanceProjectionRepository } from "../shared/repository.js";
 import { subjectSchemas } from "./schemas.js";
 import { queryGovernanceCheckpoint } from "./queries.js";

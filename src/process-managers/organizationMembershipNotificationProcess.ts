@@ -7,7 +7,7 @@
  * `principalId` (remove) field so it can correlate back to an agentId.
  */
 
-import { makeId } from "@concord/foundation";
+import { makeId } from "@vibly-ai/concord-foundation";
 import type { EventBus, Unsubscribe } from "../services/eventBus.js";
 import type { CoordinatorStorePort } from "../db/coordinatorStorePort.js";
 import { IdentityRepository } from "../contexts/identity/repository.js";

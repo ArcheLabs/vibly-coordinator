@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import EventEmitter from "node:events";
-import type { EventEnvelope } from "@concord/foundation";
+import type { EventEnvelope } from "@vibly-ai/concord-foundation";
 import { authPolicy } from "../../../plugins/authPolicy.js";
 import type { EventMetadata } from "../../../services/eventBus.js";
 

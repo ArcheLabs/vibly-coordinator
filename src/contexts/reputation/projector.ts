@@ -7,7 +7,7 @@
  * by replacing the delta lookups below.
  */
 
-import { makeId } from "@concord/foundation";
+import { makeId } from "@vibly-ai/concord-foundation";
 import type { EventBus, Unsubscribe } from "../../services/eventBus.js";
 import type { CoordinatorStorePort } from "../../db/coordinatorStorePort.js";
 import { ReputationRepository } from "./repository.js";

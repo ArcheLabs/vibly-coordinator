@@ -13,7 +13,7 @@
  *   verifiedBonus: 10 points when status === "verified".
  */
 
-import { makeId } from "@concord/foundation";
+import { makeId } from "@vibly-ai/concord-foundation";
 import type { EventBus, Unsubscribe } from "../../services/eventBus.js";
 import type { CoordinatorStorePort } from "../../db/coordinatorStorePort.js";
 import { ArtifactRepository } from "../artifact/repository.js";

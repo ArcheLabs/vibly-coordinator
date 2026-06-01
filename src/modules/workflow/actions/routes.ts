@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../../domain/apiTypes.js";
 import { notFound } from "../../../domain/errors.js";
 import { envelopeKey, listEnvelope } from "../../../domain/schemas.js";
-import type { ActionIntent } from "@concord/core";
+import type { ActionIntent } from "@vibly-ai/concord-core";
 
 const actionsRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /actions

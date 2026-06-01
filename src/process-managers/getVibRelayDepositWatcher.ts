@@ -1,6 +1,6 @@
 import { ApiPromise, WsProvider } from "@polkadot/api";
 import { decodeAddress } from "@polkadot/util-crypto";
-import { createEvent } from "@concord/foundation";
+import { createEvent } from "@vibly-ai/concord-foundation";
 import type { CoordinatorConfig } from "../config/env.js";
 import type { CoordinatorStorePort } from "../db/coordinatorStorePort.js";
 import type { EventBus } from "../services/eventBus.js";

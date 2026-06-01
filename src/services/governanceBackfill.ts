@@ -8,15 +8,15 @@
  * to bootstrap projections from existing indexer data.
  */
 
-import type { ChainRef } from "@concord/core";
-import type { GovernanceIndexQueryPort } from "@concord/governance";
+import type { ChainRef } from "@vibly-ai/concord-core";
+import type { GovernanceIndexQueryPort } from "@vibly-ai/concord-governance";
 import type { CoordinatorStorePort } from "../db/coordinatorStorePort.js";
 import { GovernanceProjectorService } from "./governanceProjector.js";
 import {
   GOVERNANCE_SUBJECT_VIEW,
   GOVERNANCE_CHECKPOINT,
 } from "../db/projectionKinds.js";
-import type { GovernanceCheckpointView } from "@concord/governance";
+import type { GovernanceCheckpointView } from "@vibly-ai/concord-governance";
 
 export interface GovernanceBackfillInput {
   chain: ChainRef;

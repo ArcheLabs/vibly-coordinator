@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import Fastify from "fastify";
 import { createConcord } from "@concord/sdk";
-import type { EventEnvelope } from "@concord/foundation";
+import type { EventEnvelope } from "@vibly-ai/concord-foundation";
 import { loadConfig } from "../../../../config/env.js";
 import type { CoordinatorStore } from "../../../../db/coordinatorStore.js";
 import type { EventBus } from "../../../../services/eventBus.js";

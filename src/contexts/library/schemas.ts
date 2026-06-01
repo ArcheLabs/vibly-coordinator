@@ -3,7 +3,7 @@
  *
  * Unlike internal read-model routes (which often use OPEN_OBJECT), these
  * schemas enumerate every field so that generated OpenAPI types are usable
- * in @vibly/coordinator-http-contract consumers without manual casting.
+ * in @vibly-ai/coordinator-http-contract consumers without manual casting.
  */
 
 export const CONTRIBUTOR_SCHEMA = {

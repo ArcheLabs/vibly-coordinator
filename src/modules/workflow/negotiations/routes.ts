@@ -230,7 +230,7 @@ const negotiationsRoutes: FastifyPluginAsync = async (fastify) => {
         source: (request.body.source ?? "structured_negotiation") as never,
         projectId: request.body.projectId,
       });
-      const { createEvent } = await import("@concord/foundation");
+      const { createEvent } = await import("@vibly-ai/concord-foundation");
       const evt = createEvent({ type: "NegotiationClosed", payload: { decisionRecord, negotiation } });
       await fastify.concord.state.events.append(evt);
       fastify.eventBus.publish(evt);
@@ -290,7 +290,7 @@ const negotiationsRoutes: FastifyPluginAsync = async (fastify) => {
         ...(request.body.convergenceThreshold !== undefined && { convergenceThreshold: request.body.convergenceThreshold }),
       });
 
-      const { createEvent } = await import("@concord/foundation");
+      const { createEvent } = await import("@vibly-ai/concord-foundation");
       const evt = createEvent({ type: "NegotiationForked", payload: { fork, parentNegotiationId: parent.id } });
       await fastify.concord.state.events.append(evt);
       fastify.eventBus.publish(evt);

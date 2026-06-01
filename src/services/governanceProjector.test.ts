@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { GovernanceProjectorService } from "./governanceProjector.js";
-import type { NormalizedChainEvent } from "@concord/core";
-import type { GovernanceEventType, GovernanceProposalSummary } from "@concord/governance";
+import type { NormalizedChainEvent } from "@vibly-ai/concord-core";
+import type { GovernanceEventType, GovernanceProposalSummary } from "@vibly-ai/concord-governance";
 
 const CHAIN = { namespace: "substrate", chainId: "vibly-solo" } as const;
 

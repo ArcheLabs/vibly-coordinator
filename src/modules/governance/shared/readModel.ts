@@ -4,7 +4,7 @@ import type {
   GovernanceIntentChainLink,
   GovernanceSubjectView,
   GovernanceVoteActivityView,
-} from "@concord/governance";
+} from "@vibly-ai/concord-governance";
 import { buildMergedView, isCheckpointStale } from "./mergeBuilder.js";
 import type { GovernanceBackendHealth, GovernanceBackendReadModel, GovernanceTxReceiptProjection } from "./types.js";
 

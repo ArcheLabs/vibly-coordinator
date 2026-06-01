@@ -10,7 +10,7 @@
  * - IDs are deterministic for idempotency (SQLite upsert deduplicates).
  */
 
-import type { NormalizedChainEvent } from "@concord/core";
+import type { NormalizedChainEvent } from "@vibly-ai/concord-core";
 import type {
   GovernanceEventType,
   GovernanceProposalSummary,
@@ -22,7 +22,7 @@ import type {
   GovernanceCheckpointView,
   ProjectionSource,
   ProjectionMetadata,
-} from "@concord/governance";
+} from "@vibly-ai/concord-governance";
 
 const PROJECTOR_NAME = "GovernanceProjectorService";
 const SCHEMA_VERSION = "1";

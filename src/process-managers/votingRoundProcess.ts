@@ -3,7 +3,7 @@
  * and closes the round when all votes are in or the deadline passes.
  */
 
-import { createEvent } from "@concord/foundation";
+import { createEvent } from "@vibly-ai/concord-foundation";
 import type { EventBus, Unsubscribe } from "../services/eventBus.js";
 import type { CoordinatorStorePort } from "../db/coordinatorStorePort.js";
 import { CoordinationRepository } from "../contexts/coordination/repository.js";

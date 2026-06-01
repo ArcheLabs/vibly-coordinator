@@ -12,7 +12,7 @@
  */
 
 import { z } from "zod";
-import { createEvent, makeId } from "@concord/foundation";
+import { createEvent, makeId } from "@vibly-ai/concord-foundation";
 import type { ActionIntentDispatcher, DispatchContext } from "./actionIntentDispatcher.js";
 import type { ActionIntent, ActionIntentResult } from "./types.js";
 import { badRequest, conflict, notFound, forbidden } from "../domain/errors.js";

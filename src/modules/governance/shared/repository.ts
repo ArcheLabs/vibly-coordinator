@@ -14,7 +14,7 @@ import type {
   GovernanceDelegationView,
   GovernanceCheckpointView,
   GovernanceIntentChainLink,
-} from "@concord/governance";
+} from "@vibly-ai/concord-governance";
 import type { GovernanceTxReceiptProjection } from "./types.js";
 import { chainsEqual } from "./readModel.js";
 

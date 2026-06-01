@@ -17,7 +17,7 @@ import type {
   GovernanceDelegationView,
   GovernanceCheckpointView,
   GovernanceIntentChainLink,
-} from "@concord/governance";
+} from "@vibly-ai/concord-governance";
 
 /** How old the checkpoint can be before we consider the view stale (ms). */
 export const GOVERNANCE_STALE_THRESHOLD_MS = Number(

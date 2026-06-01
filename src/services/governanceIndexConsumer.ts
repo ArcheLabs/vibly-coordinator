@@ -9,10 +9,10 @@
  */
 
 import type { CoordinatorStorePort } from "../db/coordinatorStorePort.js";
-import type { GovernanceIndexFeedPort } from "@concord/governance";
-import type { ChainRef, NormalizedChainEvent } from "@concord/core";
-import type { GovernanceEventType } from "@concord/governance";
-import type { GovernanceProposalSummary } from "@concord/governance";
+import type { GovernanceIndexFeedPort } from "@vibly-ai/concord-governance";
+import type { ChainRef, NormalizedChainEvent } from "@vibly-ai/concord-core";
+import type { GovernanceEventType } from "@vibly-ai/concord-governance";
+import type { GovernanceProposalSummary } from "@vibly-ai/concord-governance";
 import type { GovernanceProjectorService } from "./governanceProjector.js";
 import {
   GOVERNANCE_SUBJECT_VIEW,
