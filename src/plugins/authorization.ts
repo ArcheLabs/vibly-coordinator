@@ -44,6 +44,17 @@ const authorizationPlugin: FastifyPluginAsync<AuthorizationPluginOptions> = asyn
     const auth = request.auth;
     if (!auth) throw forbidden("Auth context missing");
     if (auth.kind === "static") return;
+    if (auth.kind === "none" && policy === "wallet-session" && auth.scopes.includes("wallet-session")) return;
+
+    if (auth.kind === "agent-runtime") {
+      const segments = path.split("/").filter(Boolean);
+      if (segments[0] === "agents" && segments[1] && segments[1] !== auth.subject) {
+        throw forbidden("Agent runtime token cannot access a different agent");
+      }
+      if (policy === "wallet-session") return;
+      if (request.method === "POST" && path === "/action-intents") return;
+      throw forbidden("Agent runtime token is not allowed for this endpoint");
+    }
 
     if (policy === "coordinator-authority") {
       requireScope(auth, "coord:admin");

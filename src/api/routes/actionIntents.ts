@@ -10,7 +10,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { ok } from "../../domain/apiTypes.js";
-import { badRequest } from "../../domain/errors.js";
+import { badRequest, forbidden } from "../../domain/errors.js";
 import { actionIntentResultSchema } from "../../domain/schemas.js";
 import type { ActionIntentDispatcher } from "../../application/actionIntentDispatcher.js";
 import type { ActionIntentType } from "../../application/types.js";
@@ -66,6 +66,9 @@ const actionIntentsRoutes: FastifyPluginAsync<ActionIntentsPluginOptions> = asyn
       }
 
       const intent = parsed.data;
+      if (request.auth?.kind === "agent-runtime" && request.auth.subject !== intent.principalId) {
+        throw forbidden("Agent runtime token cannot submit for a different principal");
+      }
 
       const result = await dispatcher.dispatch(
         {

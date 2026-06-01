@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { REPUTATION_EVIDENCE } from "../../../db/projectionKinds.js";
 import { okList } from "../../../domain/apiTypes.js";
 import { listEnvelope } from "../../../domain/schemas.js";
+import { authPolicy } from "../../../plugins/authPolicy.js";
 
 interface ReputationEvidence {
   id: string;
@@ -14,7 +15,7 @@ const reputationRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { projectId?: string; actorId?: string; kind?: string; limit?: string; cursor?: string } }>(
     "/reputation/evidence",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Reputation"],
         summary: "List reputation evidence projections",
         querystring: {
@@ -28,7 +29,7 @@ const reputationRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: listEnvelope() },
-      },
+      }),
     },
     async (request) => {
     const { projectId, actorId, kind, limit: limitStr, cursor } = request.query;

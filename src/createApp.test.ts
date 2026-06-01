@@ -320,7 +320,8 @@ describe("createApp governance runtime config", () => {
   it("returns an empty personal center without a wallet session", async () => {
     const config = loadConfig({
       NODE_ENV: "test",
-      API_AUTH_MODE: "none",
+      API_AUTH_MODE: "static-token",
+      API_TOKENS: "dev-token",
     });
     const app = await createApp({
       config,
@@ -349,7 +350,8 @@ describe("createApp governance runtime config", () => {
 
     const config = loadConfig({
       NODE_ENV: "test",
-      API_AUTH_MODE: "none",
+      API_AUTH_MODE: "static-token",
+      API_TOKENS: "dev-token",
     });
     const app = await createApp({
       config,
@@ -393,8 +395,25 @@ describe("createApp governance runtime config", () => {
       },
     });
     expect(authorizeRes.statusCode).toBe(200);
-    const authorization = authorizeRes.json<{ data: { authorization: { sessionKey: { id: string }; profile: { sessionKeys: unknown[] } } } }>().data.authorization;
+    const authorization = authorizeRes.json<{ data: { authorization: { principalId: string; runtimeToken: string; sessionKey: { id: string }; profile: { principalId: string; sessionKeys: unknown[] } } } }>().data.authorization;
     expect(authorization.profile.sessionKeys).toHaveLength(1);
+    expect(authorization.runtimeToken).toMatch(/^vibly_agent_rt_/);
+
+    const heartbeatRes = await app.inject({
+      method: "POST",
+      url: `/agents/${authorization.principalId}/heartbeat`,
+      headers: { authorization: `Bearer ${authorization.runtimeToken}` },
+      payload: { availability: "available", clientVersion: "0.2.0" },
+    });
+    expect(heartbeatRes.statusCode).toBe(200);
+
+    const crossAgentHeartbeatRes = await app.inject({
+      method: "POST",
+      url: "/agents/agent_someone_else/heartbeat",
+      headers: { authorization: `Bearer ${authorization.runtimeToken}` },
+      payload: { availability: "available", clientVersion: "0.2.0" },
+    });
+    expect(crossAgentHeartbeatRes.statusCode).toBe(401);
 
     const reuseRes = await app.inject({
       method: "POST",

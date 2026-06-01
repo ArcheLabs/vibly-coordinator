@@ -8,6 +8,7 @@ import { ok } from "../../domain/apiTypes.js";
 import { notFound } from "../../domain/errors.js";
 import { envelopeKey, envelopeKeyArray } from "../../domain/schemas.js";
 import { ReputationRepository } from "../../contexts/reputation/repository.js";
+import { authPolicy } from "../../plugins/authPolicy.js";
 import { SettlementRepository } from "../../contexts/settlement/repository.js";
 
 const ITEM_SCHEMA = { type: "object" as const, additionalProperties: true };
@@ -21,21 +22,20 @@ const reputationV2Routes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string }; Querystring: { organizationId?: string } }>(
     "/agents/:id/reputation",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Reputation"],
         summary: "Get reputation score for an agent in an organization",
         params: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
         querystring: { type: "object", properties: { organizationId: { type: "string" } } },
         response: { 200: envelopeKey("reputation") },
-      },
+      }),
     },
     async (req) => {
       const { id } = req.params;
       const { organizationId } = req.query;
       if (!organizationId) {
         const scores = await repRepo().listScores();
-        const forAgent = scores.filter((s) => s.principalId === id);
-        if (forAgent.length === 0) throw notFound("AgentReputation", id);
+        const forAgent = scores.filter((score) => score.principalId === id);
         return ok({ reputation: forAgent });
       }
       const score = await repRepo().getScore(organizationId, id);
@@ -47,7 +47,7 @@ const reputationV2Routes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { organizationId?: string; limit?: number } }>(
     "/reputation",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Reputation"],
         summary: "List agent reputation scores",
         querystring: {
@@ -58,7 +58,7 @@ const reputationV2Routes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKeyArray("items", ITEM_SCHEMA) },
-      },
+      }),
     },
     async (req) => {
       const items = await repRepo().listScores(req.query.organizationId);
@@ -71,7 +71,7 @@ const reputationV2Routes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { principalId?: string; organizationId?: string; limit?: number } }>(
     "/reputation/events",
     {
-      schema: {
+      ...authPolicy("public-read", {
         tags: ["Reputation"],
         summary: "List reputation events",
         querystring: {
@@ -83,7 +83,7 @@ const reputationV2Routes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKeyArray("items", ITEM_SCHEMA) },
-      },
+      }),
     },
     async (req) => {
       const items = await repRepo().listEvents(req.query.principalId, req.query.organizationId);

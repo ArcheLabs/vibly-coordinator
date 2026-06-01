@@ -18,6 +18,12 @@ import {
   type AgentDescriptor,
   type AgentSecurityEvent,
 } from "./domain.js";
+import {
+  AGENT_RUNTIME_TOKEN,
+  createAgentRuntimeToken,
+  hashAgentRuntimeToken,
+  type AgentRuntimeTokenRecord,
+} from "./runtimeToken.js";
 
 function sessionTokenFromRequest(headers: Record<string, string | string[] | undefined>): string | undefined {
   const raw = headers["x-wallet-session"];
@@ -203,6 +209,21 @@ const agentEnrollmentsRoutes: FastifyPluginAsync = async (fastify) => {
       };
       await repo.saveAgentProfile(profile);
 
+      const runtimeToken = createAgentRuntimeToken();
+      const runtimeTokenRecord: AgentRuntimeTokenRecord = {
+        id: hashAgentRuntimeToken(runtimeToken),
+        tokenHash: hashAgentRuntimeToken(runtimeToken),
+        principalId,
+        sessionKeyId: sessionKey.id,
+        sessionPublicKey: sessionKey.publicKey,
+        authorizedBy: session.address,
+        scopes: sessionKey.scopes,
+        status: "active",
+        createdAt: now,
+        expiresAt: sessionKey.expiresAt,
+      };
+      await fastify.coordinatorStore.saveProjection(AGENT_RUNTIME_TOKEN, runtimeTokenRecord.id, runtimeTokenRecord);
+
       const event = makeSecurityEvent({
         type: "SessionKeyAuthorized",
         principalId,
@@ -211,7 +232,7 @@ const agentEnrollmentsRoutes: FastifyPluginAsync = async (fastify) => {
         severity: "success",
       });
       await fastify.coordinatorStore.saveProjection(AGENT_SECURITY_EVENT, event.id, event);
-      return ok({ authorization: { principalId, sessionKey, profile, event } });
+      return ok({ authorization: { principalId, sessionKey, profile, event, runtimeToken } });
     },
   );
 
