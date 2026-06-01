@@ -212,6 +212,12 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
     eventBus,
   });
 
+  const { startGetVibRootUploader } = await import("./services/getVibRootUploader.js");
+  const stopGetVibRootUploader = startGetVibRootUploader({
+    config,
+    store: coordinatorStore,
+  });
+
   // ─── v0.2 projectors ──────────────────────────────────────────────────────
   const { startReputationProjector } = await import("./contexts/reputation/projector.js");
   startReputationProjector(eventBus, coordinatorStore);
@@ -237,6 +243,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
     stopAgentStakeIndexerSync();
     stopCoordinationRoundScheduler();
     stopGetVibRelayDepositWatcher();
+    stopGetVibRootUploader();
     await authorityResolver.close();
   });
 

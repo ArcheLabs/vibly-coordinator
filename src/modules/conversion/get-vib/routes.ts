@@ -3,6 +3,7 @@ import type { CoordinatorConfig } from "../../../config/env.js";
 import { ok } from "../../../domain/apiTypes.js";
 import { envelopeKey } from "../../../domain/schemas.js";
 import { authPolicy } from "../../../plugins/authPolicy.js";
+import { getGetVibRootUploaderStatus } from "../../../services/getVibRootUploader.js";
 import {
   buildAndSaveManifest,
   createGetVibOrder,
@@ -348,6 +349,25 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
           observedCount: 0,
           updatedAt: new Date().toISOString(),
         },
+      }),
+  );
+
+
+  fastify.get(
+    "/admin/get-vib/root-uploader/status",
+    {
+      schema: {
+        tags: ["Admin", "Get VIB"],
+        summary: "Get Get VIB root uploader status",
+        response: { 200: envelopeKey("status") },
+      },
+    },
+    async () =>
+      ok({
+        status: await getGetVibRootUploaderStatus({
+          config: fastify.config,
+          store: fastify.coordinatorStore,
+        }),
       }),
   );
 

@@ -75,6 +75,9 @@ Public endpoints such as `/health`, `/ready`, `/metrics`, `/openapi.json`, and `
 | `AGENT_STAKE_SYNC_INTERVAL_MS` | How often to poll the indexer for stake ledger updates (`0` = disabled) |
 | `AGENT_STAKE_FRESHNESS_MS` | Maximum age of a stake ledger entry before it is considered stale |
 | `SUBSTRATE_STAKE_TX_MODE` | `prepare-only`, `fixture`, or `unsafe-papi` |
+| `GET_VIB_ROOT_UPLOAD_INTERVAL_MS` | How often to build/upload Get VIB claim roots (`0` = disabled, default `600000`) |
+| `GET_VIB_ROOT_UPLOAD_MODE` | `prepare-only`, `fixture`, or `unsafe-papi` for direct `vibClaim.setClaimRoot` submission |
+| `GET_VIB_ROOT_PUBLISHER_URI` | Hot-key URI authorized on-chain only as the Get VIB claim root publisher; do not use sudo/root here |
 | `SUBSTRATE_CHAIN_ID` | Logical chain identifier (for example `substrate:vibly-solo`) |
 | `GOVERNANCE_BACKENDS` | Comma-separated backend names to register (`substrate-opengov`, `evm-governor`, ...) |
 

@@ -30,6 +30,7 @@ const NODE_DOMAIN = Buffer.from("VIB_CLAIM_NODE_V1");
 const UNIT_DECIMALS = 12;
 export const GET_VIB_RELAY_DEPOSIT = "get-vib.relay-deposit";
 export const GET_VIB_RELAY_WATCHER_STATE = "get-vib.relay-watcher-state";
+export const GET_VIB_ROOT_UPLOAD = "get-vib.root-upload";
 
 export type DepositStatus = "observed" | "confirmed" | "failed";
 export type AllocationStatus = "pending_admin" | "confirmed" | "root_included";
@@ -37,6 +38,7 @@ export type ClaimStatus = "pending" | "confirmed" | "failed";
 export type MerklePosition = "left" | "right";
 export type RelayDepositStatus = "observed" | "confirmed" | "failed";
 export type RelayWatcherStatus = "disabled" | "syncing" | "healthy" | "degraded";
+export type RootUploadStatus = "prepared" | "uploaded" | "failed";
 
 export interface GetVibConfig {
   networkId: string;
@@ -179,6 +181,22 @@ export interface AllocationManifest {
   allocations: Array<{ accountId: string; identityId?: string; cumulativeAmount: string }>;
   deposits: Array<{ sourceId: string; dotAmount: string; vibAmount: string }>;
   createdAt: string;
+}
+
+export interface RootUploadRecord {
+  id: string;
+  networkId: string;
+  rootVersion: number;
+  merkleRoot: string;
+  metadataHash: string;
+  totalCumulativeAmount: string;
+  status: RootUploadStatus;
+  mode: "prepare-only" | "fixture" | "unsafe-papi";
+  finality?: "prepared" | "included" | "finalized";
+  txHash?: string;
+  attemptedAt: string;
+  uploadedAt?: string;
+  lastError?: string;
 }
 
 export interface ObservedRelayDeposit {
@@ -561,6 +579,36 @@ export function decimalFromBaseUnits(value: string | bigint, decimals: number): 
   const whole = amount / scale;
   const fraction = String(amount % scale).padStart(decimals, "0").replace(/0+$/, "");
   return fraction ? `${whole}.${fraction}` : String(whole);
+}
+
+export async function getLatestManifest(store: CoordinatorStorePort, config: CoordinatorConfig): Promise<AllocationManifest | undefined> {
+  return latestManifest(store, getNetworkId(config));
+}
+
+export async function hasConfirmedGetVibAllocations(store: CoordinatorStorePort, config: CoordinatorConfig): Promise<boolean> {
+  const allocations = await listNetworkAllocations(store, getNetworkId(config));
+  return allocations.some((allocation) => allocation.status === "confirmed");
+}
+
+export async function getRootUploadRecord(store: CoordinatorStorePort, networkId: string, rootVersion: number): Promise<RootUploadRecord | undefined> {
+  return store.getProjection<RootUploadRecord>(GET_VIB_ROOT_UPLOAD, projectionId(networkId, String(rootVersion)));
+}
+
+export async function listRootUploadRecords(store: CoordinatorStorePort, config: CoordinatorConfig): Promise<RootUploadRecord[]> {
+  const networkId = getNetworkId(config);
+  return (await store.listProjections<RootUploadRecord>(GET_VIB_ROOT_UPLOAD))
+    .filter((record) => record.networkId === networkId)
+    .sort((left, right) => right.rootVersion - left.rootVersion || right.attemptedAt.localeCompare(left.attemptedAt));
+}
+
+export async function saveRootUploadRecord(store: CoordinatorStorePort, record: Omit<RootUploadRecord, "id"> & { id?: string }): Promise<RootUploadRecord> {
+  const saved: RootUploadRecord = { ...record, id: record.id ?? projectionId(record.networkId, String(record.rootVersion)) };
+  await store.saveProjection(GET_VIB_ROOT_UPLOAD, saved.id, saved);
+  return saved;
+}
+
+export function getVibAmountToBaseUnits(value: string): string {
+  return toBaseUnits(value);
 }
 
 export async function getAllocationSummary(store: CoordinatorStorePort, config: CoordinatorConfig, accountId: string): Promise<AllocationSummary> {

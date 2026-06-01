@@ -49,6 +49,12 @@ const envSchema = z
     ASSIGNMENT_EXPIRY_INTERVAL_MS: z.coerce.number().default(0),
     // Stake sync scheduler interval; 0 means disabled.
     AGENT_STAKE_SYNC_INTERVAL_MS: z.coerce.number().default(0),
+    // Get VIB root upload scheduler interval; 0 means disabled.
+    GET_VIB_ROOT_UPLOAD_INTERVAL_MS: z.coerce.number().default(600000),
+    // Get VIB root upload tx mode.
+    GET_VIB_ROOT_UPLOAD_MODE: z.enum(["prepare-only", "fixture", "unsafe-papi"]).default("prepare-only"),
+    // Dedicated least-privilege hot key authorized on-chain only for vibClaim.setClaimRoot.
+    GET_VIB_ROOT_PUBLISHER_URI: z.string().default(""),
     // Maximum acceptable staleness for cached stake data.
     AGENT_STAKE_FRESHNESS_MS: z.coerce.number().default(30000),
     // Local trace output path for debug/event traces.
@@ -161,6 +167,14 @@ const envSchema = z
     PROTOCOL_VERSION: z.string().default("2026-06-01"),
   })
   .superRefine((val, ctx) => {
+    if (val.GET_VIB_ROOT_UPLOAD_MODE === "unsafe-papi" && !val.GET_VIB_ROOT_PUBLISHER_URI.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "GET_VIB_ROOT_UPLOAD_MODE=unsafe-papi requires GET_VIB_ROOT_PUBLISHER_URI",
+        path: ["GET_VIB_ROOT_PUBLISHER_URI"],
+      });
+    }
+
     if (val.NODE_ENV !== "production") return;
 
     if (val.STORAGE_MODE !== "postgres") {
@@ -258,6 +272,9 @@ export interface CoordinatorConfig {
   sseHeartbeatMs: number;
   assignmentExpiryIntervalMs: number;
   agentStakeSyncIntervalMs: number;
+  getVibRootUploadIntervalMs: number;
+  getVibRootUploadMode: "prepare-only" | "fixture" | "unsafe-papi";
+  getVibRootPublisherUri?: string;
   agentStakeFreshnessMs: number;
   traceOutputDir: string;
   enableSwagger: boolean;
@@ -347,6 +364,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     sseHeartbeatMs: parsed.SSE_HEARTBEAT_MS,
     assignmentExpiryIntervalMs: parsed.ASSIGNMENT_EXPIRY_INTERVAL_MS,
     agentStakeSyncIntervalMs: parsed.AGENT_STAKE_SYNC_INTERVAL_MS,
+    getVibRootUploadIntervalMs: parsed.GET_VIB_ROOT_UPLOAD_INTERVAL_MS,
+    getVibRootUploadMode: parsed.GET_VIB_ROOT_UPLOAD_MODE,
+    getVibRootPublisherUri: parsed.GET_VIB_ROOT_PUBLISHER_URI.trim() || undefined,
     agentStakeFreshnessMs: parsed.AGENT_STAKE_FRESHNESS_MS,
     traceOutputDir: parsed.TRACE_OUTPUT_DIR,
     enableSwagger: parsed.ENABLE_SWAGGER,

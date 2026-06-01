@@ -59,6 +59,32 @@ describe("loadConfig", () => {
     expect(config.getVibDepositFinalityBlocks).toBe(2);
   });
 
+
+  it("parses Get VIB root uploader settings", () => {
+    const defaults = loadConfig({ NODE_ENV: "test" });
+    expect(defaults.getVibRootUploadIntervalMs).toBe(600000);
+    expect(defaults.getVibRootUploadMode).toBe("prepare-only");
+
+    const disabled = loadConfig({
+      NODE_ENV: "test",
+      GET_VIB_ROOT_UPLOAD_INTERVAL_MS: "0",
+      GET_VIB_ROOT_UPLOAD_MODE: "unsafe-papi",
+      GET_VIB_ROOT_PUBLISHER_URI: "//RootPublisher",
+    });
+    expect(disabled.getVibRootUploadIntervalMs).toBe(0);
+    expect(disabled.getVibRootUploadMode).toBe("unsafe-papi");
+    expect(disabled.getVibRootPublisherUri).toBe("//RootPublisher");
+  });
+
+  it("requires a Get VIB root publisher URI in unsafe-papi mode", () => {
+    expect(() =>
+      loadConfig({
+        NODE_ENV: "test",
+        GET_VIB_ROOT_UPLOAD_MODE: "unsafe-papi",
+      }),
+    ).toThrow(/GET_VIB_ROOT_PUBLISHER_URI/);
+  });
+
   const validProductionOidc = {
     NODE_ENV: "production" as const,
     STORAGE_MODE: "postgres",
