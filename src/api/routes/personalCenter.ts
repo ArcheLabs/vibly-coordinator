@@ -5,12 +5,24 @@ import { IdentityRepository } from "../../contexts/identity/repository.js";
 import type { AgentProfile, AgentSessionKey } from "../../contexts/identity/types.js";
 import { StakeRepository } from "../../contexts/stake/repository.js";
 import type { AgentStakeLedger } from "../../contexts/stake/types.js";
+import type { CoordinatorStorePort } from "../../db/coordinatorStorePort.js";
 import { IDENTITY_STATUS, normalizeEvmAddress, type IdentityStatusRecord } from "../../modules/identity/onboarding/domain.js";
 import { WALLET_SESSION, ensureActiveWalletSession, type WalletSessionRecord } from "../../modules/identity/wallet/domain.js";
 import { AGENT_SECURITY_EVENT, AGENT_STAKE_RECEIPT, type AgentSecurityEvent } from "../../modules/identity/agent-enrollments/domain.js";
 import { authPolicy } from "../../plugins/authPolicy.js";
+import { normalizeSubstrateAccount } from "../../services/chainIdentityIndexerSync.js";
 
 const OPEN_OBJECT = { type: "object" as const, additionalProperties: true };
+
+type PersonalCenterIdentity = IdentityStatusRecord | {
+  ecosystem: "polkadot";
+  chainId: string;
+  identityId: string;
+  viblyRootAddress: string;
+  status: string;
+  indexedAt: string;
+  updatedAtBlock?: string;
+};
 
 function sessionTokenFromRequest(headers: Record<string, string | string[] | undefined>): string | undefined {
   const raw = headers["x-wallet-session"];
@@ -36,9 +48,12 @@ const personalCenterRoutes: FastifyPluginAsync = async (fastify) => {
       const identityRepo = new IdentityRepository(fastify.coordinatorStore);
       const stakeRepo = new StakeRepository(fastify.coordinatorStore);
 
-      const identity = session?.ecosystem === "evm"
-        ? await fastify.coordinatorStore.getProjection<IdentityStatusRecord>(IDENTITY_STATUS, normalizeEvmAddress(session.address))
-        : undefined;
+      const identity = await resolveSessionIdentity({
+        session,
+        identityRepo,
+        store: fastify.coordinatorStore,
+        chainId: fastify.config.substrateChainId,
+      });
 
       const allProfiles = await identityRepo.listAgentProfiles();
       const agents = session
@@ -97,7 +112,34 @@ function addDecimalStrings(a: string, b: string): string {
   return String(left + right);
 }
 
-function buildAlerts(input: { identity?: IdentityStatusRecord; agents: AgentProfile[]; ledgers: AgentStakeLedger[] }) {
+async function resolveSessionIdentity(input: {
+  session: WalletSessionRecord | null;
+  identityRepo: IdentityRepository;
+  store: CoordinatorStorePort;
+  chainId: string;
+}): Promise<PersonalCenterIdentity | undefined> {
+  const { session } = input;
+  if (!session) return undefined;
+  if (session.ecosystem === "evm") {
+    return input.store.getProjection<IdentityStatusRecord>(IDENTITY_STATUS, normalizeEvmAddress(session.address));
+  }
+  if (session.ecosystem === "polkadot") {
+    const identity = await input.identityRepo.getChainRootIdentity(input.chainId, normalizeSubstrateAccount(session.address));
+    if (!identity) return undefined;
+    return {
+      ecosystem: "polkadot",
+      chainId: identity.chainId,
+      identityId: identity.identityId,
+      viblyRootAddress: identity.ownerAddress,
+      status: identity.status,
+      indexedAt: identity.indexedAt,
+      updatedAtBlock: identity.updatedAtBlock,
+    };
+  }
+  return undefined;
+}
+
+function buildAlerts(input: { identity?: PersonalCenterIdentity; agents: AgentProfile[]; ledgers: AgentStakeLedger[] }) {
   const alerts: Array<Record<string, unknown>> = [];
   if (!input.identity) {
     alerts.push({ id: "identity-missing", severity: "warning", title: "Identity not linked", detail: "Connect or initialize a root identity before authorizing production agents." });
@@ -124,4 +166,3 @@ function isExpiringSoon(key: AgentSessionKey): boolean {
 }
 
 export default personalCenterRoutes;
-

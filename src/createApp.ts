@@ -206,6 +206,12 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
     concord,
   });
 
+  const { startChainIdentityIndexerSync } = await import("./services/chainIdentityIndexerSync.js");
+  const stopChainIdentityIndexerSync = startChainIdentityIndexerSync({
+    config,
+    store: coordinatorStore,
+  });
+
   const { startGetVibRelayDepositWatcher } = await import("./process-managers/getVibRelayDepositWatcher.js");
   const stopGetVibRelayDepositWatcher = startGetVibRelayDepositWatcher({
     config,
@@ -242,6 +248,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   fastify.addHook("onClose", async () => {
     stopAssignmentExpiryScheduler();
     stopAgentStakeIndexerSync();
+    stopChainIdentityIndexerSync();
     stopCoordinationRoundScheduler();
     stopGetVibRelayDepositWatcher();
     stopGetVibRootUploader();

@@ -54,3 +54,15 @@ export interface AgentProfile {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface ChainRootIdentity {
+  id: string;
+  chainId: string;
+  identityId: string;
+  ownerAddress: string;
+  ownerAccountHex: string;
+  status: "active" | "frozen" | "disabled" | "unknown";
+  createdAtBlock?: string;
+  updatedAtBlock?: string;
+  indexedAt: string;
+}

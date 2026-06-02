@@ -8,6 +8,8 @@ import type { Concord } from "@concord/sdk";
 import { Keyring } from "@polkadot/keyring";
 import { cryptoWaitReady } from "@polkadot/util-crypto";
 import { saveObservedRelayDeposit } from "./modules/conversion/get-vib/domain.js";
+import { IdentityRepository } from "./contexts/identity/repository.js";
+import { normalizeSubstrateAccount } from "./services/chainIdentityIndexerSync.js";
 
 function makeStore(): CoordinatorStorePort {
   const projections = new Map<string, Map<string, unknown>>();
@@ -338,6 +340,55 @@ describe("createApp governance runtime config", () => {
     const body = res.json<{ data: { personalCenter: { session: null; agents: unknown[] } } }>();
     expect(body.data.personalCenter.session).toBeNull();
     expect(body.data.personalCenter.agents).toEqual([]);
+
+    await app.close();
+  });
+
+  it("returns indexed Polkadot root identity in personal center", async () => {
+    await cryptoWaitReady();
+    const keyring = new Keyring({ type: "sr25519" });
+    const root = keyring.addFromUri("//Alice");
+    const store = makeStore();
+    const config = loadConfig({
+      NODE_ENV: "test",
+      API_AUTH_MODE: "static-token",
+      API_TOKENS: "dev-token",
+      SUBSTRATE_CHAIN_ID: "substrate:vibly-solo",
+    });
+    await new IdentityRepository(store).saveChainRootIdentity({
+      id: `${config.substrateChainId}:${normalizeSubstrateAccount(root.address)}`,
+      chainId: config.substrateChainId,
+      identityId: "0xidentity",
+      ownerAddress: root.address,
+      ownerAccountHex: normalizeSubstrateAccount(root.address),
+      status: "active",
+      updatedAtBlock: "12",
+      indexedAt: new Date().toISOString(),
+    });
+    const app = await createApp({
+      config,
+      logger: createLogger(config),
+      concord: makeConcord(),
+      coordinatorStore: store,
+      eventBus: createEventBus(),
+      startGovernanceConsumers: false,
+    });
+    const token = await createWalletSession(app, root.address, root);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/personal-center",
+      headers: { "x-wallet-session": token },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{ data: { personalCenter: { identity: { identityId: string; status: string; viblyRootAddress: string } | null; alerts: Array<{ id: string }> } } }>();
+    expect(body.data.personalCenter.identity).toMatchObject({
+      identityId: "0xidentity",
+      status: "active",
+      viblyRootAddress: root.address,
+    });
+    expect(body.data.personalCenter.alerts.some((alert) => alert.id === "identity-missing")).toBe(false);
 
     await app.close();
   });
