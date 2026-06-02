@@ -65,6 +65,11 @@ coordinator 现在负责客户端兼容性策略，提供以下能力：
 | `SUBSTRATE_CHAIN_ID` | 逻辑链标识 |
 | `GOVERNANCE_BACKENDS` | 需要注册的治理后端列表 |
 
+生成或检查专用 Get VIB root publisher 热号：
+`pnpm get-vib-root-publisher:generate`
+或
+`pnpm get-vib-root-publisher:inspect -- --uri '<助记词或 derivation URI>'`
+
 ## API 概览
 
 所有响应都遵循统一 envelope：

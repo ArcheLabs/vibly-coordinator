@@ -82,6 +82,11 @@ Public endpoints such as `/health`, `/ready`, `/metrics`, `/openapi.json`, and `
 | `SUBSTRATE_CHAIN_ID` | Logical chain identifier (for example `substrate:vibly-solo`) |
 | `GOVERNANCE_BACKENDS` | Comma-separated backend names to register (`substrate-opengov`, `evm-governor`, ...) |
 
+Generate or inspect a dedicated Get VIB root publisher hot key with:
+`pnpm get-vib-root-publisher:generate`
+or
+`pnpm get-vib-root-publisher:inspect -- --uri '<mnemonic or derivation URI>'`
+
 ### Optional
 
 | Variable | Description |
