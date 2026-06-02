@@ -4,7 +4,7 @@ import type { CoordinatorConfig } from "../config/env.js";
 import { notOk } from "../domain/apiTypes.js";
 import { evaluateClientVersion, getVersionPolicy, readClientVersionHeaders } from "../modules/platform/version-policy/policy.js";
 
-const VERSION_PUBLIC_PATHS = new Set(["/health", "/ready", "/metrics", "/docs", "/openapi.json", "/documentation", "/version-policy"]);
+const VERSION_PUBLIC_PATHS = new Set(["/health", "/ready", "/metrics", "/docs", "/openapi.json", "/documentation", "/version-policy", "/networks"]);
 
 export interface VersionPolicyPluginOptions {
   config: CoordinatorConfig;
@@ -12,6 +12,7 @@ export interface VersionPolicyPluginOptions {
 
 function isPublicPath(path: string): boolean {
   if (VERSION_PUBLIC_PATHS.has(path)) return true;
+  if (path.startsWith("/networks/")) return true;
   if (path.startsWith("/docs/") || path.startsWith("/documentation/")) return true;
   return false;
 }

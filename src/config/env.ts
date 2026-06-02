@@ -165,6 +165,7 @@ const envSchema = z
     UPGRADE_DEADLINE: z.string().optional(),
     UPGRADE_INSTRUCTIONS_URL: z.string().default("https://docs.vibly.dev/agent/upgrade"),
     PROTOCOL_VERSION: z.string().default("2026-06-01"),
+    NETWORK_MANIFEST_JSON: z.string().default(""),
   })
   .superRefine((val, ctx) => {
     if (val.GET_VIB_ROOT_UPLOAD_MODE === "unsafe-papi" && !val.GET_VIB_ROOT_PUBLISHER_URI.trim()) {
@@ -175,7 +176,68 @@ const envSchema = z
       });
     }
 
+    if (val.NETWORK_MANIFEST_JSON.trim()) {
+      let manifests: unknown;
+      try {
+        manifests = JSON.parse(val.NETWORK_MANIFEST_JSON);
+      } catch {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "NETWORK_MANIFEST_JSON must be valid JSON",
+          path: ["NETWORK_MANIFEST_JSON"],
+        });
+        manifests = undefined;
+      }
+      if (manifests !== undefined && !Array.isArray(manifests)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "NETWORK_MANIFEST_JSON must be a JSON array",
+          path: ["NETWORK_MANIFEST_JSON"],
+        });
+      }
+      if (val.NODE_ENV === "production" && Array.isArray(manifests)) {
+        for (const [index, manifest] of manifests.entries()) {
+          const record = manifest && typeof manifest === "object" ? (manifest as Record<string, unknown>) : {};
+          const features = record.features && typeof record.features === "object" ? (record.features as Record<string, unknown>) : undefined;
+          const coordinatorUrls = Array.isArray(record.coordinatorUrls) ? record.coordinatorUrls.filter((item) => typeof item === "string" && item.trim()) : [];
+          if (!coordinatorUrls.length) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `production NETWORK_MANIFEST_JSON[${index}] requires coordinatorUrls`,
+              path: ["NETWORK_MANIFEST_JSON"],
+            });
+          }
+          if (!record.stage || !record.status || !features) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `production NETWORK_MANIFEST_JSON[${index}] requires stage, status, and features`,
+              path: ["NETWORK_MANIFEST_JSON"],
+            });
+          }
+          const chains = record.chains && typeof record.chains === "object" ? (record.chains as Record<string, unknown>) : {};
+          for (const name of ["payment", "vibly"]) {
+            const chain = chains[name] && typeof chains[name] === "object" ? (chains[name] as Record<string, unknown>) : undefined;
+            if (chain?.status === "online" && typeof chain.genesisHash !== "string") {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: `production NETWORK_MANIFEST_JSON[${index}].chains.${name} requires genesisHash when online`,
+                path: ["NETWORK_MANIFEST_JSON"],
+              });
+            }
+          }
+        }
+      }
+    }
+
     if (val.NODE_ENV !== "production") return;
+
+    if (!val.NETWORK_MANIFEST_JSON.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "production requires NETWORK_MANIFEST_JSON",
+        path: ["NETWORK_MANIFEST_JSON"],
+      });
+    }
 
     if (val.STORAGE_MODE !== "postgres") {
       ctx.addIssue({
@@ -333,6 +395,7 @@ export interface CoordinatorConfig {
   upgradeDeadline?: string;
   upgradeInstructionsUrl: string;
   protocolVersion: string;
+  networkManifestJson?: string;
 
   // ─── Chain authority resolver ─────────────────────────────────────────────
   chainAuthorityMode: "rpc" | "disabled";
@@ -415,6 +478,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     upgradeDeadline: parsed.UPGRADE_DEADLINE?.trim() || undefined,
     upgradeInstructionsUrl: parsed.UPGRADE_INSTRUCTIONS_URL,
     protocolVersion: parsed.PROTOCOL_VERSION,
+    networkManifestJson: parsed.NETWORK_MANIFEST_JSON.trim() || undefined,
     chainAuthorityMode: parsed.CHAIN_AUTHORITY_MODE,
     chainAuthorityRpcUrl: parsed.CHAIN_AUTHORITY_RPC_URL.trim() || parsed.SUBSTRATE_RPC_URL,
     chainAuthorityChainId: parsed.CHAIN_AUTHORITY_CHAIN_ID,

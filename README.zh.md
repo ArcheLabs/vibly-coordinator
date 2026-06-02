@@ -49,6 +49,7 @@ coordinator 现在负责客户端兼容性策略，提供以下能力：
 | `UPGRADE_DEADLINE` | 可选的升级截止时间（ISO 时间戳） |
 | `UPGRADE_INSTRUCTIONS_URL` | 升级说明链接，会出现在 `UPGRADE_REQUIRED` 详情中 |
 | `PROTOCOL_VERSION` | 当前协调器发布的逻辑协议版本 |
+| `NETWORK_MANIFEST_JSON` | `/networks` 使用的公开网络 manifest 数组；生产环境必填，非生产环境留空才会使用内置 local/prelaunch 默认值 |
 
 ### 链与治理集成
 

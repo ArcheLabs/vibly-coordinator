@@ -95,6 +95,39 @@ describe("loadConfig", () => {
     OIDC_JWKS_URL: "https://idp.example/.well-known/jwks.json",
     ENABLE_DEV_ROUTES: "false",
     CLIENT_VERSION_ENFORCEMENT: "true",
+    NETWORK_MANIFEST_JSON: JSON.stringify([
+      {
+        manifestVersion: 1,
+        updatedAt: "2026-06-02T00:00:00.000Z",
+        ttlSeconds: 600,
+        id: "substrate:vibly-incentivized-testnet",
+        label: "Incentivized Testnet",
+        stage: "testnet",
+        status: "prelaunch",
+        coordinatorUrls: ["https://api.vibly.network"],
+        chains: {
+          payment: {
+            chainId: "polkadot",
+            genesisHash: "0x91b171bb158e2d3848fa23a9f1c25182",
+            status: "online",
+            rpcUrls: ["wss://rpc.polkadot.io"],
+          },
+          vibly: {
+            chainId: "substrate:vibly-incentivized-testnet",
+            status: "prelaunch",
+            rpcUrls: [],
+          },
+        },
+        features: {
+          agentJoin: false,
+          daemon: false,
+          staking: false,
+          rootIdentityRegistration: false,
+          getVibConversion: true,
+          getVibClaim: false,
+        },
+      },
+    ]),
   };
 
   it("accepts a minimal valid production configuration", () => {
@@ -102,6 +135,38 @@ describe("loadConfig", () => {
     expect(config.storageMode).toBe("postgres");
     expect(config.apiAuthMode).toBe("oidc");
     expect(config.databaseUrl).toMatch(/^postgres/);
+  });
+
+  it("rejects production network manifests with online chains missing genesis hashes", () => {
+    expect(() =>
+      loadConfig({
+        ...validProductionOidc,
+        NETWORK_MANIFEST_JSON: JSON.stringify([
+          {
+            manifestVersion: 1,
+            updatedAt: "2026-06-02T00:00:00.000Z",
+            ttlSeconds: 600,
+            id: "substrate:vibly-incentivized-testnet",
+            label: "Incentivized Testnet",
+            stage: "testnet",
+            status: "active",
+            coordinatorUrls: ["https://api.vibly.network"],
+            chains: {
+              payment: { chainId: "polkadot", status: "online", rpcUrls: ["wss://rpc.polkadot.io"] },
+              vibly: { chainId: "substrate:vibly-incentivized-testnet", status: "online", rpcUrls: ["wss://rpc.vibly.network"] },
+            },
+            features: {
+              agentJoin: true,
+              daemon: true,
+              staking: true,
+              rootIdentityRegistration: true,
+              getVibConversion: true,
+              getVibClaim: true,
+            },
+          },
+        ]),
+      }),
+    ).toThrow(/genesisHash/);
   });
 
   it("rejects production when storage is not postgres", () => {

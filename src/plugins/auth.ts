@@ -12,10 +12,11 @@ import {
   type AgentRuntimeTokenRecord,
 } from "../modules/identity/agent-enrollments/runtimeToken.js";
 
-const PUBLIC_PATHS = new Set(["/health", "/ready", "/metrics", "/docs", "/openapi.json", "/documentation", "/version-policy"]);
+const PUBLIC_PATHS = new Set(["/health", "/ready", "/metrics", "/docs", "/openapi.json", "/documentation", "/version-policy", "/networks"]);
 
 function isPublicPath(path: string): boolean {
   if (PUBLIC_PATHS.has(path)) return true;
+  if (path.startsWith("/networks/")) return true;
   if (path.startsWith("/docs/") || path.startsWith("/documentation/")) return true;
   return false;
 }

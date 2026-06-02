@@ -518,3 +518,48 @@ describe("client version policy", () => {
     await app.close();
   });
 });
+
+describe("network manifests", () => {
+  it("publishes public network manifests with incentivized testnet feature gates", async () => {
+    const config = loadConfig({
+      NODE_ENV: "test",
+      API_AUTH_MODE: "static-token",
+      API_TOKENS: "dev-token",
+      STORAGE_MODE: "memory",
+      CLIENT_VERSION_ENFORCEMENT: "true",
+      MINIMUM_CLIENT_VERSION: "0.2.0",
+      RECOMMENDED_CLIENT_VERSION: "0.3.0",
+    });
+    const app = await createApp({
+      config,
+      logger: createLogger(config),
+      concord: makeConcord(),
+      coordinatorStore: makeStore(),
+      eventBus: createEventBus(),
+      startGovernanceConsumers: false,
+    });
+
+    const list = await app.inject({ method: "GET", url: "/networks" });
+    expect(list.statusCode).toBe(200);
+    const networks = list.json<{ data: { networks: Array<{ id: string; features: Record<string, boolean>; status: string; minimumClientVersion?: string }> } }>().data.networks;
+    const incentivized = networks.find((network) => network.id === "substrate:vibly-incentivized-testnet");
+    expect(incentivized).toMatchObject({
+      status: "prelaunch",
+      minimumClientVersion: "0.2.0",
+      features: {
+        getVibConversion: true,
+        getVibClaim: false,
+        agentJoin: false,
+        daemon: false,
+        staking: false,
+      },
+    });
+    expect(JSON.stringify(networks)).not.toMatch(/dev-token|signerUri|authorityUri|\/\/Alice|\/\/RootPublisher/i);
+
+    const one = await app.inject({ method: "GET", url: "/networks/substrate%3Avibly-incentivized-testnet" });
+    expect(one.statusCode).toBe(200);
+    expect(one.json<{ data: { network: { id: string } } }>().data.network.id).toBe("substrate:vibly-incentivized-testnet");
+
+    await app.close();
+  });
+});

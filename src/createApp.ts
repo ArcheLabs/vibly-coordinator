@@ -18,6 +18,7 @@ import ssePlugin from "./plugins/sse.js";
 
 // Domain module route imports (see modules/<domain>/… layout in AGENTS.md)
 import healthRoutes from "./modules/platform/health/routes.js";
+import networksRoutes from "./modules/platform/networks/routes.js";
 import versionPolicyRoutes from "./modules/platform/version-policy/routes.js";
 import metricsRoutes from "./modules/platform/metrics/routes.js";
 import eventsRoutes from "./modules/platform/events/routes.js";
@@ -248,6 +249,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   });
 
   await fastify.register(healthRoutes, { config, readinessProbe });
+  await fastify.register(networksRoutes, { config });
   await fastify.register(versionPolicyRoutes, { config });
   await fastify.register(metricsRoutes);
   await fastify.register(eventsRoutes);

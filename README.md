@@ -66,6 +66,7 @@ Public endpoints such as `/health`, `/ready`, `/metrics`, `/openapi.json`, and `
 | `UPGRADE_DEADLINE` | Optional ISO timestamp for forced upgrade rollout |
 | `UPGRADE_INSTRUCTIONS_URL` | URL shown in `UPGRADE_REQUIRED` details |
 | `PROTOCOL_VERSION` | Logical coordinator protocol version sent back in policy responses |
+| `NETWORK_MANIFEST_JSON` | Public network manifest array for `/networks`; required in production, empty uses built-in local/prelaunch defaults only outside production |
 
 ### Governance and chain integration
 

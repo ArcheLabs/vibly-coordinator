@@ -32,6 +32,8 @@ const authorizationPlugin: FastifyPluginAsync<AuthorizationPluginOptions> = asyn
       path === "/ready" ||
       path === "/metrics" ||
       path === "/openapi.json" ||
+      path === "/networks" ||
+      path.startsWith("/networks/") ||
       path.startsWith("/docs") ||
       path.startsWith("/documentation")
     ) {
