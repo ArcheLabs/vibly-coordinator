@@ -10,6 +10,7 @@ import {
   listObservedRelayDeposits,
   markObservedRelayDepositFailed,
   quoteGetVibAmount,
+  recordClaim,
   saveObservedRelayDeposit,
 } from "./domain.js";
 import {
@@ -269,5 +270,74 @@ describe("Get VIB relay deposits", () => {
       accountId,
       failureReason: "allocation failed",
     });
+  });
+
+  it("derives claimed amount from the latest cumulative claim and de-duplicates claim records", async () => {
+    const store = makeStore();
+    const config = loadConfig({
+      NODE_ENV: "test",
+      SUBSTRATE_CHAIN_ID: "local:get-vib-test",
+      VIBLY_DOT_RECEIVING_ADDRESS: "deposit",
+      VIBLY_CONVERSION_INITIAL_RATE: "1000",
+    });
+    const accountId = "0x2222222222222222222222222222222222222222222222222222222222222222";
+
+    await saveObservedRelayDeposit(store, {
+      relayChainId: "polkadot-dev",
+      sourceId: "polkadot-dev:0xdef:0:2",
+      from: "from",
+      to: "deposit",
+      amountBaseUnits: "10000000000",
+      dotAmount: "1",
+      blockNumber: 2,
+      blockHash: "0xdef",
+      extrinsicIndex: 0,
+      eventIndex: 2,
+      extrinsicHash: "0xtx2",
+      finalizedAt: "2026-05-24T00:10:00.000Z",
+    }).then((observed) =>
+      ingestFinalizedDeposit({
+        store,
+        config,
+        observedDepositId: observed.deposit.id,
+        accountId,
+      }),
+    );
+
+    const first = await recordClaim({
+      store,
+      config,
+      accountId,
+      rootVersion: 1,
+      cumulativeAmount: "10",
+      claimedDelta: "10",
+      status: "confirmed",
+    });
+    const second = await recordClaim({
+      store,
+      config,
+      accountId,
+      rootVersion: 2,
+      cumulativeAmount: "15",
+      claimedDelta: "5",
+      status: "confirmed",
+    });
+    const duplicate = await recordClaim({
+      store,
+      config,
+      accountId,
+      rootVersion: 2,
+      cumulativeAmount: "15",
+      claimedDelta: "5",
+      status: "confirmed",
+    });
+
+    const summary = await getAllocationSummary(store, config, accountId);
+    const records = await getRecords(store, config, accountId);
+
+    expect(first.id).not.toBe(second.id);
+    expect(duplicate.id).toBe(second.id);
+    expect(summary.claimedAmount).toBe("15");
+    expect(records.claims).toHaveLength(2);
   });
 });

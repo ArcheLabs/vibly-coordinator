@@ -4,6 +4,7 @@ import { badRequest, conflict, notFound } from "../../../domain/errors.js";
 import type { CoordinatorStorePort } from "../../../db/coordinatorStorePort.js";
 
 export const AGENT_ENROLLMENT_CHALLENGE = "agent_enrollment_challenge_v1";
+export const AGENT_SESSION_AUTHORIZATION = "agent_session_authorization_v1";
 export const AGENT_SECURITY_EVENT = "agent_security_event_v1";
 export const AGENT_STAKE_RECEIPT = "agent_stake_receipt_v1";
 
@@ -33,6 +34,22 @@ export interface AgentEnrollmentChallenge {
   usedAt?: string;
 }
 
+export interface AgentSessionAuthorization {
+  id: string;
+  sessionPublicKey: string;
+  keyType: "sr25519" | "ed25519" | "ecdsa" | "unknown";
+  displayName?: string;
+  organizationIds: string[];
+  authorizedBy: string;
+  rootEcosystem: "evm" | "polkadot";
+  status: "pending_client" | "completed" | "revoked";
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  principalId?: string;
+  sessionKeyId?: string;
+}
+
 export interface AgentSecurityEvent {
   id: string;
   type: string;
@@ -60,6 +77,25 @@ export function normalizeDescriptor(input: AgentDescriptor): AgentDescriptor {
     organizationIds: input.organizationIds?.length ? input.organizationIds.map(String).filter(Boolean) : ["default"],
     scopes: input.scopes?.length ? input.scopes.map(String).filter(Boolean) : ["availability", "task_result", "pause_duty", "resume_duty"],
   };
+}
+
+export function normalizeSessionPublicKey(input: unknown): string {
+  if (typeof input !== "string" || !input.trim()) throw badRequest("Agent sessionPublicKey is required");
+  const value = input.trim();
+  if (!/^0x[0-9a-fA-F]{32,132}$/.test(value) && !/^[1-9A-HJ-NP-Za-km-z]{32,80}$/.test(value)) {
+    throw badRequest("Agent sessionPublicKey must be an SS58 address or hex public key");
+  }
+  return value;
+}
+
+export function buildEnrollmentCompletionMessage(input: AgentSessionAuthorization): string {
+  return [
+    "Vibly Agent Enrollment Completion",
+    `Authorization: ${input.id}`,
+    `Session Public Key: ${input.sessionPublicKey}`,
+    `Authorized By: ${input.authorizedBy}`,
+    `Issued At: ${input.createdAt}`,
+  ].join("\n");
 }
 
 export function buildEnrollmentChallenge(input: { descriptor: AgentDescriptor; origin: string; ttlMs?: number }): AgentEnrollmentChallenge {
@@ -135,3 +171,13 @@ export async function verifyRootAuthorization(input: {
   if (!verified.isValid) throw badRequest("Invalid root authorization signature");
 }
 
+export async function verifySessionCompletion(input: {
+  message: string;
+  sessionPublicKey: string;
+  sessionSignature: string;
+}): Promise<void> {
+  if (!input.sessionSignature) throw badRequest("Session signature is required");
+  await cryptoWaitReady();
+  const verified = signatureVerify(input.message, input.sessionSignature, input.sessionPublicKey);
+  if (!verified.isValid) throw badRequest("Invalid agent session signature");
+}

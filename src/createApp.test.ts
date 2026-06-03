@@ -554,6 +554,97 @@ describe("createApp governance runtime config", () => {
 
     await app.close();
   });
+
+  it("authorizes a session public key and lets the local agent complete enrollment", async () => {
+    await cryptoWaitReady();
+    const keyring = new Keyring({ type: "sr25519" });
+    const root = keyring.addFromUri("//Alice");
+    const agent = keyring.addFromUri("//Dave");
+
+    const config = loadConfig({
+      NODE_ENV: "test",
+      API_AUTH_MODE: "static-token",
+      API_TOKENS: "dev-token",
+    });
+    const app = await createApp({
+      config,
+      logger: createLogger(config),
+      concord: makeConcord(),
+      coordinatorStore: makeStore(),
+      eventBus: createEventBus(),
+      startGovernanceConsumers: false,
+    });
+    const token = await createWalletSession(app, root.address, root);
+
+    const authorizeKeyRes = await app.inject({
+      method: "POST",
+      url: "/agent-enrollments/public-keys",
+      headers: { "x-wallet-session": token },
+      payload: {
+        sessionPublicKey: agent.address,
+        keyType: "sr25519",
+        displayName: "Linked Agent",
+        organizationIds: ["default"],
+      },
+    });
+    expect(authorizeKeyRes.statusCode).toBe(200);
+    const rootAuthorization = authorizeKeyRes.json<{ data: { authorization: { id: string; status: string; completionMessage: string; sessionPublicKey: string } } }>().data.authorization;
+    expect(rootAuthorization.status).toBe("pending_client");
+    expect(rootAuthorization.sessionPublicKey).toBe(agent.address);
+    expect(rootAuthorization.completionMessage).toContain(rootAuthorization.id);
+
+    const statusRes = await app.inject({
+      method: "GET",
+      url: `/agent-enrollments/status?sessionPublicKey=${encodeURIComponent(agent.address)}`,
+    });
+    expect(statusRes.statusCode).toBe(200);
+    expect(statusRes.json<{ data: { authorization: { status: string } } }>().data.authorization.status).toBe("pending_client");
+
+    const completeRes = await app.inject({
+      method: "POST",
+      url: "/agent-enrollments/complete",
+      payload: {
+        descriptor: {
+          displayName: "Linked Agent",
+          sessionPublicKey: agent.address,
+          keyType: "sr25519",
+          localAgentId: "local-agent-2",
+          capabilities: ["observer"],
+          organizationIds: ["default"],
+          scopes: ["availability", "task_result"],
+          identityId: "identity-2",
+          chainAgentId: "chain-agent-2",
+          chainId: "substrate:vibly-solo",
+        },
+        sessionSignature: toHex(agent.sign(new TextEncoder().encode(rootAuthorization.completionMessage))),
+      },
+    });
+    expect(completeRes.statusCode).toBe(200);
+    const authorization = completeRes.json<{ data: { authorization: { principalId: string; runtimeToken: string; sessionKey: { proof: { mode: string; authorizationId: string } }; rootAuthorization: { status: string } } } }>().data.authorization;
+    expect(authorization.runtimeToken).toMatch(/^vibly_agent_rt_/);
+    expect(authorization.sessionKey.proof.mode).toBe("console-public-key");
+    expect(authorization.sessionKey.proof.authorizationId).toBe(rootAuthorization.id);
+    expect(authorization.rootAuthorization.status).toBe("completed");
+
+    const completedStatusRes = await app.inject({
+      method: "GET",
+      url: `/agent-enrollments/status?sessionPublicKey=${encodeURIComponent(agent.address)}`,
+    });
+    expect(completedStatusRes.statusCode).toBe(200);
+    const completedStatus = completedStatusRes.json<{ data: { authorization: { status: string; completionMessage?: string } } }>().data.authorization;
+    expect(completedStatus.status).toBe("completed");
+    expect(completedStatus.completionMessage).toBe(rootAuthorization.completionMessage);
+
+    const heartbeatRes = await app.inject({
+      method: "POST",
+      url: `/agents/${authorization.principalId}/heartbeat`,
+      headers: { authorization: `Bearer ${authorization.runtimeToken}` },
+      payload: { availability: "available", clientVersion: "0.2.0" },
+    });
+    expect(heartbeatRes.statusCode).toBe(200);
+
+    await app.close();
+  });
 });
 
 function toHex(bytes: Uint8Array): string {

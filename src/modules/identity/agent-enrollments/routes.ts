@@ -8,14 +8,19 @@ import type { AgentProfile, AgentSessionKey, Principal } from "../../../contexts
 import { WALLET_SESSION, ensureActiveWalletSession, type WalletSessionRecord } from "../wallet/domain.js";
 import {
   AGENT_ENROLLMENT_CHALLENGE,
+  AGENT_SESSION_AUTHORIZATION,
   AGENT_SECURITY_EVENT,
   AGENT_STAKE_RECEIPT,
+  buildEnrollmentCompletionMessage,
   buildEnrollmentChallenge,
   consumeEnrollmentChallenge,
   makeId,
   normalizeDescriptor,
+  normalizeSessionPublicKey,
+  verifySessionCompletion,
   verifyRootAuthorization,
   type AgentDescriptor,
+  type AgentSessionAuthorization,
   type AgentSecurityEvent,
 } from "./domain.js";
 import {
@@ -44,7 +49,7 @@ const agentEnrollmentsRoutes: FastifyPluginAsync = async (fastify) => {
 
   async function saveAgentEnrollmentAuthorization(input: {
     descriptor: AgentDescriptor;
-    session: WalletSessionRecord;
+    authorizedBy: string;
     proof: AgentSessionKey["proof"];
   }) {
     const descriptor = normalizeDescriptor(input.descriptor);
@@ -71,7 +76,7 @@ const agentEnrollmentsRoutes: FastifyPluginAsync = async (fastify) => {
       scopes: descriptor.scopes ?? [],
       stakeLimit: descriptor.stakeLimit,
       expiresAt: descriptor.expiresAt,
-      authorizedBy: input.session.address,
+      authorizedBy: input.authorizedBy,
       proof: input.proof,
       createdAt: now,
     };
@@ -100,12 +105,16 @@ const agentEnrollmentsRoutes: FastifyPluginAsync = async (fastify) => {
       principalId,
       sessionKeyId: sessionKey.id,
       sessionPublicKey: sessionKey.publicKey,
-      authorizedBy: input.session.address,
+      authorizedBy: input.authorizedBy,
       scopes: sessionKey.scopes,
       status: "active",
       createdAt: now,
       expiresAt: sessionKey.expiresAt,
     };
+    const existingRuntimeTokens = await fastify.coordinatorStore.listProjections<AgentRuntimeTokenRecord>(AGENT_RUNTIME_TOKEN);
+    await Promise.all(existingRuntimeTokens
+      .filter((token) => token.principalId === principalId && token.sessionPublicKey === sessionKey.publicKey && token.status === "active")
+      .map((token) => fastify.coordinatorStore.saveProjection(AGENT_RUNTIME_TOKEN, token.id, { ...token, status: "revoked" as const })));
     await fastify.coordinatorStore.saveProjection(AGENT_RUNTIME_TOKEN, runtimeTokenRecord.id, runtimeTokenRecord);
 
     const event = makeSecurityEvent({
@@ -137,13 +146,163 @@ const agentEnrollmentsRoutes: FastifyPluginAsync = async (fastify) => {
       const session = await requireWalletSession(request);
       const authorization = await saveAgentEnrollmentAuthorization({
         descriptor: request.body.descriptor,
-        session,
+        authorizedBy: session.address,
         proof: {
           mode: "direct-console",
           message: "Wallet session authenticated direct Console enrollment",
         },
       });
       return ok({ authorization });
+    },
+  );
+
+  fastify.post<{
+    Body: {
+      sessionPublicKey: string;
+      keyType?: AgentSessionAuthorization["keyType"];
+      displayName?: string;
+      organizationIds?: string[];
+    };
+  }>(
+    "/agent-enrollments/public-keys",
+    {
+      ...authPolicy("wallet-session", {
+        tags: ["Agents"],
+        summary: "Authorize a local agent session public key with the connected root wallet",
+        body: {
+          type: "object",
+          required: ["sessionPublicKey"],
+          properties: {
+            sessionPublicKey: { type: "string" },
+            keyType: { type: "string", enum: ["sr25519", "ed25519", "ecdsa", "unknown"] },
+            displayName: { type: "string" },
+            organizationIds: { type: "array", items: { type: "string" } },
+          },
+        },
+        response: { 200: envelopeKey("authorization", OPEN_OBJECT) },
+      }),
+    },
+    async (request) => {
+      const session = await requireWalletSession(request);
+      const sessionPublicKey = normalizeSessionPublicKey(request.body.sessionPublicKey);
+      const id = makeSessionAuthorizationId(sessionPublicKey);
+      const existing = await fastify.coordinatorStore.getProjection<AgentSessionAuthorization>(AGENT_SESSION_AUTHORIZATION, id);
+      if (existing && existing.authorizedBy !== session.address) {
+        throw badRequest("Agent session public key is already authorized by another root wallet");
+      }
+      const now = new Date().toISOString();
+      const authorization: AgentSessionAuthorization = {
+        ...(existing ?? {
+          id,
+          sessionPublicKey,
+          status: "pending_client" as const,
+          createdAt: now,
+        }),
+        keyType: request.body.keyType ?? existing?.keyType ?? "sr25519",
+        displayName: request.body.displayName?.trim() || existing?.displayName,
+        organizationIds: request.body.organizationIds?.length ? request.body.organizationIds.map(String).filter(Boolean) : existing?.organizationIds ?? ["default"],
+        authorizedBy: session.address,
+        rootEcosystem: session.ecosystem,
+        updatedAt: now,
+      };
+      await fastify.coordinatorStore.saveProjection(AGENT_SESSION_AUTHORIZATION, authorization.id, authorization);
+      return ok({
+        authorization: {
+          ...authorization,
+          completionMessage: authorization.status !== "revoked" ? buildEnrollmentCompletionMessage(authorization) : undefined,
+        },
+      });
+    },
+  );
+
+  fastify.get<{ Querystring: { sessionPublicKey?: string } }>(
+    "/agent-enrollments/status",
+    {
+      ...authPolicy("public-read", {
+        tags: ["Agents"],
+        summary: "Read Console authorization status for a local agent session public key",
+        querystring: {
+          type: "object",
+          required: ["sessionPublicKey"],
+          properties: { sessionPublicKey: { type: "string" } },
+        },
+        response: { 200: envelopeKey("authorization", OPEN_OBJECT) },
+      }),
+    },
+    async (request) => {
+      const sessionPublicKey = normalizeSessionPublicKey(request.query.sessionPublicKey);
+      const id = makeSessionAuthorizationId(sessionPublicKey);
+      const authorization = await fastify.coordinatorStore.getProjection<AgentSessionAuthorization>(AGENT_SESSION_AUTHORIZATION, id);
+      if (!authorization) {
+        return ok({ authorization: { id, sessionPublicKey, status: "not_found" } });
+      }
+      return ok({
+        authorization: {
+          ...authorization,
+          completionMessage: authorization.status !== "revoked" ? buildEnrollmentCompletionMessage(authorization) : undefined,
+        },
+      });
+    },
+  );
+
+  fastify.post<{ Body: { descriptor: AgentDescriptor; sessionSignature: string } }>(
+    "/agent-enrollments/complete",
+    {
+      ...authPolicy("public-read", {
+        tags: ["Agents"],
+        summary: "Complete a Console-authorized agent enrollment with the local session key",
+        body: {
+          type: "object",
+          required: ["descriptor", "sessionSignature"],
+          properties: {
+            descriptor: OPEN_OBJECT,
+            sessionSignature: { type: "string" },
+          },
+        },
+        response: { 200: envelopeKey("authorization", OPEN_OBJECT) },
+      }),
+    },
+    async (request) => {
+      const descriptor = normalizeDescriptor(request.body.descriptor);
+      const sessionPublicKey = normalizeSessionPublicKey(descriptor.sessionPublicKey);
+      const id = makeSessionAuthorizationId(sessionPublicKey);
+      const rootAuthorization = await fastify.coordinatorStore.getProjection<AgentSessionAuthorization>(AGENT_SESSION_AUTHORIZATION, id);
+      if (!rootAuthorization) throw notFound("AgentSessionAuthorization", id);
+      if (rootAuthorization.status === "revoked") throw badRequest("Agent session authorization is revoked");
+      if (rootAuthorization.sessionPublicKey !== descriptor.sessionPublicKey) throw badRequest("Agent descriptor sessionPublicKey does not match authorization");
+      const message = buildEnrollmentCompletionMessage(rootAuthorization);
+      await verifySessionCompletion({
+        message,
+        sessionPublicKey: rootAuthorization.sessionPublicKey,
+        sessionSignature: request.body.sessionSignature,
+      });
+
+      const authorization = await saveAgentEnrollmentAuthorization({
+        descriptor: {
+          ...descriptor,
+          keyType: descriptor.keyType ?? rootAuthorization.keyType,
+          organizationIds: descriptor.organizationIds?.length ? descriptor.organizationIds : rootAuthorization.organizationIds,
+          displayName: descriptor.displayName || rootAuthorization.displayName || "Local Agent",
+        },
+        authorizedBy: rootAuthorization.authorizedBy,
+        proof: {
+          mode: "console-public-key",
+          authorizationId: rootAuthorization.id,
+          sessionSignature: request.body.sessionSignature,
+          message,
+        },
+      });
+      const now = new Date().toISOString();
+      const completed: AgentSessionAuthorization = {
+        ...rootAuthorization,
+        status: "completed",
+        updatedAt: now,
+        completedAt: rootAuthorization.completedAt ?? now,
+        principalId: authorization.principalId,
+        sessionKeyId: authorization.sessionKey.id,
+      };
+      await fastify.coordinatorStore.saveProjection(AGENT_SESSION_AUTHORIZATION, completed.id, completed);
+      return ok({ authorization: { ...authorization, rootAuthorization: completed } });
     },
   );
 
@@ -269,7 +428,7 @@ const agentEnrollmentsRoutes: FastifyPluginAsync = async (fastify) => {
 
       const authorization = await saveAgentEnrollmentAuthorization({
         descriptor: challenge.descriptor,
-        session,
+        authorizedBy: session.address,
         proof: {
           mode: "challenge",
           challengeId: challenge.id,
@@ -331,6 +490,11 @@ const agentEnrollmentsRoutes: FastifyPluginAsync = async (fastify) => {
 function makePrincipalId(publicKey: string): string {
   const cleaned = publicKey.replace(/[^a-zA-Z0-9]/g, "").slice(0, 24) || makeId("agent");
   return `agent_${cleaned}`;
+}
+
+function makeSessionAuthorizationId(publicKey: string): string {
+  const cleaned = publicKey.replace(/[^a-zA-Z0-9]/g, "").slice(0, 48) || makeId("asa");
+  return `asa_${cleaned}`;
 }
 
 function makeSecurityEvent(input: Omit<AgentSecurityEvent, "id" | "createdAt">): AgentSecurityEvent {

@@ -722,10 +722,19 @@ export async function recordClaim(input: {
   txHash?: string;
   status?: ClaimStatus;
 }): Promise<ClaimRecord> {
+  const networkId = getNetworkId(input.config);
+  const existing = (await listNetworkClaims(input.store, networkId)).find((claim) =>
+    claim.accountId === input.accountId &&
+    claim.rootVersion === input.rootVersion &&
+    claim.cumulativeAmount === input.cumulativeAmount &&
+    claim.status === (input.status ?? "confirmed"),
+  );
+  if (existing) return existing;
+
   const now = new Date().toISOString();
   const claim: ClaimRecord = {
     id: makeId("claim"),
-    networkId: getNetworkId(input.config),
+    networkId,
     accountId: input.accountId,
     identityId: input.identityId,
     rootVersion: input.rootVersion,
@@ -996,7 +1005,7 @@ async function claimedAmountForAccount(store: CoordinatorStorePort, networkId: s
   const claims = await listNetworkClaims(store, networkId);
   return claims
     .filter((claim) => claim.accountId === accountId && claim.status === "confirmed")
-    .reduce((sum, claim) => addDecimalStrings(sum, claim.claimedDelta), "0");
+    .reduce((max, claim) => maxDecimalString(max, claim.cumulativeAmount), "0");
 }
 
 async function completedGetVibRaiseUsd(store: CoordinatorStorePort, networkId: string): Promise<number> {

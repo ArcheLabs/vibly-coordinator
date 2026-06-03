@@ -12,6 +12,7 @@ export interface VersionPolicyPluginOptions {
 
 function isPublicPath(path: string): boolean {
   if (VERSION_PUBLIC_PATHS.has(path)) return true;
+  if (path === "/agent-enrollments/status") return true;
   if (path.startsWith("/networks/")) return true;
   if (path.startsWith("/docs/") || path.startsWith("/documentation/")) return true;
   return false;
