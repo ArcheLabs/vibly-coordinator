@@ -27,6 +27,7 @@ export interface AgentSessionKey {
   expiresAt?: string;
   authorizedBy: string;
   proof?: {
+    mode?: "challenge" | "direct-console";
     challengeId?: string;
     sessionSignature?: string;
     rootSignature?: string;

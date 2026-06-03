@@ -498,6 +498,62 @@ describe("createApp governance runtime config", () => {
 
     await app.close();
   });
+
+  it("directly adds an agent session key from an enrollment descriptor", async () => {
+    await cryptoWaitReady();
+    const keyring = new Keyring({ type: "sr25519" });
+    const root = keyring.addFromUri("//Alice");
+    const agent = keyring.addFromUri("//Charlie");
+
+    const config = loadConfig({
+      NODE_ENV: "test",
+      API_AUTH_MODE: "static-token",
+      API_TOKENS: "dev-token",
+    });
+    const app = await createApp({
+      config,
+      logger: createLogger(config),
+      concord: makeConcord(),
+      coordinatorStore: makeStore(),
+      eventBus: createEventBus(),
+      startGovernanceConsumers: false,
+    });
+    const token = await createWalletSession(app, root.address, root);
+
+    const addRes = await app.inject({
+      method: "POST",
+      url: "/agent-enrollments",
+      headers: { "x-wallet-session": token },
+      payload: {
+        descriptor: {
+          displayName: "Direct Agent",
+          sessionPublicKey: agent.address,
+          localAgentId: "local-agent-1",
+          capabilities: ["observer"],
+          organizationIds: ["default"],
+          scopes: ["availability", "task_result"],
+          identityId: "identity-1",
+          chainAgentId: "chain-agent-1",
+          chainId: "substrate:vibly-solo",
+        },
+      },
+    });
+    expect(addRes.statusCode).toBe(200);
+    const authorization = addRes.json<{ data: { authorization: { principalId: string; runtimeToken: string; sessionKey: { proof: { mode: string } }; profile: { sessionKeys: unknown[] } } } }>().data.authorization;
+    expect(authorization.profile.sessionKeys).toHaveLength(1);
+    expect(authorization.sessionKey.proof.mode).toBe("direct-console");
+    expect(authorization.runtimeToken).toMatch(/^vibly_agent_rt_/);
+
+    const heartbeatRes = await app.inject({
+      method: "POST",
+      url: `/agents/${authorization.principalId}/heartbeat`,
+      headers: { authorization: `Bearer ${authorization.runtimeToken}` },
+      payload: { availability: "available", clientVersion: "0.2.0" },
+    });
+    expect(heartbeatRes.statusCode).toBe(200);
+
+    await app.close();
+  });
 });
 
 function toHex(bytes: Uint8Array): string {

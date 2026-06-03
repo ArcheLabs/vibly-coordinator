@@ -169,6 +169,9 @@ export interface ClaimProof {
   merkleRoot: string;
   proof: MerkleProofItem[];
   metadataHash: string;
+  rootUploadStatus?: RootUploadStatus;
+  rootUploadTxHash?: string;
+  rootUploadedAt?: string;
 }
 
 export interface AllocationManifest {
@@ -688,6 +691,7 @@ export async function getClaimProof(store: CoordinatorStorePort, config: Coordin
   const networkId = getNetworkId(config);
   const manifest = await latestManifest(store, networkId);
   if (!manifest) throw notFound("Get VIB manifest", networkId);
+  const rootUpload = await getRootUploadRecord(store, manifest.networkId, manifest.rootVersion);
   const tree = buildMerkleTree(manifest.allocations);
   const proof = tree.proofs.get(accountId);
   const allocation = manifest.allocations.find((item) => item.accountId === accountId);
@@ -701,6 +705,9 @@ export async function getClaimProof(store: CoordinatorStorePort, config: Coordin
     merkleRoot: manifest.merkleRoot,
     proof,
     metadataHash: manifest.metadataHash,
+    rootUploadStatus: rootUpload?.status,
+    rootUploadTxHash: rootUpload?.txHash,
+    rootUploadedAt: rootUpload?.uploadedAt,
   };
 }
 

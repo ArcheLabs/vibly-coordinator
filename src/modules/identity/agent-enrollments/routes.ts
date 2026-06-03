@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { ok } from "../../../domain/apiTypes.js";
 import { badRequest, notFound } from "../../../domain/errors.js";
 import { envelopeKey } from "../../../domain/schemas.js";
@@ -33,6 +33,120 @@ function sessionTokenFromRequest(headers: Record<string, string | string[] | und
 const OPEN_OBJECT = { type: "object" as const, additionalProperties: true };
 
 const agentEnrollmentsRoutes: FastifyPluginAsync = async (fastify) => {
+  async function requireWalletSession(request: FastifyRequest): Promise<WalletSessionRecord> {
+    const token = sessionTokenFromRequest(request.headers as Record<string, string | string[] | undefined>);
+    if (!token) throw badRequest("Wallet session token is required");
+    return ensureActiveWalletSession(
+      await fastify.coordinatorStore.getProjection<WalletSessionRecord>(WALLET_SESSION, token),
+      token,
+    );
+  }
+
+  async function saveAgentEnrollmentAuthorization(input: {
+    descriptor: AgentDescriptor;
+    session: WalletSessionRecord;
+    proof: AgentSessionKey["proof"];
+  }) {
+    const descriptor = normalizeDescriptor(input.descriptor);
+    const now = new Date().toISOString();
+    const principalId = descriptor.principalId ?? makePrincipalId(descriptor.sessionPublicKey);
+    const repo = new IdentityRepository(fastify.coordinatorStore);
+    const existingPrincipal = await repo.getPrincipal(principalId);
+    const principal: Principal = {
+      id: principalId,
+      kind: "agent",
+      displayName: descriptor.displayName,
+      organizationIds: descriptor.organizationIds ?? ["default"],
+      createdAt: existingPrincipal?.createdAt ?? now,
+      updatedAt: now,
+    };
+    await repo.savePrincipal(principal);
+
+    const existingProfile = await repo.getAgentProfile(principalId);
+    const sessionKey: AgentSessionKey = {
+      id: makeId("ask"),
+      publicKey: descriptor.sessionPublicKey,
+      keyType: descriptor.keyType ?? "sr25519",
+      status: "active",
+      scopes: descriptor.scopes ?? [],
+      stakeLimit: descriptor.stakeLimit,
+      expiresAt: descriptor.expiresAt,
+      authorizedBy: input.session.address,
+      proof: input.proof,
+      createdAt: now,
+    };
+    const existingKeys = existingProfile?.sessionKeys ?? [];
+    const activeKeys = existingKeys.filter((key) => key.publicKey !== sessionKey.publicKey || key.status !== "active");
+    const profile: AgentProfile = {
+      principalId,
+      displayName: descriptor.displayName,
+      capabilities: descriptor.capabilities ?? [],
+      organizationIds: descriptor.organizationIds ?? ["default"],
+      sessionKeys: [...activeKeys, sessionKey],
+      chainId: descriptor.chainId ?? existingProfile?.chainId ?? fastify.config.substrateChainId,
+      identityId: descriptor.identityId ?? existingProfile?.identityId,
+      chainAgentId: descriptor.chainAgentId ?? existingProfile?.chainAgentId,
+      dutyStatus: existingProfile?.dutyStatus ?? "active",
+      stakeStatus: existingProfile?.stakeStatus,
+      createdAt: existingProfile?.createdAt ?? now,
+      updatedAt: now,
+    };
+    await repo.saveAgentProfile(profile);
+
+    const runtimeToken = createAgentRuntimeToken();
+    const runtimeTokenRecord: AgentRuntimeTokenRecord = {
+      id: hashAgentRuntimeToken(runtimeToken),
+      tokenHash: hashAgentRuntimeToken(runtimeToken),
+      principalId,
+      sessionKeyId: sessionKey.id,
+      sessionPublicKey: sessionKey.publicKey,
+      authorizedBy: input.session.address,
+      scopes: sessionKey.scopes,
+      status: "active",
+      createdAt: now,
+      expiresAt: sessionKey.expiresAt,
+    };
+    await fastify.coordinatorStore.saveProjection(AGENT_RUNTIME_TOKEN, runtimeTokenRecord.id, runtimeTokenRecord);
+
+    const event = makeSecurityEvent({
+      type: "SessionKeyAuthorized",
+      principalId,
+      title: "Session key authorized",
+      meta: `${descriptor.displayName} · scopes: ${(descriptor.scopes ?? []).join(", ")}`,
+      severity: "success",
+    });
+    await fastify.coordinatorStore.saveProjection(AGENT_SECURITY_EVENT, event.id, event);
+    return { principalId, sessionKey, profile, event, runtimeToken };
+  }
+
+  fastify.post<{ Body: { descriptor: AgentDescriptor } }>(
+    "/agent-enrollments",
+    {
+      ...authPolicy("wallet-session", {
+        tags: ["Agents"],
+        summary: "Directly add an agent session key from a client enrollment descriptor",
+        body: {
+          type: "object",
+          required: ["descriptor"],
+          properties: { descriptor: OPEN_OBJECT },
+        },
+        response: { 200: envelopeKey("authorization", OPEN_OBJECT) },
+      }),
+    },
+    async (request) => {
+      const session = await requireWalletSession(request);
+      const authorization = await saveAgentEnrollmentAuthorization({
+        descriptor: request.body.descriptor,
+        session,
+        proof: {
+          mode: "direct-console",
+          message: "Wallet session authenticated direct Console enrollment",
+        },
+      });
+      return ok({ authorization });
+    },
+  );
+
   fastify.post<{ Body: { descriptor: AgentDescriptor } }>(
     "/agent-enrollments/challenges",
     {
@@ -140,12 +254,7 @@ const agentEnrollmentsRoutes: FastifyPluginAsync = async (fastify) => {
       }),
     },
     async (request) => {
-      const token = sessionTokenFromRequest(request.headers as Record<string, string | string[] | undefined>);
-      if (!token) throw badRequest("Wallet session token is required");
-      const session = ensureActiveWalletSession(
-        await fastify.coordinatorStore.getProjection<WalletSessionRecord>(WALLET_SESSION, token),
-        token,
-      );
+      const session = await requireWalletSession(request);
       const challenge = await consumeEnrollmentChallenge({
         store: fastify.coordinatorStore,
         challengeId: request.body.challengeId,
@@ -158,81 +267,18 @@ const agentEnrollmentsRoutes: FastifyPluginAsync = async (fastify) => {
         signature: request.body.rootAuthorizationSignature,
       });
 
-      const descriptor = challenge.descriptor;
-      const now = new Date().toISOString();
-      const principalId = descriptor.principalId ?? makePrincipalId(descriptor.sessionPublicKey);
-      const repo = new IdentityRepository(fastify.coordinatorStore);
-      const existingPrincipal = await repo.getPrincipal(principalId);
-      const principal: Principal = {
-        id: principalId,
-        kind: "agent",
-        displayName: descriptor.displayName,
-        organizationIds: descriptor.organizationIds ?? ["default"],
-        createdAt: existingPrincipal?.createdAt ?? now,
-        updatedAt: now,
-      };
-      await repo.savePrincipal(principal);
-
-      const existingProfile = await repo.getAgentProfile(principalId);
-      const sessionKey: AgentSessionKey = {
-        id: makeId("ask"),
-        publicKey: descriptor.sessionPublicKey,
-        keyType: descriptor.keyType ?? "sr25519",
-        status: "active",
-        scopes: descriptor.scopes ?? [],
-        stakeLimit: descriptor.stakeLimit,
-        expiresAt: descriptor.expiresAt,
-        authorizedBy: session.address,
+      const authorization = await saveAgentEnrollmentAuthorization({
+        descriptor: challenge.descriptor,
+        session,
         proof: {
+          mode: "challenge",
           challengeId: challenge.id,
           sessionSignature: request.body.sessionSignature,
           rootSignature: request.body.rootAuthorizationSignature,
           message: challenge.rootAuthorizationMessage,
         },
-        createdAt: now,
-      };
-      const existingKeys = existingProfile?.sessionKeys ?? [];
-      const activeKeys = existingKeys.filter((key) => key.publicKey !== sessionKey.publicKey || key.status !== "active");
-      const profile: AgentProfile = {
-        principalId,
-        displayName: descriptor.displayName,
-        capabilities: descriptor.capabilities ?? [],
-        organizationIds: descriptor.organizationIds ?? ["default"],
-        sessionKeys: [...activeKeys, sessionKey],
-        chainId: descriptor.chainId ?? existingProfile?.chainId ?? fastify.config.substrateChainId,
-        identityId: descriptor.identityId ?? existingProfile?.identityId,
-        chainAgentId: descriptor.chainAgentId ?? existingProfile?.chainAgentId,
-        dutyStatus: existingProfile?.dutyStatus ?? "active",
-        stakeStatus: existingProfile?.stakeStatus,
-        createdAt: existingProfile?.createdAt ?? now,
-        updatedAt: now,
-      };
-      await repo.saveAgentProfile(profile);
-
-      const runtimeToken = createAgentRuntimeToken();
-      const runtimeTokenRecord: AgentRuntimeTokenRecord = {
-        id: hashAgentRuntimeToken(runtimeToken),
-        tokenHash: hashAgentRuntimeToken(runtimeToken),
-        principalId,
-        sessionKeyId: sessionKey.id,
-        sessionPublicKey: sessionKey.publicKey,
-        authorizedBy: session.address,
-        scopes: sessionKey.scopes,
-        status: "active",
-        createdAt: now,
-        expiresAt: sessionKey.expiresAt,
-      };
-      await fastify.coordinatorStore.saveProjection(AGENT_RUNTIME_TOKEN, runtimeTokenRecord.id, runtimeTokenRecord);
-
-      const event = makeSecurityEvent({
-        type: "SessionKeyAuthorized",
-        principalId,
-        title: "Session key authorized",
-        meta: `${descriptor.displayName} · scopes: ${(descriptor.scopes ?? []).join(", ")}`,
-        severity: "success",
       });
-      await fastify.coordinatorStore.saveProjection(AGENT_SECURITY_EVENT, event.id, event);
-      return ok({ authorization: { principalId, sessionKey, profile, event, runtimeToken } });
+      return ok({ authorization });
     },
   );
 
