@@ -5,6 +5,7 @@ import { IdentityRepository } from "../../contexts/identity/repository.js";
 import type { AgentProfile, AgentSessionKey } from "../../contexts/identity/types.js";
 import { StakeRepository } from "../../contexts/stake/repository.js";
 import type { AgentStakeLedger } from "../../contexts/stake/types.js";
+import { RewardRepository } from "../../contexts/reward/repository.js";
 import type { CoordinatorStorePort } from "../../db/coordinatorStorePort.js";
 import { IDENTITY_STATUS, normalizeEvmAddress, type IdentityStatusRecord } from "../../modules/identity/onboarding/domain.js";
 import { WALLET_SESSION, ensureActiveWalletSession, type WalletSessionRecord } from "../../modules/identity/wallet/domain.js";
@@ -47,6 +48,7 @@ const personalCenterRoutes: FastifyPluginAsync = async (fastify) => {
       const session = token && rawSession ? ensureActiveWalletSession(rawSession, token) : null;
       const identityRepo = new IdentityRepository(fastify.coordinatorStore);
       const stakeRepo = new StakeRepository(fastify.coordinatorStore);
+      const rewardRepo = new RewardRepository(fastify.coordinatorStore);
 
       const identity = await resolveSessionIdentity({
         session,
@@ -61,6 +63,12 @@ const personalCenterRoutes: FastifyPluginAsync = async (fastify) => {
         : [];
       const ledgers = (await Promise.all(agents.map((agent) => stakeRepo.getLedgerForProfile(agent))))
         .filter((ledger): ledger is AgentStakeLedger => Boolean(ledger));
+      const rewardLedgers = (await rewardRepo.listLedgers())
+        .filter((ledger) => agents.some((agent) => agent.principalId === ledger.principalId));
+      const taskRewardHistory = (await rewardRepo.listTaskRewardSettlements())
+        .filter((reward) => agents.some((agent) => agent.principalId === reward.principalId))
+        .sort((a, b) => (b.blockNumber ?? "").localeCompare(a.blockNumber ?? ""))
+        .slice(0, 20);
       const receipts = await fastify.coordinatorStore.listProjections<Record<string, unknown>>(AGENT_STAKE_RECEIPT);
       const securityEvents = (await fastify.coordinatorStore.listProjections<AgentSecurityEvent>(AGENT_SECURITY_EVENT))
         .filter((event) => !event.principalId || agents.some((agent) => agent.principalId === event.principalId))
@@ -76,6 +84,9 @@ const personalCenterRoutes: FastifyPluginAsync = async (fastify) => {
           identity: identity ?? null,
           agents: await Promise.all(agents.map(async (agent) => ({ ...agent, stakeLedger: await stakeRepo.getLedgerForProfile(agent) }))),
           stakeLedgers: ledgers,
+          rewardSummary: summarizeRewards(rewardLedgers),
+          rewardLedgers,
+          taskRewardHistory,
           stakeReceipts: receipts.slice(0, 20),
           stakeTotals,
           alerts,
@@ -110,6 +121,55 @@ function addDecimalStrings(a: string, b: string): string {
   const right = Number(b);
   if (!Number.isFinite(left) || !Number.isFinite(right)) return a;
   return String(left + right);
+}
+
+function summarizeRewards(ledgers: Array<{
+  claimableTotal: string;
+  claimableBase: string;
+  claimableObserver: string;
+  claimableReviewer: string;
+  claimableTask: string;
+}>): {
+  claimableTotal: string;
+  claimableBase: string;
+  claimableObserver: string;
+  claimableReviewer: string;
+  claimableTask: string;
+  ledgerCount: number;
+} {
+  return ledgers.reduce<{
+    claimableTotal: string;
+    claimableBase: string;
+    claimableObserver: string;
+    claimableReviewer: string;
+    claimableTask: string;
+    ledgerCount: number;
+  }>(
+    (acc, ledger) => ({
+      claimableTotal: addBigIntStrings(acc.claimableTotal, ledger.claimableTotal),
+      claimableBase: addBigIntStrings(acc.claimableBase, ledger.claimableBase),
+      claimableObserver: addBigIntStrings(acc.claimableObserver, ledger.claimableObserver),
+      claimableReviewer: addBigIntStrings(acc.claimableReviewer, ledger.claimableReviewer),
+      claimableTask: addBigIntStrings(acc.claimableTask, ledger.claimableTask),
+      ledgerCount: acc.ledgerCount + 1,
+    }),
+    {
+      claimableTotal: "0",
+      claimableBase: "0",
+      claimableObserver: "0",
+      claimableReviewer: "0",
+      claimableTask: "0",
+      ledgerCount: 0,
+    },
+  );
+}
+
+function addBigIntStrings(a: string, b: string): string {
+  try {
+    return (BigInt(a) + BigInt(b)).toString();
+  } catch {
+    return a;
+  }
 }
 
 async function resolveSessionIdentity(input: {

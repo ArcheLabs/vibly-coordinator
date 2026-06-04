@@ -84,6 +84,7 @@ import obligationsRoutes from "./api/routes/obligations.js";
 import agentNotificationsRoutes from "./api/routes/agentNotifications.js";
 // v0.2 Public Library routes
 import publicLibraryRoutes from "./api/routes/publicLibrary.js";
+import agentRewardsRoutes from "./api/routes/agentRewards.js";
 // v0.2 Guardian authority + membership
 import authorityRoutes from "./api/routes/authority.js";
 import { createChainAuthorityResolver } from "./services/chainAuthorityResolver.js";
@@ -212,6 +213,12 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
     store: coordinatorStore,
   });
 
+  const { startAgentRewardIndexerSync } = await import("./services/agentRewardIndexerSync.js");
+  const stopAgentRewardIndexerSync = startAgentRewardIndexerSync({
+    config,
+    store: coordinatorStore,
+  });
+
   const { startGetVibRelayDepositWatcher } = await import("./process-managers/getVibRelayDepositWatcher.js");
   const stopGetVibRelayDepositWatcher = startGetVibRelayDepositWatcher({
     config,
@@ -224,6 +231,9 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
     config,
     store: coordinatorStore,
   });
+
+  const { startAgentRewardSettlementProcess } = await import("./process-managers/agentRewardSettlementProcess.js");
+  const stopAgentRewardSettlementProcess = startAgentRewardSettlementProcess(eventBus, coordinatorStore, config);
 
   // ─── v0.2 projectors ──────────────────────────────────────────────────────
   const { startReputationProjector } = await import("./contexts/reputation/projector.js");
@@ -248,10 +258,12 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   fastify.addHook("onClose", async () => {
     stopAssignmentExpiryScheduler();
     stopAgentStakeIndexerSync();
+    stopAgentRewardIndexerSync();
     stopChainIdentityIndexerSync();
     stopCoordinationRoundScheduler();
     stopGetVibRelayDepositWatcher();
     stopGetVibRootUploader();
+    stopAgentRewardSettlementProcess();
     await authorityResolver.close();
   });
 
@@ -273,6 +285,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(agentProfileRoutes);
   await fastify.register(personalCenterRoutes);
   await fastify.register(publicLibraryRoutes);
+  await fastify.register(agentRewardsRoutes);
   await fastify.register(authorityRoutes, { authorityResolver });
 
   // ─── Legacy routes (deprecated, retained until Phase 5 cleanup) ───────────

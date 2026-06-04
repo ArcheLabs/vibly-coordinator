@@ -14,6 +14,7 @@ import { ReviewRepository } from "../../contexts/evaluation/repository.js";
 import { WorkRepository } from "../../contexts/work/repository.js";
 import { SettlementRepository } from "../../contexts/settlement/repository.js";
 import { StakeRepository } from "../../contexts/stake/repository.js";
+import { RewardRepository } from "../../contexts/reward/repository.js";
 import { authPolicy } from "../../plugins/authPolicy.js";
 import type { AgentProfile } from "../../contexts/identity/types.js";
 
@@ -34,6 +35,7 @@ function agentMatchesNetwork(agent: AgentProfile, networkId: string, defaultNetw
 const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
   const repo = () => new IdentityRepository(fastify.coordinatorStore);
   const stakeRepo = () => new StakeRepository(fastify.coordinatorStore);
+  const rewardRepo = () => new RewardRepository(fastify.coordinatorStore);
 
   fastify.get<{ Params: { id: string } }>(
     "/agent-profiles/:id",
@@ -52,7 +54,12 @@ const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
         throw notFound("AgentProfile", req.params.id);
       }
       const stakeLedger = await stakeRepo().getLedgerForProfile(profile);
-      return ok({ agent: { ...profile, stakeLedger } });
+      const rewardLedger = (await rewardRepo().listLedgers()).find((ledger) => ledger.principalId === profile.principalId);
+      const taskRewardHistory = (await rewardRepo().listTaskRewardSettlements())
+        .filter((item) => item.principalId === profile.principalId)
+        .sort((a, b) => (b.blockNumber ?? "").localeCompare(a.blockNumber ?? ""))
+        .slice(0, 10);
+      return ok({ agent: { ...profile, stakeLedger, rewardLedger, taskRewardHistory } });
     },
   );
 
@@ -81,6 +88,7 @@ const agentProfileRoutes: FastifyPluginAsync = async (fastify) => {
       const page = await Promise.all(items.slice(0, req.query.limit ?? 50).map(async (agent) => ({
         ...agent,
         stakeLedger: await stakeRepo().getLedgerForProfile(agent),
+        rewardLedger: (await rewardRepo().listLedgers()).find((ledger) => ledger.principalId === agent.principalId),
       })));
       return ok({ items: page });
     },

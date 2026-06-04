@@ -10,6 +10,7 @@ import { envelopeKey, envelopeKeyArray } from "../../domain/schemas.js";
 import { WorkRepository } from "../../contexts/work/repository.js";
 import { ArtifactRepository } from "../../contexts/artifact/repository.js";
 import { ReviewRepository } from "../../contexts/evaluation/repository.js";
+import { RewardRepository } from "../../contexts/reward/repository.js";
 import { authPolicy } from "../../plugins/authPolicy.js";
 
 const ITEM_SCHEMA = { type: "object" as const, additionalProperties: true };
@@ -18,6 +19,7 @@ const workflowRoutes: FastifyPluginAsync = async (fastify) => {
   const workRepo = () => new WorkRepository(fastify.coordinatorStore);
   const artifactRepo = () => new ArtifactRepository(fastify.coordinatorStore);
   const reviewRepo = () => new ReviewRepository(fastify.coordinatorStore);
+  const rewardRepo = () => new RewardRepository(fastify.coordinatorStore);
 
   // ─── Tasks ─────────────────────────────────────────────────────────────────
 
@@ -34,7 +36,19 @@ const workflowRoutes: FastifyPluginAsync = async (fastify) => {
     async (req) => {
       const task = await workRepo().getTask(req.params.id);
       if (!task) throw notFound("Task", req.params.id);
-      return ok({ task });
+      const rewardSuggestions = await rewardRepo().listTaskRewardSuggestions(task.id);
+      const taskRewardApproval = await rewardRepo().getTaskRewardApproval(task.id);
+      const taskRewardSettlement = await rewardRepo().getTaskRewardSettlement(task.id);
+      return ok({
+        task: {
+          ...task,
+          rewardSuggestions,
+          rewardSuggestion: rewardSuggestions[rewardSuggestions.length - 1],
+          taskRewardApproval,
+          approvedDifficulty: taskRewardApproval?.difficulty,
+          taskRewardSettlement,
+        },
+      });
     },
   );
 
