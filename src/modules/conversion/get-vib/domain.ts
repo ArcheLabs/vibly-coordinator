@@ -287,6 +287,12 @@ export async function quoteGetVibAmount(store: CoordinatorStorePort, config: Coo
     throw badRequest(`DOT amount exceeds remaining VIB. Only ${String(remaining)} VIB available`, { code: "VIB_INSUFFICIENT", remainingVib: String(remaining) });
   }
   const curveQuote = quoteVibFromUsd(soldBefore, budgetUsd, DEFAULT_CURVE_CONFIG);
+  await ensureCurveQuotePurchaseAllowed({
+    store,
+    networkId,
+    curveQuote,
+    enforcePurchaseCaps: false,
+  });
   const vibAmountBaseUnits = String(curveQuote.vibAmount);
   const vibAmount = fromBaseUnits(curveQuote.vibAmount);
   return {
@@ -418,6 +424,13 @@ export async function ingestFinalizedDeposit(input: {
     const soldBefore = await completedGetVibAllocationTotal(input.store, networkId);
     const costUsd = paymentUsdFromDot(dotAmount, input.config);
     const curveQuote = quoteVibFromUsd(soldBefore, costUsd, DEFAULT_CURVE_CONFIG);
+    await ensureCurveQuotePurchaseAllowed({
+      store: input.store,
+      networkId,
+      accountId,
+      curveQuote,
+      enforcePurchaseCaps: Boolean(order),
+    });
     const vibAmount = fromBaseUnits(curveQuote.vibAmount);
     const deposit: DepositRecord = {
       id: makeId("deposit"),
@@ -770,6 +783,12 @@ export async function quoteGetVibByBudget(input: {
         input.budgetUsd ?? paymentUsdFromDot(input.dotAmount ?? "0", input.config),
         DEFAULT_CURVE_CONFIG,
       );
+  await ensureCurveQuotePurchaseAllowed({
+    store: input.store,
+    networkId,
+    accountId: input.accountId,
+    curveQuote,
+  });
   const dotAmount = input.dotAmount ?? trimDecimal(curveQuote.costUsd / input.config.getVibDotUsdPrice);
   return quoteFromCurveQuote({
     networkId,
@@ -1001,6 +1020,33 @@ function toWholeVib(value: string): string {
 
 function trimDecimal(value: number): string {
   return value.toFixed(6).replace(/\.?0+$/, "");
+}
+
+async function ensureCurveQuotePurchaseAllowed(input: {
+  store: CoordinatorStorePort;
+  networkId: string;
+  accountId?: string;
+  curveQuote: QuoteResult;
+  enforcePurchaseCaps?: boolean;
+}): Promise<void> {
+  const wholeVibAmount = input.curveQuote.vibAmount / VIB_SCALE;
+  if (wholeVibAmount < PURCHASE_LIMITS.MIN_PURCHASE_VIB) {
+    throw badRequest("VIB amount is below minimum", { minVib: String(PURCHASE_LIMITS.MIN_PURCHASE_VIB) });
+  }
+  if (input.curveQuote.costUsd < PURCHASE_LIMITS.MIN_PURCHASE_USD) {
+    throw badRequest("Purchase is below USD minimum", { minUsd: PURCHASE_LIMITS.MIN_PURCHASE_USD });
+  }
+  if (input.enforcePurchaseCaps === false) return;
+  const accountPurchasedTotal = input.accountId
+    ? BigInt(toWholeVib(await cumulativeAllocationForAccount(input.store, input.networkId, input.accountId)))
+    : 0n;
+  validatePurchase({
+    soldBefore: input.curveQuote.soldBefore,
+    vibAmount: wholeVibAmount,
+    accountPurchasedTotal,
+    costUsd: input.curveQuote.costUsd,
+    config: DEFAULT_CURVE_CONFIG,
+  });
 }
 
 async function cumulativeAllocationForAccount(store: CoordinatorStorePort, networkId: string, accountId: string): Promise<string> {

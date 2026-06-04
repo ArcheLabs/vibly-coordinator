@@ -9,6 +9,7 @@ import {
   ingestFinalizedDeposit,
   listObservedRelayDeposits,
   markObservedRelayDepositFailed,
+  quoteGetVibByBudget,
   quoteGetVibAmount,
   recordClaim,
   saveObservedRelayDeposit,
@@ -210,6 +211,46 @@ describe("Get VIB relay deposits", () => {
       dotAmount: "1500",
       paymentAmount: "1500",
     });
+  });
+
+  it("rejects Get VIB quotes that round below the minimum purchase", async () => {
+    const store = makeStore();
+    const config = loadConfig({
+      NODE_ENV: "test",
+      SUBSTRATE_CHAIN_ID: "local:get-vib-test",
+      VIBLY_DOT_RECEIVING_ADDRESS: "deposit",
+      VIBLY_GET_VIB_DOT_USD_PRICE: "10",
+    });
+
+    await expect(quoteGetVibAmount(store, config, "0.0000000001")).rejects.toThrow("VIB amount is below minimum");
+    await expect(
+      quoteGetVibByBudget({
+        store,
+        config,
+        accountId: "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+        dotAmount: "0.0000000001",
+      }),
+    ).rejects.toThrow("VIB amount is below minimum");
+  });
+
+  it("rejects finalized deposits that would allocate dust VIB", async () => {
+    const store = makeStore();
+    const config = loadConfig({
+      NODE_ENV: "test",
+      SUBSTRATE_CHAIN_ID: "local:get-vib-test",
+      VIBLY_DOT_RECEIVING_ADDRESS: "deposit",
+      VIBLY_GET_VIB_DOT_USD_PRICE: "10",
+    });
+
+    await expect(
+      ingestFinalizedDeposit({
+        store,
+        config,
+        sourceId: "tiny-dot-payment",
+        dotAmount: "0.0000000001",
+        accountId: "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+      }),
+    ).rejects.toThrow("VIB amount is below minimum");
   });
 
   it("exposes observed relay deposits in account records", async () => {
