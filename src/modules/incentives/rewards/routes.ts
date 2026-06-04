@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ok, okList } from "../../../domain/apiTypes.js";
-import { notFound } from "../../../domain/errors.js";
+import { CoordinatorError, notFound } from "../../../domain/errors.js";
 import { envelope, envelopeKey, listEnvelope } from "../../../domain/schemas.js";
 import { v4 as uuidv4 } from "uuid";
 import { REWARD_INTENT } from "../../../db/projectionKinds.js";
@@ -20,13 +20,19 @@ interface RewardIntent {
 }
 
 const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
+  const ensureLegacyWritesEnabled = () => {
+    if (fastify.config.legacyRewardIntentMode === "disabled") {
+      throw new CoordinatorError("UPGRADE_REQUIRED", "Legacy mock reward intent flow is disabled for this deployment", 410);
+    }
+  };
+
   // GET /rewards
   fastify.get<{ Querystring: { projectId?: string; actorId?: string; status?: string; limit?: string; cursor?: string } }>(
     "/rewards",
     {
       schema: {
         tags: ["Incentives"],
-        summary: "List reward intents",
+        summary: "Legacy mock flow: list reward intents",
         querystring: {
           type: "object",
           properties: {
@@ -64,7 +70,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
     {
       schema: {
         tags: ["Incentives"],
-        summary: "Get a reward intent",
+        summary: "Legacy mock flow: get a reward intent",
         params: { type: "object", required: ["rewardIntentId"], properties: { rewardIntentId: { type: "string" } } },
         response: { 200: envelopeKey("rewardIntent") },
       },
@@ -85,7 +91,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
     {
       schema: {
         tags: ["Incentives"],
-        summary: "Create a reward intent",
+        summary: "Legacy mock flow: create a reward intent",
         body: {
           type: "object",
           required: ["amount", "currency", "recipient"],
@@ -101,6 +107,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
+      ensureLegacyWritesEnabled();
       const now = new Date().toISOString();
       const intent: RewardIntent = {
         id: `reward_${uuidv4().replace(/-/g, "").slice(0, 16)}`,
@@ -130,12 +137,13 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
     {
       schema: {
         tags: ["Incentives"],
-        summary: "Mock reserve reward",
+        summary: "Legacy mock flow: reserve reward",
         params: { type: "object", required: ["rewardIntentId"], properties: { rewardIntentId: { type: "string" } } },
         response: { 200: envelope() },
       },
     },
     async (request) => {
+      ensureLegacyWritesEnabled();
       const intent = await fastify.coordinatorStore.getProjection<RewardIntent>(REWARD_INTENT, request.params.rewardIntentId);
       if (!intent) throw notFound("RewardIntent", request.params.rewardIntentId);
 
@@ -167,7 +175,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
     {
       schema: {
         tags: ["Incentives"],
-        summary: "Mock claim reward",
+        summary: "Legacy mock flow: claim reward",
         params: { type: "object", required: ["rewardIntentId"], properties: { rewardIntentId: { type: "string" } } },
         body: {
           type: "object",
@@ -178,6 +186,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
+      ensureLegacyWritesEnabled();
       const intent = await fastify.coordinatorStore.getProjection<RewardIntent>(REWARD_INTENT, request.params.rewardIntentId);
       if (!intent) throw notFound("RewardIntent", request.params.rewardIntentId);
 
@@ -204,7 +213,7 @@ const incentivesRoutes: FastifyPluginAsync = async (fastify) => {
     {
       schema: {
         tags: ["Incentives"],
-        summary: "View mock ledger summary",
+        summary: "Legacy mock flow: view ledger summary",
         response: { 200: envelope() },
       },
     },

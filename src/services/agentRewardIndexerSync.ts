@@ -7,6 +7,7 @@ import {
 } from "../contexts/reward/repository.js";
 import type {
   AgentRewardLedger,
+  RoundRewardSettlement,
   RewardDayState,
   RewardDifficulty,
   TaskRewardSettlement,
@@ -63,6 +64,19 @@ type RawTaskReward = {
   blockNumber?: string | number | bigint | null;
 };
 
+type RawRoundReward = {
+  id: string;
+  chainId: string;
+  roundId: string;
+  role: "observer" | "reviewer" | "Observer" | "Reviewer" | string;
+  dayIndex: number | string;
+  participantCount: number | string;
+  totalEffectiveStake: string | number | bigint;
+  released: string | number | bigint;
+  rollover: string | number | bigint;
+  blockNumber?: string | number | bigint | null;
+};
+
 type GraphQlResponse<TField extends string, TRow> = {
   data?: {
     [K in TField]?: {
@@ -79,7 +93,7 @@ export function startAgentRewardIndexerSync(input: {
   config: CoordinatorConfig;
   store: CoordinatorStorePort;
 }): () => void {
-  if (!input.config.substrateIndexerUrl || input.config.agentStakeSyncIntervalMs <= 0) return () => {};
+  if (!input.config.agentRewardEnabled || !input.config.substrateIndexerUrl || input.config.agentRewardSyncIntervalMs <= 0) return () => {};
 
   let running = false;
   const tick = async () => {
@@ -105,15 +119,15 @@ export function startAgentRewardIndexerSync(input: {
   };
 
   void tick();
-  const timer = setInterval(() => { void tick(); }, input.config.agentStakeSyncIntervalMs);
+  const timer = setInterval(() => { void tick(); }, input.config.agentRewardSyncIntervalMs);
   return () => clearInterval(timer);
 }
 
 async function syncAgentRewards(input: {
   config: CoordinatorConfig;
   store: CoordinatorStorePort;
-}): Promise<{ ledgerCount: number; rewardDayCount: number; taskRewardCount: number }> {
-  const [ledgers, rewardDays, taskRewards, profiles] = await Promise.all([
+}): Promise<{ ledgerCount: number; rewardDayCount: number; roundRewardCount: number; taskRewardCount: number }> {
+  const [ledgers, rewardDays, roundRewards, taskRewards, profiles] = await Promise.all([
     fetchAll<"agentRewardLedgers", RawRewardLedger>(input.config.substrateIndexerUrl!, "agentRewardLedgers", `nodes {
       id chainId identityId agentId claimableTotal claimedTotal claimableBase claimableObserver
       claimableReviewer claimableTask claimedBase claimedObserver claimedReviewer claimedTask updatedAtBlock
@@ -124,6 +138,9 @@ async function syncAgentRewards(input: {
       rolloverBaseStaking rolloverObserverReviewer rolloverTaskMarket
       baseStakingSettled observerRoundsSettled reviewerRoundsSettled taskRewardsSettled updatedAtBlock
     }`, "DAY_INDEX_DESC"),
+    fetchAll<"roundRewardSettlements", RawRoundReward>(input.config.substrateIndexerUrl!, "roundRewardSettlements", `nodes {
+      id chainId roundId role dayIndex participantCount totalEffectiveStake released rollover blockNumber
+    }`, "BLOCK_NUMBER_DESC"),
     fetchAll<"taskRewardSettlements", RawTaskReward>(input.config.substrateIndexerUrl!, "taskRewardSettlements", `nodes {
       id chainId taskId identityId agentId difficulty amount dayIndex blockNumber
     }`, "BLOCK_NUMBER_DESC"),
@@ -181,6 +198,24 @@ async function syncAgentRewards(input: {
     await repo.saveRewardDay(day);
   }
 
+  for (const raw of roundRewards) {
+    const role = String(raw.role).toLowerCase() === "reviewer" ? "reviewer" : "observer";
+    const settlement: RoundRewardSettlement = {
+      id: raw.id,
+      chainId: raw.chainId,
+      roundId: raw.roundId,
+      role,
+      dayIndex: Number(raw.dayIndex),
+      participantCount: Number(raw.participantCount ?? 0),
+      totalEffectiveStake: String(raw.totalEffectiveStake ?? "0"),
+      released: String(raw.released ?? "0"),
+      rollover: String(raw.rollover ?? "0"),
+      blockNumber: raw.blockNumber == null ? undefined : String(raw.blockNumber),
+      indexedAt,
+    };
+    await repo.saveRoundSettlement(settlement);
+  }
+
   for (const raw of taskRewards) {
     const profile = findProfileForChainRef(profiles, raw.chainId, raw.identityId, raw.agentId);
     const settlement: TaskRewardSettlement = {
@@ -202,6 +237,7 @@ async function syncAgentRewards(input: {
   return {
     ledgerCount: ledgers.length,
     rewardDayCount: rewardDays.length,
+    roundRewardCount: roundRewards.length,
     taskRewardCount: taskRewards.length,
   };
 }

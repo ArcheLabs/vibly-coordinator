@@ -9,20 +9,45 @@ import { StakeRepository } from "../contexts/stake/repository.js";
 import { WorkRepository } from "../contexts/work/repository.js";
 import type { CoordinatorStorePort } from "../db/coordinatorStorePort.js";
 import type { EventBus, Unsubscribe } from "../services/eventBus.js";
-import { AgentRewardChainActions } from "../services/agentRewardChainActions.js";
+import { AgentRewardChainActions, type RewardChainReceipt } from "../services/agentRewardChainActions.js";
 
 const COMMAND_KIND = "agent_reward_chain_command_v1";
+const DAY_MS = 86_400_000;
+
+type CommandStatus = "pending" | "submitted" | "indexed" | "failed";
+
+interface AgentRewardChainCommand {
+  id: string;
+  type: "base_staking_day" | "observer_round" | "reviewer_round" | "task_reward";
+  status: CommandStatus;
+  dayIndex?: number;
+  roundId?: string;
+  taskId?: string;
+  attempts: number;
+  lastError?: string;
+  nextRetryAt?: string;
+  receipt?: RewardChainReceipt;
+  submittedAt?: string;
+  indexedAt?: string;
+  updatedAt: string;
+  payload?: Record<string, unknown>;
+}
 
 export function startAgentRewardSettlementProcess(
   eventBus: EventBus,
   store: CoordinatorStorePort,
   config: CoordinatorConfig,
 ): Unsubscribe {
+  if (!config.agentRewardEnabled) return () => {};
+
   const actions = new AgentRewardChainActions(config);
-  const timer = setInterval(() => {
-    void settlePendingBaseDays(store, actions, config, eventBus);
-  }, Math.max(config.agentStakeSyncIntervalMs, 60_000));
-  void settlePendingBaseDays(store, actions, config, eventBus);
+  const intervalMs = config.agentRewardSettlementIntervalMs;
+  const timer = intervalMs > 0
+    ? setInterval(() => {
+      void settlePendingBaseDays(store, actions, config, eventBus);
+    }, intervalMs)
+    : undefined;
+  if (intervalMs > 0) void settlePendingBaseDays(store, actions, config, eventBus);
 
   const unsubscribe = eventBus.subscribe(async (env) => {
     try {
@@ -30,7 +55,7 @@ export function startAgentRewardSettlementProcess(
         await settleObserverRound(store, actions, config, eventBus, env.payload as Record<string, unknown>);
       } else if (env.type === "ReviewRoundCompleted") {
         await settleReviewerRound(store, actions, config, eventBus, env.payload as Record<string, unknown>);
-      } else if (env.type === "TaskAccepted") {
+      } else if (env.type === "TaskAccepted" || env.type === "TaskRewardApproved") {
         await settleTaskReward(store, actions, config, eventBus, env.payload as Record<string, unknown>);
       }
     } catch (err) {
@@ -39,7 +64,7 @@ export function startAgentRewardSettlementProcess(
   });
 
   return () => {
-    clearInterval(timer);
+    if (timer) clearInterval(timer);
     unsubscribe();
   };
 }
@@ -50,6 +75,9 @@ async function settlePendingBaseDays(
   config: CoordinatorConfig,
   eventBus: EventBus,
 ): Promise<void> {
+  const currentDay = rewardDayIndexFor(config, new Date().toISOString());
+  if (currentDay == null) return;
+
   const rewardRepo = new RewardRepository(store);
   const stakeRepo = new StakeRepository(store);
   const ledgers = (await stakeRepo.listLedgers())
@@ -59,27 +87,27 @@ async function settlePendingBaseDays(
   if (ledgers.length === 0) return;
 
   const days = await rewardRepo.listRewardDays();
-  const currentDay = utcDayIndex(new Date().toISOString());
   const lastSettled = days
     .filter((day) => day.chainId === config.substrateChainId && day.baseStakingSettled)
     .reduce((max, day) => Math.max(max, day.dayIndex), -1);
-  const startDay = lastSettled >= 0 ? lastSettled + 1 : currentDay;
-  for (let dayIndex = startDay; dayIndex <= currentDay; dayIndex += 1) {
+  const startDay = lastSettled >= 0 ? lastSettled + 1 : 0;
+  const targetDay = Math.min(currentDay, startDay + config.agentRewardMaxCatchupDays - 1);
+
+  for (let dayIndex = startDay; dayIndex <= targetDay; dayIndex += 1) {
     const commandId = `base:${config.substrateChainId}:${dayIndex}`;
-    if (await store.getProjection(COMMAND_KIND, commandId)) continue;
-    const receipt = await actions.settleBaseStakingDay(dayIndex, ledgers);
-    await store.saveProjection(COMMAND_KIND, commandId, {
-      id: commandId,
+    await submitCommand({
+      store,
+      eventBus,
+      config,
+      commandId,
       type: "base_staking_day",
       dayIndex,
-      receipt,
-      submittedAt: new Date().toISOString(),
+      payload: { agents: ledgers },
+      isIndexed: async () => Boolean((await rewardRepo.listRewardDays())
+        .find((day) => day.chainId === config.substrateChainId && day.dayIndex === dayIndex && day.baseStakingSettled)),
+      submit: () => actions.settleBaseStakingDay(dayIndex, ledgers),
+      eventPayload: (receipt) => ({ settlementType: "base_staking_day", dayIndex, receipt }),
     });
-    eventBus.publish(createEvent({
-      type: "AgentRewardSettlementSubmitted",
-      payload: { commandId, settlementType: "base_staking_day", dayIndex, receipt },
-      actorId: config.coordinatorId as never,
-    }));
   }
 }
 
@@ -96,24 +124,23 @@ async function settleObserverRound(
   if (!round) return;
   const participants = await observerParticipantsForRound(store, round.createdObservationTaskIds, config.substrateChainId);
   if (participants.length === 0) return;
-  const dayIndex = utcDayIndex(round.updatedAt);
-  const commandId = `observer:${roundId}`;
-  if (await store.getProjection(COMMAND_KIND, commandId)) return;
-  const receipt = await actions.settleObserverRound(roundId, dayIndex, participants);
-  await store.saveProjection(COMMAND_KIND, commandId, {
-    id: commandId,
+  const dayIndex = rewardDayIndexFor(config, round.updatedAt);
+  if (dayIndex == null) return;
+  const commandId = `observer:${config.substrateChainId}:${roundId}`;
+  const indexedId = `${config.substrateChainId}:Observer:${roundId}`;
+  await submitCommand({
+    store,
+    eventBus,
+    config,
+    commandId,
     type: "observer_round",
-    roundId,
     dayIndex,
-    participants,
-    receipt,
-    submittedAt: new Date().toISOString(),
+    roundId,
+    payload: { participants },
+    isIndexed: async () => Boolean(await new RewardRepository(store).getRoundSettlement(indexedId)),
+    submit: () => actions.settleObserverRound(roundId, dayIndex, participants),
+    eventPayload: (receipt) => ({ settlementType: "observer_round", roundId, dayIndex, receipt }),
   });
-  eventBus.publish(createEvent({
-    type: "AgentRewardSettlementSubmitted",
-    payload: { commandId, settlementType: "observer_round", roundId, dayIndex, receipt },
-    actorId: config.coordinatorId as never,
-  }));
 }
 
 async function settleReviewerRound(
@@ -128,24 +155,23 @@ async function settleReviewerRound(
   if (!roundId || reviewerIds.length === 0) return;
   const participants = await principalIdsToAgentRefs(store, reviewerIds, config.substrateChainId);
   if (participants.length === 0) return;
-  const dayIndex = utcDayIndex(String(payload["updatedAt"] ?? new Date().toISOString()));
-  const commandId = `reviewer:${roundId}`;
-  if (await store.getProjection(COMMAND_KIND, commandId)) return;
-  const receipt = await actions.settleReviewerRound(roundId, dayIndex, participants);
-  await store.saveProjection(COMMAND_KIND, commandId, {
-    id: commandId,
+  const dayIndex = rewardDayIndexFor(config, String(payload["updatedAt"] ?? new Date().toISOString()));
+  if (dayIndex == null) return;
+  const commandId = `reviewer:${config.substrateChainId}:${roundId}`;
+  const indexedId = `${config.substrateChainId}:Reviewer:${roundId}`;
+  await submitCommand({
+    store,
+    eventBus,
+    config,
+    commandId,
     type: "reviewer_round",
-    roundId,
     dayIndex,
-    participants,
-    receipt,
-    submittedAt: new Date().toISOString(),
+    roundId,
+    payload: { participants },
+    isIndexed: async () => Boolean(await new RewardRepository(store).getRoundSettlement(indexedId)),
+    submit: () => actions.settleReviewerRound(roundId, dayIndex, participants),
+    eventPayload: (receipt) => ({ settlementType: "reviewer_round", roundId, dayIndex, receipt }),
   });
-  eventBus.publish(createEvent({
-    type: "AgentRewardSettlementSubmitted",
-    payload: { commandId, settlementType: "reviewer_round", roundId, dayIndex, receipt },
-    actorId: config.coordinatorId as never,
-  }));
 }
 
 async function settleTaskReward(
@@ -156,34 +182,142 @@ async function settleTaskReward(
   payload: Record<string, unknown>,
 ): Promise<void> {
   const taskId = String(payload["id"] ?? payload["taskId"] ?? "");
-  const assigneeId = typeof payload["assigneeId"] === "string" ? String(payload["assigneeId"]) : undefined;
-  if (!taskId || !assigneeId) return;
+  if (!taskId) return;
 
   const rewardRepo = new RewardRepository(store);
   const approval = await rewardRepo.getTaskRewardApproval(taskId);
   if (!approval) return;
+
+  const task = await new WorkRepository(store).getTask(taskId);
+  const assigneeId = task?.assigneeId;
+  if (!assigneeId || (task.status !== "accepted" && task.status !== "submitted")) return;
+
   const executor = (await principalIdsToAgentRefs(store, [assigneeId], config.substrateChainId))[0];
   if (!executor) return;
-  const task = await new WorkRepository(store).getTask(taskId);
-  const dayIndex = utcDayIndex(task?.updatedAt ?? new Date().toISOString());
-  const commandId = `task:${taskId}`;
-  if (await store.getProjection(COMMAND_KIND, commandId)) return;
-  const receipt = await actions.settleTaskReward(taskId, dayIndex, executor, approval.difficulty);
-  await store.saveProjection(COMMAND_KIND, commandId, {
-    id: commandId,
+  const dayIndex = rewardDayIndexFor(config, task.updatedAt ?? new Date().toISOString());
+  if (dayIndex == null) return;
+  const commandId = `task:${config.substrateChainId}:${taskId}`;
+  await submitCommand({
+    store,
+    eventBus,
+    config,
+    commandId,
     type: "task_reward",
-    taskId,
     dayIndex,
-    executor,
-    difficulty: approval.difficulty,
-    receipt,
-    submittedAt: new Date().toISOString(),
+    taskId,
+    payload: { executor, difficulty: approval.difficulty },
+    isIndexed: async () => Boolean(await rewardRepo.getTaskRewardSettlement(taskId)),
+    submit: () => actions.settleTaskReward(taskId, dayIndex, executor, approval.difficulty),
+    eventPayload: (receipt) => ({ settlementType: "task_reward", taskId, dayIndex, receipt }),
   });
-  eventBus.publish(createEvent({
-    type: "AgentRewardSettlementSubmitted",
-    payload: { commandId, settlementType: "task_reward", taskId, dayIndex, receipt },
-    actorId: config.coordinatorId as never,
-  }));
+}
+
+async function submitCommand(input: {
+  store: CoordinatorStorePort;
+  eventBus: EventBus;
+  config: CoordinatorConfig;
+  commandId: string;
+  type: AgentRewardChainCommand["type"];
+  dayIndex?: number;
+  roundId?: string;
+  taskId?: string;
+  payload?: Record<string, unknown>;
+  isIndexed: () => Promise<boolean>;
+  submit: () => Promise<RewardChainReceipt>;
+  eventPayload: (receipt: RewardChainReceipt) => Record<string, unknown>;
+}): Promise<void> {
+  const now = new Date().toISOString();
+  const existing = await input.store.getProjection<AgentRewardChainCommand>(COMMAND_KIND, input.commandId);
+
+  if (await input.isIndexed()) {
+    if (existing?.status !== "indexed") {
+      await saveCommand(input.store, {
+        ...baseCommand(input, existing),
+        status: "indexed",
+        indexedAt: now,
+        updatedAt: now,
+      });
+    }
+    return;
+  }
+
+  if (existing?.status === "submitted" || existing?.status === "indexed") return;
+  if (existing?.status === "failed" && existing.nextRetryAt && Date.parse(existing.nextRetryAt) > Date.now()) return;
+
+  const pending = {
+    ...baseCommand(input, existing),
+    status: "pending" as const,
+    updatedAt: now,
+  };
+  await saveCommand(input.store, pending);
+
+  try {
+    const receipt = await input.submit();
+    const submittedAt = new Date().toISOString();
+    await saveCommand(input.store, {
+      ...pending,
+      status: "submitted",
+      attempts: pending.attempts + 1,
+      receipt,
+      submittedAt,
+      lastError: undefined,
+      nextRetryAt: undefined,
+      updatedAt: submittedAt,
+    });
+    input.eventBus.publish(createEvent({
+      type: "AgentRewardSettlementSubmitted",
+      payload: { commandId: input.commandId, ...input.eventPayload(receipt) },
+      actorId: input.config.coordinatorId as never,
+    }));
+  } catch (err) {
+    const failedAt = new Date().toISOString();
+    const attempts = pending.attempts + 1;
+    await saveCommand(input.store, {
+      ...pending,
+      status: "failed",
+      attempts,
+      lastError: err instanceof Error ? err.message : String(err),
+      nextRetryAt: new Date(Date.now() + retryDelayMs(attempts)).toISOString(),
+      updatedAt: failedAt,
+    });
+  }
+}
+
+function baseCommand(
+  input: {
+    commandId: string;
+    type: AgentRewardChainCommand["type"];
+    dayIndex?: number;
+    roundId?: string;
+    taskId?: string;
+    payload?: Record<string, unknown>;
+  },
+  existing?: AgentRewardChainCommand,
+): AgentRewardChainCommand {
+  return {
+    id: input.commandId,
+    type: input.type,
+    status: existing?.status ?? "pending",
+    dayIndex: input.dayIndex,
+    roundId: input.roundId,
+    taskId: input.taskId,
+    attempts: existing?.attempts ?? 0,
+    lastError: existing?.lastError,
+    nextRetryAt: existing?.nextRetryAt,
+    receipt: existing?.receipt,
+    submittedAt: existing?.submittedAt,
+    indexedAt: existing?.indexedAt,
+    updatedAt: existing?.updatedAt ?? new Date().toISOString(),
+    payload: input.payload,
+  };
+}
+
+async function saveCommand(store: CoordinatorStorePort, command: AgentRewardChainCommand): Promise<void> {
+  await store.saveProjection(COMMAND_KIND, command.id, command);
+}
+
+function retryDelayMs(attempts: number): number {
+  return Math.min(5 * 60_000, 15_000 * Math.max(1, attempts));
 }
 
 async function observerParticipantsForRound(
@@ -236,8 +370,10 @@ function uniqueAgentRefs(items: Array<{ identityId: string; agentId: string }>):
   });
 }
 
-function utcDayIndex(iso: string): number {
+function rewardDayIndexFor(config: CoordinatorConfig, iso: string): number | undefined {
+  if (!config.agentRewardEmissionStartAt) return undefined;
+  const start = Date.parse(config.agentRewardEmissionStartAt);
   const value = Date.parse(iso);
-  if (!Number.isFinite(value)) return Math.floor(Date.now() / 86_400_000);
-  return Math.floor(value / 86_400_000);
+  if (!Number.isFinite(start) || !Number.isFinite(value) || value < start) return undefined;
+  return Math.floor((value - start) / DAY_MS);
 }

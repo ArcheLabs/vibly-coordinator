@@ -39,7 +39,7 @@ export class AgentRewardChainActions {
       | "claim_agent_rewards",
     payload: Record<string, unknown>,
   ): Promise<RewardChainReceipt> {
-    const mode = this.config.substrateStakeTxMode;
+    const mode = this.config.agentRewardTxMode;
     if (mode === "prepare-only") {
       return { txHash: `prepared:${call}:${Date.now().toString(16)}`, mode, finality: "prepared" };
     }
@@ -48,7 +48,7 @@ export class AgentRewardChainActions {
     }
     return submitUnsafePapi({
       rpcUrl: this.config.substrateRpcUrl,
-      signerUri: this.config.substrateCoordinatorAuthorityUri,
+      signerUri: this.config.agentRewardPublisherUri ?? "",
       call,
       payload,
     });

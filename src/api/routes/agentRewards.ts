@@ -1,21 +1,93 @@
 import { createEvent, makeId } from "@vibly-ai/concord-foundation";
 import type { FastifyPluginAsync } from "fastify";
 import { ok } from "../../domain/apiTypes.js";
-import { badRequest, notFound } from "../../domain/errors.js";
+import { badRequest, forbidden, notFound } from "../../domain/errors.js";
 import { envelopeKey, envelopeKeyArray } from "../../domain/schemas.js";
+import { CoordinationRepository } from "../../contexts/coordination/repository.js";
+import { ReviewRepository } from "../../contexts/evaluation/repository.js";
 import { IdentityRepository } from "../../contexts/identity/repository.js";
 import { RewardRepository } from "../../contexts/reward/repository.js";
 import type { RewardDifficulty, TaskRewardApproval, TaskRewardSuggestion } from "../../contexts/reward/types.js";
 import { WorkRepository } from "../../contexts/work/repository.js";
+import type { CoordinatorStorePort } from "../../db/coordinatorStorePort.js";
+import { WALLET_SESSION, ensureActiveWalletSession, type WalletSessionRecord } from "../../modules/identity/wallet/domain.js";
 import { authPolicy } from "../../plugins/authPolicy.js";
 
 const ITEM_SCHEMA = { type: "object" as const, additionalProperties: true };
 const DIFFICULTIES = ["easy", "normal", "hard", "critical"] as const;
 
+function sessionTokenFromRequest(headers: Record<string, string | string[] | undefined>): string | undefined {
+  const raw = headers["x-wallet-session"];
+  return Array.isArray(raw) ? raw[0] : raw;
+}
+
+async function requireWalletSession(
+  store: CoordinatorStorePort,
+  headers: Record<string, string | string[] | undefined>,
+): Promise<WalletSessionRecord> {
+  const token = sessionTokenFromRequest(headers);
+  if (!token) throw forbidden("Wallet session is required");
+  return ensureActiveWalletSession(
+    await store.getProjection<WalletSessionRecord>(WALLET_SESSION, token),
+    token,
+  );
+}
+
+function candidateActorIds(session: WalletSessionRecord): string[] {
+  const requested = session.requestedPrincipalId;
+  const ids = [...new Set([
+    ...(requested ? [requested] : []),
+    ...session.agentBindings,
+  ])];
+  return ids.filter((id) => session.agentBindings.includes(id));
+}
+
+async function findAuthorizedObserverId(
+  repo: CoordinationRepository,
+  session: WalletSessionRecord,
+  taskId: string,
+): Promise<string> {
+  const candidates = candidateActorIds(session);
+  const observations = await repo.listObservations();
+  for (const actorId of candidates) {
+    const hasObservation = observations.some((observation) => {
+      if (observation.submittedBy !== actorId) return false;
+      if (observation.subjectRef?.id === taskId) return true;
+      return observation.observationTaskId === taskId;
+    });
+    if (hasObservation) return actorId;
+  }
+  throw forbidden("Wallet session is not authorized to suggest a reward for this task");
+}
+
+async function findAuthorizedReviewerId(
+  repo: ReviewRepository,
+  session: WalletSessionRecord,
+  taskId: string,
+  taskStatus: string,
+): Promise<string> {
+  const candidates = candidateActorIds(session);
+  const rounds = await repo.list();
+  for (const actorId of candidates) {
+    const round = rounds.find((item) => {
+      const targetsTask = item.taskId === taskId || item.targetRef.id === taskId;
+      const participates = item.reviewerIds.includes(actorId) || item.reviews.some((review) => review.reviewerId === actorId);
+      return targetsTask && participates;
+    });
+    if (!round) continue;
+    const taskPassing = taskStatus === "submitted" || taskStatus === "accepted";
+    const reviewPassing = round.status === "in-review" || round.status === "completed" || round.outcome === "accepted";
+    if (taskPassing || reviewPassing) return actorId;
+  }
+  throw forbidden("Wallet session is not authorized to approve a reward for this task");
+}
+
 const agentRewardsRoutes: FastifyPluginAsync = async (fastify) => {
   const rewards = () => new RewardRepository(fastify.coordinatorStore);
   const identities = () => new IdentityRepository(fastify.coordinatorStore);
   const work = () => new WorkRepository(fastify.coordinatorStore);
+  const coordination = () => new CoordinationRepository(fastify.coordinatorStore);
+  const reviews = () => new ReviewRepository(fastify.coordinatorStore);
 
   fastify.get<{ Querystring: { principalId?: string; chainId?: string; limit?: number } }>(
     "/agent-rewards",
@@ -118,7 +190,7 @@ const agentRewardsRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.post<{
     Params: { taskId: string };
-    Body: { observerId: string; difficulty: RewardDifficulty; rationale?: string };
+    Body: { difficulty: RewardDifficulty; rationale?: string };
   }>(
     "/tasks/:taskId/reward-suggestions",
     {
@@ -129,9 +201,8 @@ const agentRewardsRoutes: FastifyPluginAsync = async (fastify) => {
         body: {
           type: "object",
           additionalProperties: false,
-          required: ["observerId", "difficulty"],
+          required: ["difficulty"],
           properties: {
-            observerId: { type: "string" },
             difficulty: { type: "string", enum: [...DIFFICULTIES] },
             rationale: { type: "string" },
           },
@@ -142,11 +213,13 @@ const agentRewardsRoutes: FastifyPluginAsync = async (fastify) => {
     async (req) => {
       const task = await work().getTask(req.params.taskId);
       if (!task) throw notFound("Task", req.params.taskId);
+      const session = await requireWalletSession(fastify.coordinatorStore, req.headers as Record<string, string | string[] | undefined>);
+      const observerId = await findAuthorizedObserverId(coordination(), session, req.params.taskId);
       const now = new Date().toISOString();
       const suggestion: TaskRewardSuggestion = {
         id: makeId("trs"),
         taskId: req.params.taskId,
-        observerId: req.body.observerId,
+        observerId,
         difficulty: req.body.difficulty,
         rationale: req.body.rationale,
         status: "pending",
@@ -157,7 +230,7 @@ const agentRewardsRoutes: FastifyPluginAsync = async (fastify) => {
       fastify.eventBus.publish(createEvent({
         type: "TaskRewardSuggested",
         payload: suggestion,
-        actorId: req.body.observerId as never,
+        actorId: observerId as never,
       }));
       return ok({ rewardSuggestion: suggestion });
     },
@@ -165,7 +238,7 @@ const agentRewardsRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.post<{
     Params: { taskId: string };
-    Body: { approvedTaskRewardSuggestionId: string; approvedBy: string };
+    Body: { approvedTaskRewardSuggestionId: string };
   }>(
     "/tasks/:taskId/approve-reward",
     {
@@ -176,10 +249,9 @@ const agentRewardsRoutes: FastifyPluginAsync = async (fastify) => {
         body: {
           type: "object",
           additionalProperties: false,
-          required: ["approvedTaskRewardSuggestionId", "approvedBy"],
+          required: ["approvedTaskRewardSuggestionId"],
           properties: {
             approvedTaskRewardSuggestionId: { type: "string" },
-            approvedBy: { type: "string" },
           },
         },
         response: { 200: envelopeKey("taskRewardApproval", ITEM_SCHEMA) },
@@ -188,6 +260,8 @@ const agentRewardsRoutes: FastifyPluginAsync = async (fastify) => {
     async (req) => {
       const task = await work().getTask(req.params.taskId);
       if (!task) throw notFound("Task", req.params.taskId);
+      const session = await requireWalletSession(fastify.coordinatorStore, req.headers as Record<string, string | string[] | undefined>);
+      const approvedBy = await findAuthorizedReviewerId(reviews(), session, req.params.taskId, task.status);
       const suggestion = await rewards().getTaskRewardSuggestion(req.body.approvedTaskRewardSuggestionId);
       if (!suggestion || suggestion.taskId !== req.params.taskId) {
         throw notFound("TaskRewardSuggestion", req.body.approvedTaskRewardSuggestionId);
@@ -209,7 +283,7 @@ const agentRewardsRoutes: FastifyPluginAsync = async (fastify) => {
         taskId: req.params.taskId,
         approvedTaskRewardSuggestionId: suggestion.id,
         difficulty: suggestion.difficulty,
-        approvedBy: req.body.approvedBy,
+        approvedBy,
         status: "approved",
         createdAt: now,
         updatedAt: now,
@@ -218,7 +292,7 @@ const agentRewardsRoutes: FastifyPluginAsync = async (fastify) => {
       fastify.eventBus.publish(createEvent({
         type: "TaskRewardApproved",
         payload: approval,
-        actorId: req.body.approvedBy as never,
+        actorId: approvedBy as never,
       }));
       return ok({ taskRewardApproval: approval });
     },

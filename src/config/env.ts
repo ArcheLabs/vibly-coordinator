@@ -49,6 +49,15 @@ const envSchema = z
     ASSIGNMENT_EXPIRY_INTERVAL_MS: z.coerce.number().default(0),
     // Stake sync scheduler interval; 0 means disabled.
     AGENT_STAKE_SYNC_INTERVAL_MS: z.coerce.number().default(0),
+    // Agent reward sync/settlement production controls.
+    AGENT_REWARD_ENABLED: z.string().transform((v) => v === "true").default("false"),
+    AGENT_REWARD_SYNC_INTERVAL_MS: z.coerce.number().default(0),
+    AGENT_REWARD_SETTLEMENT_INTERVAL_MS: z.coerce.number().default(0),
+    AGENT_REWARD_TX_MODE: z.enum(["prepare-only", "fixture", "unsafe-papi"]).default("prepare-only"),
+    AGENT_REWARD_PUBLISHER_URI: z.string().default(""),
+    AGENT_REWARD_EMISSION_START_AT: z.string().default(""),
+    AGENT_REWARD_MAX_CATCHUP_DAYS: z.coerce.number().int().min(1).default(7),
+    LEGACY_REWARD_INTENT_MODE: z.enum(["hidden", "disabled", "enabled"]).default("hidden"),
     // Get VIB root upload scheduler interval; 0 means disabled.
     GET_VIB_ROOT_UPLOAD_INTERVAL_MS: z.coerce.number().default(600000),
     // Get VIB root upload tx mode.
@@ -173,6 +182,39 @@ const envSchema = z
         code: z.ZodIssueCode.custom,
         message: "GET_VIB_ROOT_UPLOAD_MODE=unsafe-papi requires GET_VIB_ROOT_PUBLISHER_URI",
         path: ["GET_VIB_ROOT_PUBLISHER_URI"],
+      });
+    }
+
+    if (val.AGENT_REWARD_ENABLED) {
+      if (!val.SUBSTRATE_INDEXER_URL?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "AGENT_REWARD_ENABLED=true requires SUBSTRATE_INDEXER_URL",
+          path: ["SUBSTRATE_INDEXER_URL"],
+        });
+      }
+      if (!val.SUBSTRATE_RPC_URL.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "AGENT_REWARD_ENABLED=true requires SUBSTRATE_RPC_URL",
+          path: ["SUBSTRATE_RPC_URL"],
+        });
+      }
+      const startAt = val.AGENT_REWARD_EMISSION_START_AT.trim();
+      if (!startAt || !Number.isFinite(Date.parse(startAt))) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "AGENT_REWARD_ENABLED=true requires AGENT_REWARD_EMISSION_START_AT as an ISO timestamp",
+          path: ["AGENT_REWARD_EMISSION_START_AT"],
+        });
+      }
+    }
+
+    if (val.AGENT_REWARD_TX_MODE === "unsafe-papi" && !val.AGENT_REWARD_PUBLISHER_URI.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "AGENT_REWARD_TX_MODE=unsafe-papi requires AGENT_REWARD_PUBLISHER_URI",
+        path: ["AGENT_REWARD_PUBLISHER_URI"],
       });
     }
 
@@ -334,6 +376,14 @@ export interface CoordinatorConfig {
   sseHeartbeatMs: number;
   assignmentExpiryIntervalMs: number;
   agentStakeSyncIntervalMs: number;
+  agentRewardEnabled: boolean;
+  agentRewardSyncIntervalMs: number;
+  agentRewardSettlementIntervalMs: number;
+  agentRewardTxMode: "prepare-only" | "fixture" | "unsafe-papi";
+  agentRewardPublisherUri?: string;
+  agentRewardEmissionStartAt?: string;
+  agentRewardMaxCatchupDays: number;
+  legacyRewardIntentMode: "hidden" | "disabled" | "enabled";
   getVibRootUploadIntervalMs: number;
   getVibRootUploadMode: "prepare-only" | "fixture" | "unsafe-papi";
   getVibRootPublisherUri?: string;
@@ -427,6 +477,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     sseHeartbeatMs: parsed.SSE_HEARTBEAT_MS,
     assignmentExpiryIntervalMs: parsed.ASSIGNMENT_EXPIRY_INTERVAL_MS,
     agentStakeSyncIntervalMs: parsed.AGENT_STAKE_SYNC_INTERVAL_MS,
+    agentRewardEnabled: parsed.AGENT_REWARD_ENABLED,
+    agentRewardSyncIntervalMs: parsed.AGENT_REWARD_SYNC_INTERVAL_MS,
+    agentRewardSettlementIntervalMs: parsed.AGENT_REWARD_SETTLEMENT_INTERVAL_MS,
+    agentRewardTxMode: parsed.AGENT_REWARD_TX_MODE,
+    agentRewardPublisherUri: parsed.AGENT_REWARD_PUBLISHER_URI.trim() || undefined,
+    agentRewardEmissionStartAt: parsed.AGENT_REWARD_EMISSION_START_AT.trim() || undefined,
+    agentRewardMaxCatchupDays: parsed.AGENT_REWARD_MAX_CATCHUP_DAYS,
+    legacyRewardIntentMode: parsed.LEGACY_REWARD_INTENT_MODE,
     getVibRootUploadIntervalMs: parsed.GET_VIB_ROOT_UPLOAD_INTERVAL_MS,
     getVibRootUploadMode: parsed.GET_VIB_ROOT_UPLOAD_MODE,
     getVibRootPublisherUri: parsed.GET_VIB_ROOT_PUBLISHER_URI.trim() || undefined,

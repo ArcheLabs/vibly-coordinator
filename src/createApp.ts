@@ -214,10 +214,12 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   });
 
   const { startAgentRewardIndexerSync } = await import("./services/agentRewardIndexerSync.js");
-  const stopAgentRewardIndexerSync = startAgentRewardIndexerSync({
-    config,
-    store: coordinatorStore,
-  });
+  const stopAgentRewardIndexerSync = config.agentRewardEnabled
+    ? startAgentRewardIndexerSync({
+      config,
+      store: coordinatorStore,
+    })
+    : () => {};
 
   const { startGetVibRelayDepositWatcher } = await import("./process-managers/getVibRelayDepositWatcher.js");
   const stopGetVibRelayDepositWatcher = startGetVibRelayDepositWatcher({
@@ -233,7 +235,9 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   });
 
   const { startAgentRewardSettlementProcess } = await import("./process-managers/agentRewardSettlementProcess.js");
-  const stopAgentRewardSettlementProcess = startAgentRewardSettlementProcess(eventBus, coordinatorStore, config);
+  const stopAgentRewardSettlementProcess = config.agentRewardEnabled
+    ? startAgentRewardSettlementProcess(eventBus, coordinatorStore, config)
+    : () => {};
 
   // ─── v0.2 projectors ──────────────────────────────────────────────────────
   const { startReputationProjector } = await import("./contexts/reputation/projector.js");

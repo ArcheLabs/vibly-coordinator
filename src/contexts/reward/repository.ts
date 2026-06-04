@@ -45,6 +45,14 @@ export class RewardRepository {
     await this.store.saveProjection(ROUND_REWARD_SETTLEMENT_KIND, settlement.id, settlement);
   }
 
+  async getRoundSettlement(id: string): Promise<RoundRewardSettlement | undefined> {
+    return this.store.getProjection<RoundRewardSettlement>(ROUND_REWARD_SETTLEMENT_KIND, id);
+  }
+
+  async listRoundSettlements(): Promise<RoundRewardSettlement[]> {
+    return this.store.listProjections<RoundRewardSettlement>(ROUND_REWARD_SETTLEMENT_KIND);
+  }
+
   async saveTaskRewardSettlement(settlement: TaskRewardSettlement): Promise<void> {
     await this.store.saveProjection(TASK_REWARD_SETTLEMENT_KIND, settlement.id, settlement);
   }

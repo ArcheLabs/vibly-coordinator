@@ -85,6 +85,49 @@ describe("loadConfig", () => {
     ).toThrow(/GET_VIB_ROOT_PUBLISHER_URI/);
   });
 
+  it("parses dedicated agent reward production controls", () => {
+    const config = loadConfig({
+      NODE_ENV: "test",
+      AGENT_REWARD_ENABLED: "true",
+      SUBSTRATE_INDEXER_URL: "http://localhost:3000/graphql",
+      SUBSTRATE_RPC_URL: "ws://localhost:9944",
+      AGENT_REWARD_SYNC_INTERVAL_MS: "45000",
+      AGENT_REWARD_SETTLEMENT_INTERVAL_MS: "30000",
+      AGENT_REWARD_TX_MODE: "unsafe-papi",
+      AGENT_REWARD_PUBLISHER_URI: "//RewardPublisher",
+      AGENT_REWARD_EMISSION_START_AT: "2026-06-01T00:00:00.000Z",
+      AGENT_REWARD_MAX_CATCHUP_DAYS: "3",
+      LEGACY_REWARD_INTENT_MODE: "disabled",
+    });
+
+    expect(config.agentRewardEnabled).toBe(true);
+    expect(config.agentRewardSyncIntervalMs).toBe(45000);
+    expect(config.agentRewardSettlementIntervalMs).toBe(30000);
+    expect(config.agentRewardTxMode).toBe("unsafe-papi");
+    expect(config.agentRewardPublisherUri).toBe("//RewardPublisher");
+    expect(config.agentRewardEmissionStartAt).toBe("2026-06-01T00:00:00.000Z");
+    expect(config.agentRewardMaxCatchupDays).toBe(3);
+    expect(config.legacyRewardIntentMode).toBe("disabled");
+  });
+
+  it("requires reward publisher URI in unsafe-papi mode", () => {
+    expect(() =>
+      loadConfig({
+        NODE_ENV: "test",
+        AGENT_REWARD_TX_MODE: "unsafe-papi",
+      }),
+    ).toThrow(/AGENT_REWARD_PUBLISHER_URI/);
+  });
+
+  it("requires reward infra when agent rewards are enabled", () => {
+    expect(() =>
+      loadConfig({
+        NODE_ENV: "test",
+        AGENT_REWARD_ENABLED: "true",
+      }),
+    ).toThrow(/AGENT_REWARD_EMISSION_START_AT/);
+  });
+
   const validProductionOidc = {
     NODE_ENV: "production" as const,
     STORAGE_MODE: "postgres",
