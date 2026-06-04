@@ -64,9 +64,11 @@ describe("loadConfig", () => {
     const defaults = loadConfig({ NODE_ENV: "test" });
     expect(defaults.getVibRootUploadIntervalMs).toBe(600000);
     expect(defaults.getVibRootUploadMode).toBe("prepare-only");
+    expect(defaults.getVibClaimEnabled).toBe(false);
 
     const disabled = loadConfig({
       NODE_ENV: "test",
+      GET_VIB_CLAIM_ENABLED: "true",
       GET_VIB_ROOT_UPLOAD_INTERVAL_MS: "0",
       GET_VIB_ROOT_UPLOAD_MODE: "unsafe-papi",
       GET_VIB_ROOT_PUBLISHER_URI: "//RootPublisher",
@@ -74,6 +76,7 @@ describe("loadConfig", () => {
     expect(disabled.getVibRootUploadIntervalMs).toBe(0);
     expect(disabled.getVibRootUploadMode).toBe("unsafe-papi");
     expect(disabled.getVibRootPublisherUri).toBe("//RootPublisher");
+    expect(disabled.getVibClaimEnabled).toBe(true);
   });
 
   it("requires a Get VIB root publisher URI in unsafe-papi mode", () => {
@@ -138,6 +141,12 @@ describe("loadConfig", () => {
     OIDC_JWKS_URL: "https://idp.example/.well-known/jwks.json",
     ENABLE_DEV_ROUTES: "false",
     CLIENT_VERSION_ENFORCEMENT: "true",
+    VIBLY_DOT_RECEIVING_ADDRESS: "15oF4QnYy8Cq9vxufg9cB1HnYqHS8dJHEgHSZ1RPs3m7X5ZV",
+    GET_VIB_RELAY_RPC_URL: "wss://rpc.polkadot.io",
+    GET_VIB_RELAY_CHAIN_ID: "polkadot",
+    GET_VIB_RELAY_TOKEN_DECIMALS: "10",
+    GET_VIB_DEPOSIT_SCAN_INTERVAL_MS: "30000",
+    GET_VIB_DEPOSIT_FINALITY_BLOCKS: "12",
     NETWORK_MANIFEST_JSON: JSON.stringify([
       {
         manifestVersion: 1,
@@ -178,6 +187,92 @@ describe("loadConfig", () => {
     expect(config.storageMode).toBe("postgres");
     expect(config.apiAuthMode).toBe("oidc");
     expect(config.databaseUrl).toMatch(/^postgres/);
+  });
+
+  it("rejects production claim manifests unless the explicit claim gate is enabled", () => {
+    expect(() =>
+      loadConfig({
+        ...validProductionOidc,
+        NETWORK_MANIFEST_JSON: JSON.stringify([
+          {
+            manifestVersion: 1,
+            updatedAt: "2026-06-02T00:00:00.000Z",
+            ttlSeconds: 600,
+            id: "substrate:vibly-incentivized-testnet",
+            label: "Incentivized Testnet",
+            stage: "testnet",
+            status: "active",
+            coordinatorUrls: ["https://api.vibly.network"],
+            chains: {
+              payment: {
+                chainId: "polkadot",
+                genesisHash: "0x91b171bb158e2d3848fa23a9f1c25182",
+                status: "online",
+                rpcUrls: ["wss://rpc.polkadot.io"],
+              },
+              vibly: {
+                chainId: "substrate:vibly-incentivized-testnet",
+                genesisHash: "0xabc123",
+                status: "online",
+                rpcUrls: ["wss://rpc.vibly.network"],
+              },
+            },
+            features: {
+              agentJoin: true,
+              daemon: true,
+              staking: true,
+              rootIdentityRegistration: true,
+              getVibConversion: true,
+              getVibClaim: true,
+            },
+          },
+        ]),
+      }),
+    ).toThrow(/GET_VIB_CLAIM_ENABLED/);
+  });
+
+  it("accepts production Get VIB claim when chain and publisher are configured", () => {
+    const config = loadConfig({
+      ...validProductionOidc,
+      GET_VIB_CLAIM_ENABLED: "true",
+      GET_VIB_ROOT_UPLOAD_MODE: "unsafe-papi",
+      GET_VIB_ROOT_PUBLISHER_URI: "//RootPublisher",
+      NETWORK_MANIFEST_JSON: JSON.stringify([
+        {
+          manifestVersion: 1,
+          updatedAt: "2026-06-02T00:00:00.000Z",
+          ttlSeconds: 600,
+          id: "substrate:vibly-incentivized-testnet",
+          label: "Incentivized Testnet",
+          stage: "testnet",
+          status: "active",
+          coordinatorUrls: ["https://api.vibly.network"],
+          chains: {
+            payment: {
+              chainId: "polkadot",
+              genesisHash: "0x91b171bb158e2d3848fa23a9f1c25182",
+              status: "online",
+              rpcUrls: ["wss://rpc.polkadot.io"],
+            },
+            vibly: {
+              chainId: "substrate:vibly-incentivized-testnet",
+              genesisHash: "0xabc123",
+              status: "online",
+              rpcUrls: ["wss://rpc.vibly.network"],
+            },
+          },
+          features: {
+            agentJoin: true,
+            daemon: true,
+            staking: true,
+            rootIdentityRegistration: true,
+            getVibConversion: true,
+            getVibClaim: true,
+          },
+        },
+      ]),
+    });
+    expect(config.getVibClaimEnabled).toBe(true);
   });
 
   it("rejects production network manifests with online chains missing genesis hashes", () => {

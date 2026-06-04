@@ -22,6 +22,7 @@ export function startGetVibRootUploader(input: {
   actions?: Pick<GetVibRootChainActions, "submitClaimRoot">;
 }): () => void {
   if (input.config.getVibRootUploadIntervalMs <= 0) return () => {};
+  if (!input.config.getVibClaimEnabled) return () => {};
 
   const actions = input.actions ?? new GetVibRootChainActions(input.config);
   let running = false;
@@ -48,6 +49,7 @@ export async function runGetVibRootUploadTick(input: {
   actions?: Pick<GetVibRootChainActions, "submitClaimRoot">;
 }): Promise<RootUploadRecord | undefined> {
   if (input.config.getVibRootUploadIntervalMs <= 0) return undefined;
+  if (!input.config.getVibClaimEnabled) return undefined;
   const leaseStore = input.store as CoordinatorStorePort & { tryAcquireLease?: CoordinatorStorePort["tryAcquireLease"] };
   if (typeof leaseStore.tryAcquireLease !== "function") return undefined;
   const networkId = getNetworkId(input.config);
@@ -89,7 +91,7 @@ export async function getGetVibRootUploaderStatus(input: {
     listRootUploadRecords(input.store, input.config),
   ]);
   return {
-    enabled: input.config.getVibRootUploadIntervalMs > 0,
+    enabled: input.config.getVibClaimEnabled && input.config.getVibRootUploadIntervalMs > 0,
     intervalMs: input.config.getVibRootUploadIntervalMs,
     mode: input.config.getVibRootUploadMode,
     networkId: getNetworkId(input.config),

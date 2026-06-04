@@ -1,9 +1,12 @@
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import type { CoordinatorConfig } from "../../../config/env.js";
+import type { CoordinatorStorePort } from "../../../db/coordinatorStorePort.js";
 import { ok } from "../../../domain/apiTypes.js";
+import { badRequest } from "../../../domain/errors.js";
 import { envelopeKey } from "../../../domain/schemas.js";
 import { authPolicy } from "../../../plugins/authPolicy.js";
 import { getGetVibRootUploaderStatus } from "../../../services/getVibRootUploader.js";
+import { WALLET_SESSION, ensureActiveWalletSession, type WalletSessionRecord } from "../../identity/wallet/domain.js";
 import {
   buildAndSaveManifest,
   createGetVibOrder,
@@ -33,6 +36,24 @@ function requestNetworkId(request: FastifyRequest, bodyNetworkId?: string): stri
 function configForRequest(config: CoordinatorConfig, request: FastifyRequest, bodyNetworkId?: string): CoordinatorConfig {
   const networkId = requestNetworkId(request, bodyNetworkId);
   return networkId ? { ...config, substrateChainId: networkId } : config;
+}
+
+function sessionTokenFromRequest(headers: Record<string, string | string[] | undefined>): string | undefined {
+  const raw = headers["x-wallet-session"];
+  return Array.isArray(raw) ? raw[0] : raw;
+}
+
+async function requirePolkadotWalletSession(
+  store: CoordinatorStorePort,
+  headers: Record<string, string | string[] | undefined>,
+): Promise<WalletSessionRecord> {
+  const token = sessionTokenFromRequest(headers);
+  if (!token) throw badRequest("Wallet session token is required");
+  const session = ensureActiveWalletSession(await store.getProjection<WalletSessionRecord>(WALLET_SESSION, token), token);
+  if (session.ecosystem !== "polkadot") {
+    throw badRequest("Get VIB requires a Polkadot wallet session", { ecosystem: session.ecosystem });
+  }
+  return session;
 }
 
 const recordsSchema = {
@@ -155,7 +176,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Body: { networkId?: string; dotAmount: string; accountId: string; identityId?: string; evmAddress?: string } }>(
     "/get-vib/orders",
     {
-      schema: {
+      ...authPolicy("wallet-session", {
         tags: ["Get VIB"],
         summary: "Create a Get VIB DOT deposit order",
         body: {
@@ -170,19 +191,27 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKey("order") },
-      },
+      }),
     },
-    async (request) =>
-      ok({
+    async (request) => {
+      const session = await requirePolkadotWalletSession(fastify.coordinatorStore, request.headers as Record<string, string | string[] | undefined>);
+      if (request.body.accountId !== session.address) {
+        throw badRequest("Get VIB order accountId must match wallet session address", {
+          accountId: request.body.accountId,
+          sessionAddress: session.address,
+        });
+      }
+      return ok({
         order: await createGetVibOrder({
           store: fastify.coordinatorStore,
           config: configForRequest(fastify.config, request, request.body.networkId),
           dotAmount: request.body.dotAmount,
-          accountId: request.body.accountId,
+          accountId: session.address,
           identityId: request.body.identityId,
           evmAddress: request.body.evmAddress,
         }),
-      }),
+      });
+    },
   );
 
   fastify.get<{ Params: { orderId: string } }>(
@@ -201,7 +230,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Body: { quoteId: string; paymentTxHash: string } }>(
     "/get-vib/curve/submit-payment",
     {
-      schema: {
+      ...authPolicy("wallet-session", {
         tags: ["Get VIB"],
         summary: "Bind a payment transaction hash to a Get VIB quote",
         body: {
@@ -213,16 +242,19 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKey("order") },
-      },
+      }),
     },
-    async (request) =>
-      ok({
+    async (request) => {
+      const session = await requirePolkadotWalletSession(fastify.coordinatorStore, request.headers as Record<string, string | string[] | undefined>);
+      return ok({
         order: await submitGetVibPayment({
           store: fastify.coordinatorStore,
           quoteId: request.body.quoteId,
           paymentTxHash: request.body.paymentTxHash,
+          accountId: session.address,
         }),
-      }),
+      });
+    },
   );
 
   fastify.get<{ Params: { accountId: string } }>(
@@ -292,7 +324,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
   }>(
     "/admin/get-vib/deposits/finalize",
     {
-      schema: {
+      ...authPolicy("coordinator-authority", {
         tags: ["Admin", "Get VIB"],
         summary: "Finalize an observed Relay Chain DOT deposit and create allocation",
         body: {
@@ -310,7 +342,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKey("result") },
-      },
+      }),
     },
     async (request) =>
       ok({
@@ -332,11 +364,11 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     "/admin/get-vib/relay-watcher/status",
     {
-      schema: {
+      ...authPolicy("coordinator-authority", {
         tags: ["Admin", "Get VIB"],
         summary: "Get Get VIB relay deposit watcher status",
         response: { 200: envelopeKey("status") },
-      },
+      }),
     },
     async () =>
       ok({
@@ -356,11 +388,11 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     "/admin/get-vib/root-uploader/status",
     {
-      schema: {
+      ...authPolicy("coordinator-authority", {
         tags: ["Admin", "Get VIB"],
         summary: "Get Get VIB root uploader status",
         response: { 200: envelopeKey("status") },
-      },
+      }),
     },
     async () =>
       ok({
@@ -374,7 +406,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: { status?: "observed" | "confirmed" | "failed"; limit?: number } }>(
     "/admin/get-vib/relay-deposits",
     {
-      schema: {
+      ...authPolicy("coordinator-authority", {
         tags: ["Admin", "Get VIB"],
         summary: "List observed Get VIB Relay Chain deposits",
         querystring: {
@@ -390,7 +422,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
             items: { type: "object", additionalProperties: true },
           }),
         },
-      },
+      }),
     },
     async (request) =>
       ok({
@@ -404,11 +436,11 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     "/admin/get-vib/manifests",
     {
-      schema: {
+      ...authPolicy("coordinator-authority", {
         tags: ["Admin", "Get VIB"],
         summary: "Build and persist the next cumulative Get VIB allocation manifest",
         response: { 200: envelopeKey("manifest") },
-      },
+      }),
     },
     async (request) => ok({ manifest: await buildAndSaveManifest(fastify.coordinatorStore, configForRequest(fastify.config, request)) }),
   );
@@ -427,7 +459,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
   }>(
     "/admin/get-vib/claims",
     {
-      schema: {
+      ...authPolicy("coordinator-authority", {
         tags: ["Admin", "Get VIB"],
         summary: "Record a Get VIB on-chain claim result",
         body: {
@@ -445,7 +477,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         response: { 200: envelopeKey("claim") },
-      },
+      }),
     },
     async (request) =>
       ok({

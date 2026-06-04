@@ -169,6 +169,7 @@ export interface ClaimProof {
   merkleRoot: string;
   proof: MerkleProofItem[];
   metadataHash: string;
+  claimEnabled: boolean;
   rootUploadStatus?: RootUploadStatus;
   rootUploadTxHash?: string;
   rootUploadedAt?: string;
@@ -257,7 +258,7 @@ export async function getGetVibConfig(_store: CoordinatorStorePort, config: Coor
   return {
     networkId: getNetworkId(config),
     purchaseEnabled: Boolean(config.viblyDotReceivingAddress) && !config.getVibCurvePaused,
-    claimEnabled: true,
+    claimEnabled: config.getVibClaimEnabled,
     paused: config.getVibCurvePaused,
     depositAddress: config.viblyDotReceivingAddress,
     relayTokenSymbol: config.getVibRelayTokenSymbol || undefined,
@@ -705,6 +706,7 @@ export async function getClaimProof(store: CoordinatorStorePort, config: Coordin
     merkleRoot: manifest.merkleRoot,
     proof,
     metadataHash: manifest.metadataHash,
+    claimEnabled: config.getVibClaimEnabled,
     rootUploadStatus: rootUpload?.status,
     rootUploadTxHash: rootUpload?.txHash,
     rootUploadedAt: rootUpload?.uploadedAt,
@@ -781,8 +783,15 @@ export async function submitGetVibPayment(input: {
   store: CoordinatorStorePort;
   quoteId: string;
   paymentTxHash: string;
+  accountId?: string;
 }): Promise<ConversionOrderRecord> {
   const order = await getOrder(input.store, input.quoteId);
+  if (input.accountId && order.viblyRootAddress !== input.accountId) {
+    throw badRequest("Get VIB quote account does not match wallet session", {
+      quoteId: input.quoteId,
+      accountId: input.accountId,
+    });
+  }
   if (new Date(order.quoteExpiresAt).getTime() <= Date.now()) throw badRequest("Get VIB quote expired", { quoteId: input.quoteId });
   if (order.status !== "pending_payment") throw conflict("Get VIB quote cannot be reused", { quoteId: input.quoteId, status: order.status });
   const existingPayment = await findAnyOrderByPaymentId(input.store, input.paymentTxHash);

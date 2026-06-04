@@ -106,7 +106,7 @@ function defaultNetworkManifests(config: CoordinatorConfig): NetworkManifest[] {
         staking: true,
         rootIdentityRegistration: true,
         getVibConversion: !config.getVibCurvePaused,
-        getVibClaim: true,
+        getVibClaim: config.getVibClaimEnabled,
       },
     },
     {

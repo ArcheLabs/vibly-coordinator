@@ -64,6 +64,9 @@ const envSchema = z
     GET_VIB_ROOT_UPLOAD_MODE: z.enum(["prepare-only", "fixture", "unsafe-papi"]).default("prepare-only"),
     // Dedicated least-privilege hot key authorized on-chain only for vibClaim.setClaimRoot.
     GET_VIB_ROOT_PUBLISHER_URI: z.string().default(""),
+    // Explicit production gate for on-chain VIB claims. Keep false until Vibly Chain is live
+    // and a claim root has been uploaded.
+    GET_VIB_CLAIM_ENABLED: z.string().transform((v) => v === "true").default("false"),
     // Maximum acceptable staleness for cached stake data.
     AGENT_STAKE_FRESHNESS_MS: z.coerce.number().default(30000),
     // Local trace output path for debug/event traces.
@@ -177,11 +180,21 @@ const envSchema = z
     NETWORK_MANIFEST_JSON: z.string().default(""),
   })
   .superRefine((val, ctx) => {
+    let manifests: unknown;
+
     if (val.GET_VIB_ROOT_UPLOAD_MODE === "unsafe-papi" && !val.GET_VIB_ROOT_PUBLISHER_URI.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "GET_VIB_ROOT_UPLOAD_MODE=unsafe-papi requires GET_VIB_ROOT_PUBLISHER_URI",
         path: ["GET_VIB_ROOT_PUBLISHER_URI"],
+      });
+    }
+
+    if (val.NODE_ENV === "production" && val.GET_VIB_CLAIM_ENABLED && val.GET_VIB_ROOT_UPLOAD_MODE !== "unsafe-papi") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "GET_VIB_CLAIM_ENABLED=true requires GET_VIB_ROOT_UPLOAD_MODE=unsafe-papi",
+        path: ["GET_VIB_ROOT_UPLOAD_MODE"],
       });
     }
 
@@ -219,7 +232,6 @@ const envSchema = z
     }
 
     if (val.NETWORK_MANIFEST_JSON.trim()) {
-      let manifests: unknown;
       try {
         manifests = JSON.parse(val.NETWORK_MANIFEST_JSON);
       } catch {
@@ -272,6 +284,84 @@ const envSchema = z
     }
 
     if (val.NODE_ENV !== "production") return;
+
+    const getVibConversionRequested = hasManifestFeature(manifests, "getVibConversion");
+    const getVibClaimRequested = val.GET_VIB_CLAIM_ENABLED || hasManifestFeature(manifests, "getVibClaim");
+    if (getVibConversionRequested) {
+      if (!val.VIBLY_DOT_RECEIVING_ADDRESS.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "production Get VIB conversion requires VIBLY_DOT_RECEIVING_ADDRESS",
+          path: ["VIBLY_DOT_RECEIVING_ADDRESS"],
+        });
+      }
+      if (!val.GET_VIB_RELAY_RPC_URL?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "production Get VIB conversion requires GET_VIB_RELAY_RPC_URL",
+          path: ["GET_VIB_RELAY_RPC_URL"],
+        });
+      }
+      if (val.GET_VIB_RELAY_CHAIN_ID !== "polkadot") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "production Get VIB conversion requires GET_VIB_RELAY_CHAIN_ID=polkadot",
+          path: ["GET_VIB_RELAY_CHAIN_ID"],
+        });
+      }
+      if (val.GET_VIB_RELAY_TOKEN_DECIMALS !== 10) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "production Get VIB conversion requires GET_VIB_RELAY_TOKEN_DECIMALS=10 for Polkadot DOT",
+          path: ["GET_VIB_RELAY_TOKEN_DECIMALS"],
+        });
+      }
+      if (val.GET_VIB_DEPOSIT_SCAN_INTERVAL_MS <= 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "production Get VIB conversion requires GET_VIB_DEPOSIT_SCAN_INTERVAL_MS > 0",
+          path: ["GET_VIB_DEPOSIT_SCAN_INTERVAL_MS"],
+        });
+      }
+      if (val.GET_VIB_DEPOSIT_FINALITY_BLOCKS <= 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "production Get VIB conversion requires GET_VIB_DEPOSIT_FINALITY_BLOCKS > 0",
+          path: ["GET_VIB_DEPOSIT_FINALITY_BLOCKS"],
+        });
+      }
+    }
+
+    if (getVibClaimRequested) {
+      if (!val.GET_VIB_CLAIM_ENABLED) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "production manifest getVibClaim=true requires GET_VIB_CLAIM_ENABLED=true",
+          path: ["GET_VIB_CLAIM_ENABLED"],
+        });
+      }
+      if (!manifestViblyChainOnline(manifests)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "production Get VIB claim requires an online Vibly chain in NETWORK_MANIFEST_JSON",
+          path: ["NETWORK_MANIFEST_JSON"],
+        });
+      }
+      if (!val.SUBSTRATE_RPC_URL.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "production Get VIB claim requires SUBSTRATE_RPC_URL",
+          path: ["SUBSTRATE_RPC_URL"],
+        });
+      }
+      if (!val.GET_VIB_ROOT_PUBLISHER_URI.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "production Get VIB claim requires GET_VIB_ROOT_PUBLISHER_URI",
+          path: ["GET_VIB_ROOT_PUBLISHER_URI"],
+        });
+      }
+    }
 
     if (!val.NETWORK_MANIFEST_JSON.trim()) {
       ctx.addIssue({
@@ -387,6 +477,7 @@ export interface CoordinatorConfig {
   getVibRootUploadIntervalMs: number;
   getVibRootUploadMode: "prepare-only" | "fixture" | "unsafe-papi";
   getVibRootPublisherUri?: string;
+  getVibClaimEnabled: boolean;
   agentStakeFreshnessMs: number;
   traceOutputDir: string;
   enableSwagger: boolean;
@@ -488,6 +579,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     getVibRootUploadIntervalMs: parsed.GET_VIB_ROOT_UPLOAD_INTERVAL_MS,
     getVibRootUploadMode: parsed.GET_VIB_ROOT_UPLOAD_MODE,
     getVibRootPublisherUri: parsed.GET_VIB_ROOT_PUBLISHER_URI.trim() || undefined,
+    getVibClaimEnabled: parsed.GET_VIB_CLAIM_ENABLED,
     agentStakeFreshnessMs: parsed.AGENT_STAKE_FRESHNESS_MS,
     traceOutputDir: parsed.TRACE_OUTPUT_DIR,
     enableSwagger: parsed.ENABLE_SWAGGER,
@@ -545,4 +637,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     orgAdminAuthoritySource: parsed.ORG_ADMIN_AUTHORITY_SOURCE,
     orgMembershipMinActiveStake: parsed.ORG_MEMBERSHIP_MIN_ACTIVE_STAKE,
   };
+}
+
+function hasManifestFeature(manifests: unknown, feature: string): boolean {
+  if (!Array.isArray(manifests)) return false;
+  return manifests.some((manifest) => {
+    if (!manifest || typeof manifest !== "object") return false;
+    const features = (manifest as Record<string, unknown>).features;
+    if (!features || typeof features !== "object") return false;
+    return (features as Record<string, unknown>)[feature] === true;
+  });
+}
+
+function manifestViblyChainOnline(manifests: unknown): boolean {
+  if (!Array.isArray(manifests)) return false;
+  return manifests.some((manifest) => {
+    if (!manifest || typeof manifest !== "object") return false;
+    const chains = (manifest as Record<string, unknown>).chains;
+    if (!chains || typeof chains !== "object") return false;
+    const vibly = (chains as Record<string, unknown>).vibly;
+    return Boolean(vibly && typeof vibly === "object" && (vibly as Record<string, unknown>).status === "online");
+  });
 }

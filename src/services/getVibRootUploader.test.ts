@@ -21,6 +21,7 @@ function config(overrides: Record<string, string> = {}) {
     COORDINATOR_ID: "coordinator-test",
     SUBSTRATE_CHAIN_ID: "local:get-vib-test",
     VIBLY_DOT_RECEIVING_ADDRESS: "deposit",
+    GET_VIB_CLAIM_ENABLED: "true",
     GET_VIB_ROOT_UPLOAD_INTERVAL_MS: "1000",
     GET_VIB_ROOT_UPLOAD_MODE: "fixture",
     ...overrides,
@@ -33,6 +34,18 @@ describe("Get VIB root uploader", () => {
     const actions = { submitClaimRoot: vi.fn() };
 
     await expect(runGetVibRootUploadTick({ config: config(), store, actions })).resolves.toBeUndefined();
+
+    expect(actions.submitClaimRoot).not.toHaveBeenCalled();
+    expect(await store.listProjections(GET_VIB_MANIFEST)).toHaveLength(0);
+  });
+
+  it("does nothing while Get VIB claim is disabled", async () => {
+    const store = makeStore();
+    const cfg = config({ GET_VIB_CLAIM_ENABLED: "false" });
+    await addConfirmedAllocation(store, cfg);
+    const actions = { submitClaimRoot: vi.fn() };
+
+    await expect(runGetVibRootUploadTick({ config: cfg, store, actions })).resolves.toBeUndefined();
 
     expect(actions.submitClaimRoot).not.toHaveBeenCalled();
     expect(await store.listProjections(GET_VIB_MANIFEST)).toHaveLength(0);
