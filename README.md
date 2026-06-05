@@ -68,6 +68,11 @@ Public endpoints such as `/health`, `/ready`, `/metrics`, `/openapi.json`, and `
 | `PROTOCOL_VERSION` | Logical coordinator protocol version sent back in policy responses |
 | `NETWORK_MANIFEST_JSON` | Public network manifest array for `/networks`; required in production, empty uses built-in local/prelaunch defaults only outside production |
 
+When you publish named public networks, keep the current product naming aligned with Console:
+
+- `substrate:vibly-testnet` -> `Lumen`
+- `substrate:vibly-incentivized-testnet` -> `Monolith`
+
 ### Governance and chain integration
 
 | Variable | Description |
