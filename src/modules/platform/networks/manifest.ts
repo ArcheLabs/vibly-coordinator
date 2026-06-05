@@ -114,7 +114,7 @@ function defaultNetworkManifests(config: CoordinatorConfig): NetworkManifest[] {
       updatedAt: now,
       ttlSeconds: 600,
       id: "substrate:vibly-incentivized-testnet",
-      label: "Incentivized Testnet",
+      label: "Monolith",
       stage: "testnet",
       status: "prelaunch",
       coordinatorUrls: [coordinatorUrl],
@@ -141,8 +141,8 @@ function defaultNetworkManifests(config: CoordinatorConfig): NetworkManifest[] {
         getVibClaim: false,
       },
       messages: {
-        getVibClaim: "VIB claim to incentivized testnet is not live yet.",
-        prelaunch: "Incentivized testnet agent onboarding will open after the network launch.",
+        getVibClaim: "VIB claim to Monolith is not live yet.",
+        prelaunch: "Monolith agent onboarding will open after the network launch.",
       },
     },
   ].map((manifest) => NetworkManifestSchema.parse(manifest));
