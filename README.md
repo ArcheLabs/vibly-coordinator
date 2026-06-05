@@ -73,12 +73,16 @@ Public endpoints such as `/health`, `/ready`, `/metrics`, `/openapi.json`, and `
 | Variable | Description |
 |---|---|
 | `SUBSTRATE_INDEXER_URL` | SubQuery GraphQL endpoint (for example `http://localhost:3010/graphql`) |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated browser origins allowed to call Coordinator directly, e.g. a static Console on GitHub Pages |
 | `AGENT_STAKE_SYNC_INTERVAL_MS` | How often to poll the indexer for stake ledger updates (`0` = disabled) |
 | `AGENT_STAKE_FRESHNESS_MS` | Maximum age of a stake ledger entry before it is considered stale |
 | `SUBSTRATE_STAKE_TX_MODE` | `prepare-only`, `fixture`, or `unsafe-papi` |
-| `GET_VIB_ROOT_UPLOAD_INTERVAL_MS` | How often to build/upload Get VIB claim roots (`0` = disabled, default `600000`) |
+| `GET_VIB_ROOT_UPLOAD_INTERVAL_MS` | How often to build/upload Get VIB claim roots (`0` = disabled, default `120000`) |
 | `GET_VIB_ROOT_UPLOAD_MODE` | `prepare-only`, `fixture`, or `unsafe-papi` for direct `vibClaim.setClaimRoot` submission |
 | `GET_VIB_ROOT_PUBLISHER_URI` | Hot-key URI authorized on-chain only as the Get VIB claim root publisher; do not use sudo/root here |
+| `CHAIN_AUTHORITY_MODE` | Guardian authority resolver mode. Production requires `rpc` |
+| `CHAIN_AUTHORITY_RPC_URL` | Vibly Chain RPC used to read `guardianMembership.members()`; falls back to `SUBSTRATE_RPC_URL` |
+| `ORG_ADMIN_AUTHORITY_SOURCE` | `guardian` requires chain Guardian membership for organization admin writes; production rejects `local` |
 | `SUBSTRATE_CHAIN_ID` | Logical chain identifier (for example `substrate:vibly-solo`) |
 | `GOVERNANCE_BACKENDS` | Comma-separated backend names to register (`substrate-opengov`, `evm-governor`, ...) |
 

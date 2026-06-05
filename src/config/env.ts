@@ -13,6 +13,9 @@ const envSchema = z
     PORT: z.coerce.number().default(8787),
     // Pino/Fastify log level.
     LOG_LEVEL: z.string().default("info"),
+    // Comma-separated browser origins allowed to call Coordinator directly.
+    // Required for static Console deployments; leave empty to disable production CORS.
+    CORS_ALLOWED_ORIGINS: z.string().default(""),
 
     // ─────────────────────────────────────────────────────────────────────────
     // Storage / persistence
@@ -59,7 +62,7 @@ const envSchema = z
     AGENT_REWARD_MAX_CATCHUP_DAYS: z.coerce.number().int().min(1).default(7),
     LEGACY_REWARD_INTENT_MODE: z.enum(["hidden", "disabled", "enabled"]).default("hidden"),
     // Get VIB root upload scheduler interval; 0 means disabled.
-    GET_VIB_ROOT_UPLOAD_INTERVAL_MS: z.coerce.number().default(600000),
+    GET_VIB_ROOT_UPLOAD_INTERVAL_MS: z.coerce.number().default(120000),
     // Get VIB root upload tx mode.
     GET_VIB_ROOT_UPLOAD_MODE: z.enum(["prepare-only", "fixture", "unsafe-papi"]).default("prepare-only"),
     // Dedicated least-privilege hot key authorized on-chain only for vibClaim.setClaimRoot.
@@ -396,6 +399,35 @@ const envSchema = z
       });
     }
 
+    const corsOrigins = val.CORS_ALLOWED_ORIGINS.split(",").map((item) => item.trim()).filter(Boolean);
+    for (const origin of corsOrigins) {
+      try {
+        new URL(origin);
+      } catch {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "CORS_ALLOWED_ORIGINS must be a comma-separated list of valid origins",
+          path: ["CORS_ALLOWED_ORIGINS"],
+        });
+      }
+    }
+
+    if (val.ORG_ADMIN_AUTHORITY_SOURCE !== "guardian") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "production organization administration requires ORG_ADMIN_AUTHORITY_SOURCE=guardian",
+        path: ["ORG_ADMIN_AUTHORITY_SOURCE"],
+      });
+    }
+
+    if (val.CHAIN_AUTHORITY_MODE !== "rpc") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "production Guardian authority checks require CHAIN_AUTHORITY_MODE=rpc",
+        path: ["CHAIN_AUTHORITY_MODE"],
+      });
+    }
+
     if (!val.OIDC_ISSUER?.trim()) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "production requires OIDC_ISSUER", path: ["OIDC_ISSUER"] });
     }
@@ -448,6 +480,7 @@ export interface CoordinatorConfig {
   host: string;
   port: number;
   logLevel: string;
+  corsAllowedOrigins: string[];
 
   // ─── Storage / persistence ───────────────────────────────────────────────
   databaseUrl: string;
@@ -556,6 +589,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     host: parsed.HOST,
     port: parsed.PORT,
     logLevel: parsed.LOG_LEVEL,
+    corsAllowedOrigins: parsed.CORS_ALLOWED_ORIGINS.split(",").map((item) => item.trim()).filter(Boolean),
     databaseUrl: parsed.DATABASE_URL,
     storageMode: parsed.STORAGE_MODE,
     coordinatorId: parsed.COORDINATOR_ID,

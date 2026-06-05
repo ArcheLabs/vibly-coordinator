@@ -62,7 +62,7 @@ describe("loadConfig", () => {
 
   it("parses Get VIB root uploader settings", () => {
     const defaults = loadConfig({ NODE_ENV: "test" });
-    expect(defaults.getVibRootUploadIntervalMs).toBe(600000);
+    expect(defaults.getVibRootUploadIntervalMs).toBe(120000);
     expect(defaults.getVibRootUploadMode).toBe("prepare-only");
     expect(defaults.getVibClaimEnabled).toBe(false);
 
@@ -147,6 +147,8 @@ describe("loadConfig", () => {
     GET_VIB_RELAY_TOKEN_DECIMALS: "10",
     GET_VIB_DEPOSIT_SCAN_INTERVAL_MS: "30000",
     GET_VIB_DEPOSIT_FINALITY_BLOCKS: "12",
+    CHAIN_AUTHORITY_MODE: "rpc",
+    ORG_ADMIN_AUTHORITY_SOURCE: "guardian",
     NETWORK_MANIFEST_JSON: JSON.stringify([
       {
         manifestVersion: 1,

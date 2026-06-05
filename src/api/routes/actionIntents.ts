@@ -15,10 +15,12 @@ import { actionIntentResultSchema } from "../../domain/schemas.js";
 import type { ActionIntentDispatcher } from "../../application/actionIntentDispatcher.js";
 import type { ActionIntentType } from "../../application/types.js";
 import type { ChainAuthorityResolver } from "../../services/chainAuthorityResolver.js";
+import { WALLET_SESSION, ensureActiveWalletSession, type WalletSessionRecord } from "../../modules/identity/wallet/domain.js";
+import { authPolicy } from "../../plugins/authPolicy.js";
 
 const bodySchema = z.object({
   type: z.string().min(1),
-  principalId: z.string().min(1),
+  principalId: z.string().min(1).optional(),
   organizationId: z.string().optional(),
   projectId: z.string().optional(),
   payload: z.record(z.unknown()).default({}),
@@ -30,6 +32,12 @@ export interface ActionIntentsPluginOptions {
   authorityResolver: ChainAuthorityResolver;
 }
 
+function sessionTokenFromRequest(headers: Record<string, string | string[] | undefined>): string | undefined {
+  const raw = headers["x-wallet-session"];
+  if (Array.isArray(raw)) return raw[0];
+  return raw;
+}
+
 const actionIntentsRoutes: FastifyPluginAsync<ActionIntentsPluginOptions> = async (
   fastify,
   { dispatcher, authorityResolver },
@@ -37,7 +45,7 @@ const actionIntentsRoutes: FastifyPluginAsync<ActionIntentsPluginOptions> = asyn
   fastify.post<{ Body: unknown }>(
     "/action-intents",
     {
-      schema: {
+      ...authPolicy("wallet-session", {
         tags: ["ActionIntents"],
         summary: "Submit an ActionIntent (unified write path)",
         description:
@@ -46,7 +54,7 @@ const actionIntentsRoutes: FastifyPluginAsync<ActionIntentsPluginOptions> = asyn
           "On success the response contains the primary event produced.",
         body: {
           type: "object",
-          required: ["type", "principalId"],
+          required: ["type"],
           properties: {
             type: { type: "string", minLength: 1 },
             principalId: { type: "string", minLength: 1 },
@@ -57,7 +65,7 @@ const actionIntentsRoutes: FastifyPluginAsync<ActionIntentsPluginOptions> = asyn
           },
         },
         response: { 200: actionIntentResultSchema },
-      },
+      }),
     },
     async (request) => {
       const parsed = bodySchema.safeParse(request.body);
@@ -66,14 +74,32 @@ const actionIntentsRoutes: FastifyPluginAsync<ActionIntentsPluginOptions> = asyn
       }
 
       const intent = parsed.data;
-      if (request.auth?.kind === "agent-runtime" && request.auth.subject !== intent.principalId) {
+      let actorPrincipalId = intent.principalId;
+      const walletSessionToken = sessionTokenFromRequest(request.headers as Record<string, string | string[] | undefined>);
+      if (walletSessionToken) {
+        const session = ensureActiveWalletSession(
+          await fastify.coordinatorStore.getProjection<WalletSessionRecord>(WALLET_SESSION, walletSessionToken),
+          walletSessionToken,
+        );
+        actorPrincipalId = session.address;
+      } else if (request.auth?.kind === "agent-runtime") {
+        actorPrincipalId = request.auth.subject;
+      } else if (request.auth?.kind === "oidc") {
+        actorPrincipalId = request.auth.subject;
+      }
+
+      if (!actorPrincipalId) {
+        throw badRequest("ActionIntent principalId is required when no wallet session or authenticated subject is present");
+      }
+
+      if (request.auth?.kind === "agent-runtime" && intent.principalId && request.auth.subject !== intent.principalId) {
         throw forbidden("Agent runtime token cannot submit for a different principal");
       }
 
       const result = await dispatcher.dispatch(
         {
           type: intent.type as ActionIntentType,
-          principalId: intent.principalId,
+          principalId: actorPrincipalId,
           organizationId: intent.organizationId,
           projectId: intent.projectId,
           payload: intent.payload,
@@ -84,7 +110,7 @@ const actionIntentsRoutes: FastifyPluginAsync<ActionIntentsPluginOptions> = asyn
           eventBus: fastify.eventBus,
           config: fastify.config,
           concord: fastify.concord,
-          principalId: intent.principalId,
+          principalId: actorPrincipalId,
           authorityResolver,
         },
       );

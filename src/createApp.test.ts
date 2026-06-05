@@ -319,6 +319,50 @@ describe("createApp governance runtime config", () => {
     await app.close();
   });
 
+  it("derives action-intent actor from wallet session instead of body principalId", async () => {
+    await cryptoWaitReady();
+    const keyring = new Keyring({ type: "sr25519" });
+    const alice = keyring.addFromUri("//Alice");
+    const bob = keyring.addFromUri("//Bob");
+    const store = makeStore();
+    const config = loadConfig({
+      NODE_ENV: "test",
+      API_AUTH_MODE: "static-token",
+      API_TOKENS: "dev-token",
+      ORG_ADMIN_AUTHORITY_SOURCE: "local",
+    });
+    const app = await createApp({
+      config,
+      logger: createLogger(config),
+      concord: makeConcord(),
+      coordinatorStore: store,
+      eventBus: createEventBus(),
+      startGovernanceConsumers: false,
+    });
+    const token = await createWalletSession(app, alice.address, alice);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/action-intents",
+      headers: {
+        authorization: "Bearer dev-token",
+        "x-wallet-session": token,
+      },
+      payload: {
+        type: "CreateOrganization",
+        principalId: bob.address,
+        payload: { name: "Wallet-owned Org" },
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{ data: { aggregateRef: { id: string } } }>();
+    const org = await store.getProjection<{ createdBy: string }>("organization_v2", body.data.aggregateRef.id);
+    expect(org?.createdBy).toBe(alice.address);
+
+    await app.close();
+  });
+
   it("returns an empty personal center without a wallet session", async () => {
     const config = loadConfig({
       NODE_ENV: "test",
