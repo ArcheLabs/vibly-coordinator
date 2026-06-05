@@ -32,6 +32,43 @@ vibly-coordinator (REST/SSE :8787)  <--- @concord/sdk (protocol kernel)
        +-- vibly-console (Web UI)
 ```
 
+## Production topology
+
+The production coordinator process can be hosted on a stateless platform such as Cloud Run, but the system as a whole is not serverless:
+
+- `vibly-coordinator`: stateless app container
+- `Postgres`: required persistent database in production
+- `vibly-indexer`: separate SubQuery deployment that feeds chain read models
+- `vibly-chain`: separate chain node / RPC endpoint
+
+Coordinator startup already handles database connectivity checks and migrations, so the deployment model is:
+
+1. Provision Postgres first.
+2. Set `STORAGE_MODE=postgres` and `DATABASE_URL=postgres://...`.
+3. Point `SUBSTRATE_INDEXER_URL` at the hosted SubQuery GraphQL endpoint.
+4. Start the coordinator container; it will ping/migrate Postgres on boot.
+
+For Google Cloud, the usual split is Cloud Run for the coordinator app plus Cloud SQL for Postgres.
+
+Ready-to-copy deployment templates:
+
+- [templates/cloud-run.env.yaml.example](/home/libingjiang47/vibly-coordinator/templates/cloud-run.env.yaml.example)
+- [templates/network-manifest.production.json.example](/home/libingjiang47/vibly-coordinator/templates/network-manifest.production.json.example)
+
+Typical deploy command:
+
+```bash
+gcloud run deploy vibly-coordinator \
+  --source . \
+  --region asia-east1 \
+  --project your-gcp-project \
+  --allow-unauthenticated \
+  --add-cloudsql-instances your-gcp-project:asia-east1:vibly-coordinator-pg \
+  --env-vars-file templates/cloud-run.env.yaml.example
+```
+
+The env file intentionally includes `DATABASE_URL` as a placeholder because many teams start with a private Cloud SQL Unix socket DSN. If you manage secrets separately, replace it at deploy time with `--set-secrets` or your secret manager workflow.
+
 ## Version policy and upgrade gates
 
 Coordinator is the authority for client compatibility. It now exposes:
@@ -95,6 +132,8 @@ Generate or inspect a dedicated Get VIB root publisher hot key with:
 `pnpm get-vib-root-publisher:generate`
 or
 `pnpm get-vib-root-publisher:inspect -- --uri '<mnemonic or derivation URI>'`
+
+`SUBSTRATE_INDEXER_URL` must point at a real hosted `vibly-indexer` deployment in production. The coordinator does not embed SubQuery or manage the indexer lifecycle for you.
 
 ### Optional
 

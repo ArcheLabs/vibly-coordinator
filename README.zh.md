@@ -15,6 +15,36 @@ pnpm build && pnpm start
 
 默认地址：`http://localhost:8787`
 
+## 生产部署拓扑
+
+生产环境下，coordinator 进程本身可以跑在 Cloud Run 这类无状态平台上，但整个系统并不是纯 serverless：
+
+- `vibly-coordinator`：无状态应用容器
+- `Postgres`：生产必需的持久化数据库
+- `vibly-indexer`：独立部署的 SubQuery 服务，向 coordinator 提供链上读模型
+- `vibly-chain`：独立链节点 / RPC
+
+推荐的 Google Cloud 组合是 Cloud Run + Cloud SQL(Postgres)。
+
+可直接复用的模板：
+
+- [templates/cloud-run.env.yaml.example](/home/libingjiang47/vibly-coordinator/templates/cloud-run.env.yaml.example)
+- [templates/network-manifest.production.json.example](/home/libingjiang47/vibly-coordinator/templates/network-manifest.production.json.example)
+
+典型部署命令：
+
+```bash
+gcloud run deploy vibly-coordinator \
+  --source . \
+  --region asia-east1 \
+  --project your-gcp-project \
+  --allow-unauthenticated \
+  --add-cloudsql-instances your-gcp-project:asia-east1:vibly-coordinator-pg \
+  --env-vars-file templates/cloud-run.env.yaml.example
+```
+
+模板里保留了 `DATABASE_URL` 占位值，因为很多团队会先走 Cloud SQL Unix socket DSN。如果你们用 Secret Manager 管理数据库连接串，可以在部署时改用 `--set-secrets` 覆盖。
+
 ## 版本策略与升级门禁
 
 coordinator 现在负责客户端兼容性策略，提供以下能力：
@@ -69,6 +99,8 @@ coordinator 现在负责客户端兼容性策略，提供以下能力：
 `pnpm get-vib-root-publisher:generate`
 或
 `pnpm get-vib-root-publisher:inspect -- --uri '<助记词或 derivation URI>'`
+
+`SUBSTRATE_INDEXER_URL` 在生产环境必须指向真实部署的 `vibly-indexer` GraphQL 服务。coordinator 不会内嵌 SubQuery，也不会替你管理 indexer 生命周期。
 
 ## API 概览
 
