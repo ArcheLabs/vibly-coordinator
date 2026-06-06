@@ -10,3 +10,7 @@ traces/
 *.db
 *.db-shm
 *.db-wal
+
+*.env
+.env
+cloud-run.env.yaml

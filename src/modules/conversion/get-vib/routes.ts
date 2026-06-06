@@ -135,7 +135,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
       account?: string;
       accountId?: string;
       paymentAsset?: "DOT";
-      budgetUsd?: number;
+      budgetDot?: number;
       dotAmount?: string;
       vibAmount?: string;
     };
@@ -144,7 +144,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
     {
       ...authPolicy("public-read", {
         tags: ["Get VIB"],
-        summary: "Quote a Get VIB curve purchase",
+        summary: "Quote a DOT-denominated Get VIB curve purchase",
         body: {
           type: "object",
           properties: {
@@ -152,7 +152,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
             account: { type: "string" },
             accountId: { type: "string" },
             paymentAsset: { type: "string", enum: ["DOT"] },
-            budgetUsd: { type: "number" },
+            budgetDot: { type: "number" },
             dotAmount: { type: "string" },
             vibAmount: { type: "string" },
           },
@@ -166,7 +166,7 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
           store: fastify.coordinatorStore,
           config: configForRequest(fastify.config, request, request.body.networkId),
           accountId: request.body.accountId ?? request.body.account,
-          budgetUsd: request.body.budgetUsd,
+          budgetDot: request.body.budgetDot,
           dotAmount: request.body.dotAmount,
           vibAmount: request.body.vibAmount,
         }),

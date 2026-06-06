@@ -76,12 +76,12 @@ function makeStore(): CoordinatorStorePort {
 
 describe("Get VIB relay deposits", () => {
   it("matches the capped launch curve price checkpoints", () => {
-    expect(priceAtSold(0n)).toBeCloseTo(0.01, 6);
-    expect(priceAtSold(10_000_000n)).toBeCloseTo(0.013207, 6);
-    expect(priceAtSold(20_000_000n)).toBeCloseTo(0.017942, 6);
-    expect(priceAtSold(30_000_000n)).toBeCloseTo(0.024882, 6);
-    expect(priceAtSold(40_000_000n)).toBeCloseTo(0.035053, 6);
-    expect(priceAtSold(50_000_000n)).toBeCloseTo(0.05, 6);
+    expect(priceAtSold(0n)).toBeCloseTo(0.01 / 10.98, 6);
+    expect(priceAtSold(10_000_000n)).toBeCloseTo(0.013207 / 10.98, 6);
+    expect(priceAtSold(20_000_000n)).toBeCloseTo(0.017942 / 10.98, 6);
+    expect(priceAtSold(30_000_000n)).toBeCloseTo(0.024882 / 10.98, 6);
+    expect(priceAtSold(40_000_000n)).toBeCloseTo(0.035053 / 10.98, 6);
+    expect(priceAtSold(50_000_000n)).toBeCloseTo(0.05 / 10.98, 6);
   });
 
   it("enforces curve allocation boundaries", () => {
@@ -95,13 +95,13 @@ describe("Get VIB relay deposits", () => {
     expect(getPurchasePhase(10_000_000n)).toBe(2);
     expect(getPurchasePhase(30_000_000n)).toBe(3);
     expect(() =>
-      validatePurchase({ soldBefore: 0n, vibAmount: 100_001n, accountPurchasedTotal: 0n, costUsd: 1200, config: DEFAULT_CURVE_CONFIG }),
+      validatePurchase({ soldBefore: 0n, vibAmount: 100_001n, accountPurchasedTotal: 0n, costDot: 120, config: DEFAULT_CURVE_CONFIG }),
     ).toThrow("VIB account phase limit exceeded");
     expect(() =>
-      validatePurchase({ soldBefore: 10_000_000n, vibAmount: 500_001n, accountPurchasedTotal: 0n, costUsd: 7000, config: DEFAULT_CURVE_CONFIG }),
+      validatePurchase({ soldBefore: 10_000_000n, vibAmount: 500_001n, accountPurchasedTotal: 0n, costDot: 700, config: DEFAULT_CURVE_CONFIG }),
     ).toThrow("VIB account phase limit exceeded");
     expect(() =>
-      validatePurchase({ soldBefore: 30_000_000n, vibAmount: 1_000_000n, accountPurchasedTotal: 1_000_001n, costUsd: 8000, config: DEFAULT_CURVE_CONFIG }),
+      validatePurchase({ soldBefore: 30_000_000n, vibAmount: 1_000_000n, accountPurchasedTotal: 1_000_001n, costDot: 800, config: DEFAULT_CURVE_CONFIG }),
     ).toThrow("VIB account phase limit exceeded");
   });
 
@@ -204,7 +204,6 @@ describe("Get VIB relay deposits", () => {
       NODE_ENV: "test",
       SUBSTRATE_CHAIN_ID: "local:get-vib-test",
       VIBLY_DOT_RECEIVING_ADDRESS: "deposit",
-      VIBLY_GET_VIB_DOT_USD_PRICE: "10",
     });
 
     await expect(quoteGetVibAmount(store, config, "1500")).resolves.toMatchObject({
@@ -219,7 +218,6 @@ describe("Get VIB relay deposits", () => {
       NODE_ENV: "test",
       SUBSTRATE_CHAIN_ID: "local:get-vib-test",
       VIBLY_DOT_RECEIVING_ADDRESS: "deposit",
-      VIBLY_GET_VIB_DOT_USD_PRICE: "10",
     });
 
     await expect(quoteGetVibAmount(store, config, "0.0000000001")).rejects.toThrow("VIB amount is below minimum");
@@ -239,7 +237,6 @@ describe("Get VIB relay deposits", () => {
       NODE_ENV: "test",
       SUBSTRATE_CHAIN_ID: "local:get-vib-test",
       VIBLY_DOT_RECEIVING_ADDRESS: "deposit",
-      VIBLY_GET_VIB_DOT_USD_PRICE: "10",
     });
 
     await expect(

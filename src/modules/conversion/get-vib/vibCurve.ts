@@ -3,24 +3,24 @@ import { badRequest } from "../../../domain/errors.js";
 export interface CurveConfig {
   initialEffectiveCirculation: bigint;
   curveAllocation: bigint;
-  initialMarketCapUsd: number;
-  finalMarketCapUsd: number;
+  initialMarketCapDot: number;
+  finalMarketCapDot: number;
   segments: number;
 }
 
 export interface CurvePoint {
   sold: bigint;
-  priceUsd: number;
-  marketCapUsd: number;
+  priceDot: number;
+  marketCapDot: number;
   effectiveCirculation: bigint;
 }
 
 export interface QuoteResult {
   vibAmount: bigint;
-  costUsd: number;
-  averagePriceUsd: number;
-  startPriceUsd: number;
-  endPriceUsd: number;
+  costDot: number;
+  averagePriceDot: number;
+  startPriceDot: number;
+  endPriceDot: number;
   soldBefore: bigint;
   soldAfter: bigint;
 }
@@ -36,8 +36,8 @@ export const TOKENOMICS = {
 export const DEFAULT_CURVE_CONFIG: CurveConfig = {
   initialEffectiveCirculation: 50_000_000n,
   curveAllocation: TOKENOMICS.CURVE_ALLOCATION,
-  initialMarketCapUsd: 500_000,
-  finalMarketCapUsd: 5_000_000,
+  initialMarketCapDot: 500_000 / 10.98,
+  finalMarketCapDot: 5_000_000 / 10.98,
   segments: 1000,
 };
 
@@ -45,22 +45,22 @@ export const DEFAULT_CURVE_CONFIG: CurveConfig = {
 export const VIB_SCALE = 10n ** 12n;
 
 export const PURCHASE_LIMITS = {
-  MIN_PURCHASE_USD: 10,
-  MAX_PURCHASE_USD: 10_000,
+  MIN_PURCHASE_DOT: 10 / 10.98,
+  MAX_PURCHASE_DOT: 10_000 / 10.98,
   MIN_PURCHASE_VIB: 1_000n,
   MAX_PURCHASE_VIB_PER_TX: 1_000_000n,
   MAX_PURCHASE_VIB_PER_ACCOUNT: 2_000_000n,
   SLIPPAGE_BPS_DEFAULT: 100,
 } as const;
 
-export function marketCapAtSold(sold: bigint, config: CurveConfig = DEFAULT_CURVE_CONFIG): number {
+export function marketCapDotAtSold(sold: bigint, config: CurveConfig = DEFAULT_CURVE_CONFIG): number {
   assertSoldInRange(sold, config);
   const ratio = Number(sold) / Number(config.curveAllocation);
-  return config.initialMarketCapUsd * Math.pow(config.finalMarketCapUsd / config.initialMarketCapUsd, ratio);
+  return config.initialMarketCapDot * Math.pow(config.finalMarketCapDot / config.initialMarketCapDot, ratio);
 }
 
 export function priceAtSold(sold: bigint, config: CurveConfig = DEFAULT_CURVE_CONFIG): number {
-  return marketCapAtSold(sold, config) / Number(config.initialEffectiveCirculation + sold);
+  return marketCapDotAtSold(sold, config) / Number(config.initialEffectiveCirculation + sold);
 }
 
 export function generateCurvePoints(config: CurveConfig = DEFAULT_CURVE_CONFIG): CurvePoint[] {
@@ -70,8 +70,8 @@ export function generateCurvePoints(config: CurveConfig = DEFAULT_CURVE_CONFIG):
     const sold = index === config.segments ? config.curveAllocation : segmentSize * BigInt(index);
     points.push({
       sold,
-      priceUsd: priceAtSold(sold, config),
-      marketCapUsd: marketCapAtSold(sold, config),
+      priceDot: priceAtSold(sold, config),
+      marketCapDot: marketCapDotAtSold(sold, config),
       effectiveCirculation: config.initialEffectiveCirculation + sold,
     });
   }
@@ -90,7 +90,7 @@ export function quoteBuyVib(
 
   let cursor = soldBefore;
   let remaining = vibAmount;
-  let costUsd = 0;
+  let costDot = 0;
   const segmentSize = segmentSizeFor(config);
 
   while (remaining > 0n) {
@@ -100,30 +100,30 @@ export function quoteBuyVib(
     const amountInSegment = minBigint(remaining, segmentEnd - cursor);
     const startPrice = linearPriceAt(cursor, config);
     const endPrice = linearPriceAt(cursor + amountInSegment, config);
-    costUsd += Number(amountInSegment) * ((startPrice + endPrice) / 2);
+    costDot += Number(amountInSegment) * ((startPrice + endPrice) / 2);
     cursor += amountInSegment;
     remaining -= amountInSegment;
   }
 
   return {
     vibAmount: vibAmount * VIB_SCALE,
-    costUsd,
-    averagePriceUsd: costUsd / Number(vibAmount),
-    startPriceUsd: priceAtSold(soldBefore, config),
-    endPriceUsd: priceAtSold(soldAfter, config),
+    costDot,
+    averagePriceDot: costDot / Number(vibAmount),
+    startPriceDot: priceAtSold(soldBefore, config),
+    endPriceDot: priceAtSold(soldAfter, config),
     soldBefore,
     soldAfter,
   };
 }
 
-export function quoteVibFromUsd(
+export function quoteVibFromDot(
   soldBefore: bigint,
-  budgetUsd: number,
+  budgetDot: number,
   config: CurveConfig = DEFAULT_CURVE_CONFIG,
 ): QuoteResult {
   assertSoldInRange(soldBefore, config);
   if (soldBefore >= config.curveAllocation) throw badRequest("VIB curve allocation is fully sold out");
-  if (!Number.isFinite(budgetUsd) || budgetUsd <= 0) throw badRequest("USD budget must be positive");
+  if (!Number.isFinite(budgetDot) || budgetDot <= 0) throw badRequest("DOT budget must be positive");
 
   // Phase 1: binary search over whole VIBs
   let low = 0n;
@@ -135,7 +135,7 @@ export function quoteVibFromUsd(
       low = 1n;
       continue;
     }
-    if (quoteBuyVib(soldBefore, mid, config).costUsd <= budgetUsd) {
+    if (quoteBuyVib(soldBefore, mid, config).costDot <= budgetDot) {
       bestWholeVibs = mid;
       low = mid + 1n;
     } else {
@@ -144,7 +144,7 @@ export function quoteVibFromUsd(
   }
 
   // Phase 2: binary search over fractional base units within remaining budget
-  const wholeCostUsd = bestWholeVibs > 0n ? quoteBuyVib(soldBefore, bestWholeVibs, config).costUsd : 0;
+  const wholeCostDot = bestWholeVibs > 0n ? quoteBuyVib(soldBefore, bestWholeVibs, config).costDot : 0;
   let bestFrac = 0n;
   if (soldBefore + bestWholeVibs < config.curveAllocation) {
     const pricePerWholeVib = linearPriceAt(soldBefore + bestWholeVibs, config);
@@ -152,7 +152,7 @@ export function quoteVibFromUsd(
     let fHigh = VIB_SCALE - 1n;
     while (fLow <= fHigh) {
       const fMid = (fLow + fHigh) / 2n;
-      if (wholeCostUsd + (Number(fMid) / Number(VIB_SCALE)) * pricePerWholeVib <= budgetUsd) {
+      if (wholeCostDot + (Number(fMid) / Number(VIB_SCALE)) * pricePerWholeVib <= budgetDot) {
         bestFrac = fMid;
         fLow = fMid + 1n;
       } else {
@@ -162,17 +162,17 @@ export function quoteVibFromUsd(
   }
 
   const totalBaseUnits = bestWholeVibs * VIB_SCALE + bestFrac;
-  if (totalBaseUnits <= 0n) throw badRequest("USD budget is too small for 1 VIB");
+  if (totalBaseUnits <= 0n) throw badRequest("DOT budget is too small for 1 VIB");
 
-  const fracCostUsd = (Number(bestFrac) / Number(VIB_SCALE)) * linearPriceAt(soldBefore + bestWholeVibs, config);
-  const totalCostUsd = wholeCostUsd + fracCostUsd;
+  const fracCostDot = (Number(bestFrac) / Number(VIB_SCALE)) * linearPriceAt(soldBefore + bestWholeVibs, config);
+  const totalCostDot = wholeCostDot + fracCostDot;
   const totalVib = Number(bestWholeVibs) + Number(bestFrac) / Number(VIB_SCALE);
   return {
     vibAmount: totalBaseUnits,
-    costUsd: totalCostUsd,
-    averagePriceUsd: totalCostUsd / totalVib,
-    startPriceUsd: priceAtSold(soldBefore, config),
-    endPriceUsd: linearPriceAt(soldBefore + bestWholeVibs, config),
+    costDot: totalCostDot,
+    averagePriceDot: totalCostDot / totalVib,
+    startPriceDot: priceAtSold(soldBefore, config),
+    endPriceDot: linearPriceAt(soldBefore + bestWholeVibs, config),
     soldBefore,
     soldAfter: soldBefore + bestWholeVibs,
   };
@@ -194,7 +194,7 @@ export function validatePurchase(params: {
   soldBefore: bigint;
   vibAmount: bigint;
   accountPurchasedTotal: bigint;
-  costUsd: number;
+  costDot: number;
   config?: CurveConfig;
 }): void {
   const config = params.config ?? DEFAULT_CURVE_CONFIG;
@@ -206,9 +206,9 @@ export function validatePurchase(params: {
   if (params.vibAmount > PURCHASE_LIMITS.MAX_PURCHASE_VIB_PER_TX) throw badRequest("VIB amount exceeds per-transaction maximum", { maxVib: String(PURCHASE_LIMITS.MAX_PURCHASE_VIB_PER_TX) });
   if (params.accountPurchasedTotal + params.vibAmount > accountLimit) throw badRequest("VIB account phase limit exceeded", { phase, accountLimit: String(accountLimit) });
   if (params.accountPurchasedTotal + params.vibAmount > PURCHASE_LIMITS.MAX_PURCHASE_VIB_PER_ACCOUNT) throw badRequest("VIB account total limit exceeded", { accountLimit: String(PURCHASE_LIMITS.MAX_PURCHASE_VIB_PER_ACCOUNT) });
-  if (quote.costUsd < PURCHASE_LIMITS.MIN_PURCHASE_USD) throw badRequest("Purchase is below USD minimum", { minUsd: PURCHASE_LIMITS.MIN_PURCHASE_USD });
-  if (quote.costUsd > PURCHASE_LIMITS.MAX_PURCHASE_USD || params.costUsd > PURCHASE_LIMITS.MAX_PURCHASE_USD) {
-    throw badRequest("Purchase exceeds USD maximum", { maxUsd: PURCHASE_LIMITS.MAX_PURCHASE_USD });
+  if (quote.costDot < PURCHASE_LIMITS.MIN_PURCHASE_DOT) throw badRequest("Purchase is below DOT minimum", { minDot: PURCHASE_LIMITS.MIN_PURCHASE_DOT });
+  if (quote.costDot > PURCHASE_LIMITS.MAX_PURCHASE_DOT || params.costDot > PURCHASE_LIMITS.MAX_PURCHASE_DOT) {
+    throw badRequest("Purchase exceeds DOT maximum", { maxDot: PURCHASE_LIMITS.MAX_PURCHASE_DOT });
   }
 }
 

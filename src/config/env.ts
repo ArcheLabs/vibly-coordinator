@@ -110,9 +110,8 @@ const envSchema = z
     GET_VIB_DEPOSIT_SCAN_INTERVAL_MS: z.coerce.number().default(0),
     GET_VIB_DEPOSIT_START_BLOCK: z.coerce.number().int().min(0).default(0),
     GET_VIB_DEPOSIT_FINALITY_BLOCKS: z.coerce.number().int().min(0).default(0),
-    GET_VIB_DOT_USD_PRICE: z.coerce.number().positive().default(10.98),
     GET_VIB_CURVE_PAUSED: z.string().transform((v) => v === "true").default("false"),
-    GET_VIB_ADMIN_REVIEW_USD: z.coerce.number().positive().default(10000),
+    GET_VIB_ADMIN_REVIEW_DOT: z.coerce.number().positive().default(10_000 / 10.98),
 
     // ─────────────────────────────────────────────────────────────────────────
     // Observability
@@ -542,9 +541,8 @@ export interface CoordinatorConfig {
   getVibDepositScanIntervalMs: number;
   getVibDepositStartBlock: number;
   getVibDepositFinalityBlocks: number;
-  getVibDotUsdPrice: number;
   getVibCurvePaused: boolean;
-  getVibAdminReviewUsd: number;
+  getVibAdminReviewDot: number;
 
   // ─── Observability ────────────────────────────────────────────────────────
   otelExporterOtlpEndpoint?: string;
@@ -641,9 +639,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     getVibDepositScanIntervalMs: parsed.GET_VIB_DEPOSIT_SCAN_INTERVAL_MS,
     getVibDepositStartBlock: parsed.GET_VIB_DEPOSIT_START_BLOCK,
     getVibDepositFinalityBlocks: parsed.GET_VIB_DEPOSIT_FINALITY_BLOCKS,
-    getVibDotUsdPrice: parsed.GET_VIB_DOT_USD_PRICE,
     getVibCurvePaused: parsed.GET_VIB_CURVE_PAUSED,
-    getVibAdminReviewUsd: parsed.GET_VIB_ADMIN_REVIEW_USD,
+    getVibAdminReviewDot: parsed.GET_VIB_ADMIN_REVIEW_DOT,
     otelExporterOtlpEndpoint: parsed.OTEL_EXPORTER_OTLP_ENDPOINT?.trim() || undefined,
     viblyCoordinationRoundIntervalMs: parsed.VIBLY_COORDINATION_ROUND_INTERVAL_MS,
     observationSubmitRatio: parsed.OBSERVATION_SUBMIT_RATIO,
