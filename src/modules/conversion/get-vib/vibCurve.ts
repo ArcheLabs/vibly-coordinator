@@ -46,7 +46,6 @@ export const VIB_SCALE = 10n ** 12n;
 
 export const PURCHASE_LIMITS = {
   MIN_PURCHASE_DOT: 10 / 10.98,
-  MAX_PURCHASE_DOT: 10_000 / 10.98,
   MIN_PURCHASE_VIB: 1_000n,
   MAX_PURCHASE_VIB_PER_TX: 1_000_000n,
   MAX_PURCHASE_VIB_PER_ACCOUNT: 2_000_000n,
@@ -207,9 +206,6 @@ export function validatePurchase(params: {
   if (params.accountPurchasedTotal + params.vibAmount > accountLimit) throw badRequest("VIB account phase limit exceeded", { phase, accountLimit: String(accountLimit) });
   if (params.accountPurchasedTotal + params.vibAmount > PURCHASE_LIMITS.MAX_PURCHASE_VIB_PER_ACCOUNT) throw badRequest("VIB account total limit exceeded", { accountLimit: String(PURCHASE_LIMITS.MAX_PURCHASE_VIB_PER_ACCOUNT) });
   if (quote.costDot < PURCHASE_LIMITS.MIN_PURCHASE_DOT) throw badRequest("Purchase is below DOT minimum", { minDot: PURCHASE_LIMITS.MIN_PURCHASE_DOT });
-  if (quote.costDot > PURCHASE_LIMITS.MAX_PURCHASE_DOT || params.costDot > PURCHASE_LIMITS.MAX_PURCHASE_DOT) {
-    throw badRequest("Purchase exceeds DOT maximum", { maxDot: PURCHASE_LIMITS.MAX_PURCHASE_DOT });
-  }
 }
 
 function linearPriceAt(sold: bigint, config: CurveConfig): number {

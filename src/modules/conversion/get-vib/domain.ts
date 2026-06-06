@@ -50,7 +50,6 @@ export interface GetVibConfig {
   saleRuleVersion: string;
   purchaseLimits: {
     minPurchaseDot: number;
-    maxPurchaseDot: number;
     minPurchaseVib: string;
     maxPurchaseVibPerTx: string;
     maxPurchaseVibPerAccount: string;
@@ -72,7 +71,6 @@ export interface GetVibQuote {
   dotReceivingAddress: string;
   saleRuleVersion: string;
   expiresAt: string;
-  requiresAdminReview: boolean;
 }
 
 export interface DepositRecord {
@@ -265,7 +263,6 @@ export async function getGetVibConfig(_store: CoordinatorStorePort, config: Coor
     saleRuleVersion: "capped-launch-curve-v1",
     purchaseLimits: {
       minPurchaseDot: PURCHASE_LIMITS.MIN_PURCHASE_DOT,
-      maxPurchaseDot: PURCHASE_LIMITS.MAX_PURCHASE_DOT,
       minPurchaseVib: String(PURCHASE_LIMITS.MIN_PURCHASE_VIB),
       maxPurchaseVibPerTx: String(PURCHASE_LIMITS.MAX_PURCHASE_VIB_PER_TX),
       maxPurchaseVibPerAccount: String(PURCHASE_LIMITS.MAX_PURCHASE_VIB_PER_ACCOUNT),
@@ -308,7 +305,6 @@ export async function quoteGetVibAmount(store: CoordinatorStorePort, config: Coo
     dotReceivingAddress: config.viblyDotReceivingAddress,
     saleRuleVersion: "capped-launch-curve-v1",
     expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
-    requiresAdminReview: curveQuote.costDot >= config.getVibAdminReviewDot,
   };
 }
 
@@ -347,7 +343,6 @@ export async function createGetVibOrder(input: {
     paymentAmount: input.dotAmount,
     soldBefore: quote.soldBefore,
     soldAfter: quote.soldAfter,
-    requiresAdminReview: quote.requiresAdminReview,
     memo: id,
     dotReceivingAddress: quote.depositAddress,
     quoteExpiresAt: quote.expiresAt,
@@ -997,7 +992,6 @@ function quoteFromCurveQuote(input: {
     dotReceivingAddress: input.config.viblyDotReceivingAddress,
     saleRuleVersion: "capped-launch-curve-v1",
     expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
-    requiresAdminReview: input.curveQuote.costDot >= input.config.getVibAdminReviewDot,
   };
 }
 

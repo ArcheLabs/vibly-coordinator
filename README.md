@@ -69,6 +69,8 @@ gcloud run deploy vibly-coordinator \
 
 The env file intentionally includes `DATABASE_URL` as a placeholder because many teams start with a private Cloud SQL Unix socket DSN. If you manage secrets separately, replace it at deploy time with `--set-secrets` or your secret manager workflow.
 
+Production network manifests are file-based. Copy `templates/network-manifest.production.json.example` to `network-manifest.production.json`, replace the public Coordinator/RPC URLs and feature flags, then run `pnpm build`. The build writes a minified `dist/network-manifest.json`, and Cloud Run points to that file with `NETWORK_MANIFEST_FILE=dist/network-manifest.json`.
+
 ## Version policy and upgrade gates
 
 Coordinator is the authority for client compatibility. It now exposes:
@@ -103,7 +105,8 @@ Public endpoints such as `/health`, `/ready`, `/metrics`, `/openapi.json`, and `
 | `UPGRADE_DEADLINE` | Optional ISO timestamp for forced upgrade rollout |
 | `UPGRADE_INSTRUCTIONS_URL` | URL shown in `UPGRADE_REQUIRED` details |
 | `PROTOCOL_VERSION` | Logical coordinator protocol version sent back in policy responses |
-| `NETWORK_MANIFEST_JSON` | Public network manifest array for `/networks`; required in production, empty uses built-in local/prelaunch defaults only outside production |
+| `NETWORK_MANIFEST_FILE` | Path to the generated public network manifest file for `/networks`; production should use `dist/network-manifest.json` |
+| `NETWORK_MANIFEST_JSON` | Backward-compatible inline manifest override for local tests; avoid this in production |
 
 When you publish named public networks, keep the current product naming aligned with Console:
 

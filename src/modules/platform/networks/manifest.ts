@@ -150,13 +150,8 @@ function defaultNetworkManifests(config: CoordinatorConfig): NetworkManifest[] {
 
 function validateProductionManifests(manifests: NetworkManifest[]) {
   for (const manifest of manifests) {
-    if (!manifest.coordinatorUrls.length) throw new Error(`NETWORK_MANIFEST_JSON ${manifest.id} requires coordinatorUrls`);
-    if (!manifest.features) throw new Error(`NETWORK_MANIFEST_JSON ${manifest.id} requires features`);
-    for (const [name, chain] of Object.entries(manifest.chains)) {
-      if (chain.status === "online" && !chain.genesisHash) {
-        throw new Error(`NETWORK_MANIFEST_JSON ${manifest.id} ${name} chain requires genesisHash when online`);
-      }
-    }
+    if (!manifest.coordinatorUrls.length) throw new Error(`Network manifest ${manifest.id} requires coordinatorUrls`);
+    if (!manifest.features) throw new Error(`Network manifest ${manifest.id} requires features`);
   }
 }
 

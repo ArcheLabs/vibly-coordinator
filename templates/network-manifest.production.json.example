@@ -14,14 +14,12 @@
         "rpcUrls": ["wss://rpc.ibp.network/paseo"],
         "tokenSymbol": "PAS",
         "tokenDecimals": 10,
-        "status": "online",
-        "genesisHash": "0xREPLACE_WITH_PASEO_GENESIS_HASH"
+        "status": "online"
       },
       "vibly": {
         "chainId": "substrate:vibly-testnet",
         "rpcUrls": ["wss://rpc.lumen.example.com"],
-        "status": "online",
-        "genesisHash": "0xREPLACE_WITH_LUMEN_GENESIS_HASH"
+        "status": "online"
       }
     },
     "features": {
@@ -48,8 +46,7 @@
         "rpcUrls": ["wss://rpc.ibp.network/polkadot"],
         "tokenSymbol": "DOT",
         "tokenDecimals": 10,
-        "status": "online",
-        "genesisHash": "0xREPLACE_WITH_POLKADOT_GENESIS_HASH"
+        "status": "online"
       },
       "vibly": {
         "chainId": "substrate:vibly-incentivized-testnet",

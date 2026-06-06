@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { loadConfig } from "./env.js";
 
 describe("loadConfig", () => {
@@ -160,7 +163,6 @@ describe("loadConfig", () => {
         chains: {
           payment: {
             chainId: "polkadot",
-            genesisHash: "0x91b171bb158e2d3848fa23a9f1c25182",
             status: "online",
             rpcUrls: ["wss://rpc.polkadot.io"],
           },
@@ -206,13 +208,11 @@ describe("loadConfig", () => {
             chains: {
               payment: {
                 chainId: "polkadot",
-                genesisHash: "0x91b171bb158e2d3848fa23a9f1c25182",
                 status: "online",
                 rpcUrls: ["wss://rpc.polkadot.io"],
               },
               vibly: {
                 chainId: "substrate:vibly-incentivized-testnet",
-                genesisHash: "0xabc123",
                 status: "online",
                 rpcUrls: ["wss://rpc.vibly.network"],
               },
@@ -250,13 +250,11 @@ describe("loadConfig", () => {
           chains: {
             payment: {
               chainId: "polkadot",
-              genesisHash: "0x91b171bb158e2d3848fa23a9f1c25182",
               status: "online",
               rpcUrls: ["wss://rpc.polkadot.io"],
             },
             vibly: {
               chainId: "substrate:vibly-incentivized-testnet",
-              genesisHash: "0xabc123",
               status: "online",
               rpcUrls: ["wss://rpc.vibly.network"],
             },
@@ -275,36 +273,18 @@ describe("loadConfig", () => {
     expect(config.getVibClaimEnabled).toBe(true);
   });
 
-  it("rejects production network manifests with online chains missing genesis hashes", () => {
-    expect(() =>
-      loadConfig({
-        ...validProductionStatic,
-        NETWORK_MANIFEST_JSON: JSON.stringify([
-          {
-            manifestVersion: 1,
-            updatedAt: "2026-06-02T00:00:00.000Z",
-            ttlSeconds: 600,
-            id: "substrate:vibly-incentivized-testnet",
-            label: "Monolith",
-            stage: "testnet",
-            status: "active",
-            coordinatorUrls: ["https://api.vibly.network"],
-            chains: {
-              payment: { chainId: "polkadot", status: "online", rpcUrls: ["wss://rpc.polkadot.io"] },
-              vibly: { chainId: "substrate:vibly-incentivized-testnet", status: "online", rpcUrls: ["wss://rpc.vibly.network"] },
-            },
-            features: {
-              agentJoin: true,
-              daemon: true,
-              staking: true,
-              rootIdentityRegistration: true,
-              getVibConversion: true,
-              getVibClaim: true,
-            },
-          },
-        ]),
-      }),
-    ).toThrow(/genesisHash/);
+  it("accepts production network manifests from a file without hand-written genesis hashes", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vibly-manifest-"));
+    const file = join(dir, "network-manifest.json");
+    writeFileSync(file, validProductionStatic.NETWORK_MANIFEST_JSON);
+
+    const config = loadConfig({
+      ...validProductionStatic,
+      NETWORK_MANIFEST_JSON: "",
+      NETWORK_MANIFEST_FILE: file,
+    });
+    expect(config.networkManifestFile).toBe(file);
+    expect(config.networkManifestJson).toContain("Monolith");
   });
 
   it("rejects production when storage is not postgres", () => {

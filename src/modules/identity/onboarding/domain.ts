@@ -102,7 +102,6 @@ export interface ConversionOrderRecord {
   endPriceUsd?: number;
   soldBefore?: string;
   soldAfter?: string;
-  requiresAdminReview?: boolean;
   memo: string;
   dotReceivingAddress: string;
   quoteExpiresAt: string;

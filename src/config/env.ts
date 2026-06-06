@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 const envSchema = z
   .object({
@@ -106,7 +108,6 @@ const envSchema = z
     GET_VIB_DEPOSIT_START_BLOCK: z.coerce.number().int().min(0).default(0),
     GET_VIB_DEPOSIT_FINALITY_BLOCKS: z.coerce.number().int().min(0).default(0),
     GET_VIB_CURVE_PAUSED: z.string().transform((v) => v === "true").default("false"),
-    GET_VIB_ADMIN_REVIEW_DOT: z.coerce.number().positive().default(10_000 / 10.98),
 
     // ─────────────────────────────────────────────────────────────────────────
     // Observability
@@ -174,10 +175,19 @@ const envSchema = z
     UPGRADE_DEADLINE: z.string().optional(),
     UPGRADE_INSTRUCTIONS_URL: z.string().default("https://docs.vibly.dev/agent/upgrade"),
     PROTOCOL_VERSION: z.string().default("2026-06-01"),
+    NETWORK_MANIFEST_FILE: z.string().default(""),
     NETWORK_MANIFEST_JSON: z.string().default(""),
   })
   .superRefine((val, ctx) => {
-    let manifests: unknown;
+    const manifestInput = readNetworkManifestInput(val);
+    let manifests: unknown = manifestInput.parsed;
+    if (manifestInput.error) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: manifestInput.error,
+        path: [manifestInput.path],
+      });
+    }
 
     if (val.GET_VIB_ROOT_UPLOAD_MODE === "unsafe-papi" && !val.GET_VIB_ROOT_PUBLISHER_URI.trim()) {
       ctx.addIssue({
@@ -228,22 +238,12 @@ const envSchema = z
       });
     }
 
-    if (val.NETWORK_MANIFEST_JSON.trim()) {
-      try {
-        manifests = JSON.parse(val.NETWORK_MANIFEST_JSON);
-      } catch {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "NETWORK_MANIFEST_JSON must be valid JSON",
-          path: ["NETWORK_MANIFEST_JSON"],
-        });
-        manifests = undefined;
-      }
+    if (manifestInput.raw.trim()) {
       if (manifests !== undefined && !Array.isArray(manifests)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "NETWORK_MANIFEST_JSON must be a JSON array",
-          path: ["NETWORK_MANIFEST_JSON"],
+          message: `${manifestInput.path} must be a JSON array`,
+          path: [manifestInput.path],
         });
       }
       if (val.NODE_ENV === "production" && Array.isArray(manifests)) {
@@ -254,27 +254,16 @@ const envSchema = z
           if (!coordinatorUrls.length) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
-              message: `production NETWORK_MANIFEST_JSON[${index}] requires coordinatorUrls`,
-              path: ["NETWORK_MANIFEST_JSON"],
+              message: `production network manifest[${index}] requires coordinatorUrls`,
+              path: [manifestInput.path],
             });
           }
           if (!record.stage || !record.status || !features) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
-              message: `production NETWORK_MANIFEST_JSON[${index}] requires stage, status, and features`,
-              path: ["NETWORK_MANIFEST_JSON"],
+              message: `production network manifest[${index}] requires stage, status, and features`,
+              path: [manifestInput.path],
             });
-          }
-          const chains = record.chains && typeof record.chains === "object" ? (record.chains as Record<string, unknown>) : {};
-          for (const name of ["payment", "vibly"]) {
-            const chain = chains[name] && typeof chains[name] === "object" ? (chains[name] as Record<string, unknown>) : undefined;
-            if (chain?.status === "online" && typeof chain.genesisHash !== "string") {
-              ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                message: `production NETWORK_MANIFEST_JSON[${index}].chains.${name} requires genesisHash when online`,
-                path: ["NETWORK_MANIFEST_JSON"],
-              });
-            }
           }
         }
       }
@@ -340,8 +329,8 @@ const envSchema = z
       if (!manifestViblyChainOnline(manifests)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "production Get VIB claim requires an online Vibly chain in NETWORK_MANIFEST_JSON",
-          path: ["NETWORK_MANIFEST_JSON"],
+          message: "production Get VIB claim requires an online Vibly chain in the network manifest",
+          path: [manifestInput.path],
         });
       }
       if (!val.SUBSTRATE_RPC_URL.trim()) {
@@ -360,11 +349,11 @@ const envSchema = z
       }
     }
 
-    if (!val.NETWORK_MANIFEST_JSON.trim()) {
+    if (!manifestInput.raw.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "production requires NETWORK_MANIFEST_JSON",
-        path: ["NETWORK_MANIFEST_JSON"],
+        message: "production requires NETWORK_MANIFEST_FILE or NETWORK_MANIFEST_JSON",
+        path: [manifestInput.path],
       });
     }
 
@@ -518,7 +507,6 @@ export interface CoordinatorConfig {
   getVibDepositStartBlock: number;
   getVibDepositFinalityBlocks: number;
   getVibCurvePaused: boolean;
-  getVibAdminReviewDot: number;
 
   // ─── Observability ────────────────────────────────────────────────────────
   otelExporterOtlpEndpoint?: string;
@@ -544,6 +532,7 @@ export interface CoordinatorConfig {
   upgradeInstructionsUrl: string;
   protocolVersion: string;
   networkManifestJson?: string;
+  networkManifestFile?: string;
 
   // ─── Chain authority resolver ─────────────────────────────────────────────
   chainAuthorityMode: "rpc" | "disabled";
@@ -557,6 +546,7 @@ export interface CoordinatorConfig {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorConfig {
   const parsed = envSchema.parse(env);
+  const manifestInput = readNetworkManifestInput(parsed);
   return {
     nodeEnv: parsed.NODE_ENV,
     host: parsed.HOST,
@@ -610,7 +600,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     getVibDepositStartBlock: parsed.GET_VIB_DEPOSIT_START_BLOCK,
     getVibDepositFinalityBlocks: parsed.GET_VIB_DEPOSIT_FINALITY_BLOCKS,
     getVibCurvePaused: parsed.GET_VIB_CURVE_PAUSED,
-    getVibAdminReviewDot: parsed.GET_VIB_ADMIN_REVIEW_DOT,
     otelExporterOtlpEndpoint: parsed.OTEL_EXPORTER_OTLP_ENDPOINT?.trim() || undefined,
     viblyCoordinationRoundIntervalMs: parsed.VIBLY_COORDINATION_ROUND_INTERVAL_MS,
     observationSubmitRatio: parsed.OBSERVATION_SUBMIT_RATIO,
@@ -629,7 +618,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     upgradeDeadline: parsed.UPGRADE_DEADLINE?.trim() || undefined,
     upgradeInstructionsUrl: parsed.UPGRADE_INSTRUCTIONS_URL,
     protocolVersion: parsed.PROTOCOL_VERSION,
-    networkManifestJson: parsed.NETWORK_MANIFEST_JSON.trim() || undefined,
+    networkManifestJson: manifestInput.raw.trim() || undefined,
+    networkManifestFile: parsed.NETWORK_MANIFEST_FILE.trim() || undefined,
     chainAuthorityMode: parsed.CHAIN_AUTHORITY_MODE,
     chainAuthorityRpcUrl: parsed.CHAIN_AUTHORITY_RPC_URL.trim() || parsed.SUBSTRATE_RPC_URL,
     chainAuthorityChainId: parsed.CHAIN_AUTHORITY_CHAIN_ID,
@@ -638,6 +628,38 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     orgAdminAuthoritySource: parsed.ORG_ADMIN_AUTHORITY_SOURCE,
     orgMembershipMinActiveStake: parsed.ORG_MEMBERSHIP_MIN_ACTIVE_STAKE,
   };
+}
+
+function readNetworkManifestInput(input: { NETWORK_MANIFEST_FILE?: string; NETWORK_MANIFEST_JSON?: string }): {
+  raw: string;
+  parsed?: unknown;
+  path: "NETWORK_MANIFEST_FILE" | "NETWORK_MANIFEST_JSON";
+  error?: string;
+} {
+  const file = input.NETWORK_MANIFEST_FILE?.trim();
+  const inline = input.NETWORK_MANIFEST_JSON?.trim() ?? "";
+  const path = file ? "NETWORK_MANIFEST_FILE" : "NETWORK_MANIFEST_JSON";
+
+  let raw = "";
+  if (file) {
+    try {
+      raw = readFileSync(resolve(file), "utf8").trim();
+    } catch {
+      if (!inline) return { raw: "", path, error: `NETWORK_MANIFEST_FILE does not exist or cannot be read: ${file}` };
+    }
+  }
+
+  if (!raw && inline) {
+    raw = inline;
+  }
+
+  if (!raw) return { raw: "", path };
+
+  try {
+    return { raw, parsed: JSON.parse(raw), path };
+  } catch {
+    return { raw, path, error: `${path} must contain valid JSON` };
+  }
 }
 
 function hasManifestFeature(manifests: unknown, feature: string): boolean {

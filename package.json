@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx --env-file-if-exists=.env src/main.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && pnpm build:network-manifest",
+    "build:network-manifest": "tsx scripts/build-network-manifest.ts",
     "start": "node --env-file-if-exists=.env dist/main.js",
     "test": "vitest run",
     "test:watch": "vitest",

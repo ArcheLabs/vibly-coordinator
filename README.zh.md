@@ -45,6 +45,8 @@ gcloud run deploy vibly-coordinator \
 
 模板里保留了 `DATABASE_URL` 占位值，因为很多团队会先走 Cloud SQL Unix socket DSN。如果你们用 Secret Manager 管理数据库连接串，可以在部署时改用 `--set-secrets` 覆盖。
 
+生产网络 manifest 采用文件方式维护。先把 `templates/network-manifest.production.json.example` 复制为 `network-manifest.production.json`，替换公开 Coordinator/RPC URL 和功能开关，然后执行 `pnpm build`。构建会生成压缩后的 `dist/network-manifest.json`，Cloud Run 通过 `NETWORK_MANIFEST_FILE=dist/network-manifest.json` 读取它。
+
 ## 版本策略与升级门禁
 
 coordinator 现在负责客户端兼容性策略，提供以下能力：
@@ -79,7 +81,8 @@ coordinator 现在负责客户端兼容性策略，提供以下能力：
 | `UPGRADE_DEADLINE` | 可选的升级截止时间（ISO 时间戳） |
 | `UPGRADE_INSTRUCTIONS_URL` | 升级说明链接，会出现在 `UPGRADE_REQUIRED` 详情中 |
 | `PROTOCOL_VERSION` | 当前协调器发布的逻辑协议版本 |
-| `NETWORK_MANIFEST_JSON` | `/networks` 使用的公开网络 manifest 数组；生产环境必填，非生产环境留空才会使用内置 local/prelaunch 默认值 |
+| `NETWORK_MANIFEST_FILE` | `/networks` 使用的公开网络 manifest 文件路径；生产推荐使用 `dist/network-manifest.json` |
+| `NETWORK_MANIFEST_JSON` | 兼容旧流程的内联 manifest 覆盖，仅建议本地测试使用，生产环境避免使用 |
 
 ### 链与治理集成
 
