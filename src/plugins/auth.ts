@@ -1,5 +1,4 @@
 import fp from "fastify-plugin";
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import type { CoordinatorConfig } from "../config/env.js";
 import { unauthorized } from "../domain/errors.js";
@@ -22,13 +21,9 @@ function isPublicPath(path: string): boolean {
 }
 
 export interface CoordinatorAuth {
-  kind: "none" | "static" | "oidc" | "agent-runtime";
+  kind: "none" | "static" | "agent-runtime";
   subject: string;
   scopes: string[];
-  projectIds: string[];
-  email?: string;
-  tenantId?: string;
-  claims?: JWTPayload;
 }
 
 declare module "fastify" {
@@ -39,36 +34,6 @@ declare module "fastify" {
 
 export interface AuthPluginOptions {
   config: CoordinatorConfig;
-}
-
-let jwksCache: { url: string; jwks: ReturnType<typeof createRemoteJWKSet> } | null = null;
-
-function getJwks(url: string) {
-  if (!jwksCache || jwksCache.url !== url) {
-    jwksCache = { url, jwks: createRemoteJWKSet(new URL(url)) };
-  }
-  return jwksCache.jwks;
-}
-
-function parseScopeClaim(payload: JWTPayload): string[] {
-  const raw = payload["scope"];
-  if (typeof raw === "string") return raw.split(/\s+/).map((s) => s.trim()).filter(Boolean);
-  if (Array.isArray(raw)) return raw.filter((s): s is string => typeof s === "string");
-  return [];
-}
-
-function parseProjectsClaim(payload: JWTPayload, claimName: string): string[] {
-  const raw = payload[claimName];
-  if (Array.isArray(raw)) return raw.filter((s): s is string => typeof s === "string");
-  if (typeof raw === "string") {
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (Array.isArray(parsed)) return parsed.filter((s): s is string => typeof s === "string");
-    } catch {
-      /* ignore */
-    }
-  }
-  return [];
 }
 
 function isAgentRuntimePathAllowed(request: FastifyRequest, path: string): boolean {
@@ -95,12 +60,6 @@ async function authenticateAgentRuntimeToken(request: FastifyRequest, token: str
     kind: "agent-runtime",
     subject: record.principalId,
     scopes: ["agent:runtime"],
-    projectIds: ["*"],
-    claims: {
-      principalId: record.principalId,
-      sessionKeyId: record.sessionKeyId,
-      sessionPublicKey: record.sessionPublicKey,
-    },
   };
   return true;
 }
@@ -122,7 +81,6 @@ const authPlugin: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opts) 
         kind: "none",
         subject: Array.isArray(raw) ? raw[0] ?? "wallet-session" : String(raw),
         scopes: ["wallet-session"],
-        projectIds: [],
       };
       return;
     }
@@ -165,54 +123,8 @@ const authPlugin: FastifyPluginAsync<AuthPluginOptions> = async (fastify, opts) 
         kind: "static",
         subject: "static-token",
         scopes: ["coord:admin"],
-        projectIds: ["*"],
       };
       return;
-    }
-
-    // OIDC / JWT
-    if (!config.oidcIssuer || !config.oidcAudience || !config.oidcJwksUrl) {
-      const err = unauthorized("OIDC is not configured");
-      return reply.code(500).send({
-        ok: false,
-        error: { code: err.code, message: err.message },
-        meta: { requestId: request.id },
-      });
-    }
-
-    try {
-      const audiences = config.oidcAudience.split(",").map((s) => s.trim()).filter(Boolean);
-      const { payload } = await jwtVerify(token, getJwks(config.oidcJwksUrl), {
-        issuer: config.oidcIssuer,
-        audience: audiences.length === 1 ? audiences[0] : audiences,
-      });
-      const sub = typeof payload.sub === "string" ? payload.sub : "";
-      if (!sub) {
-        const err = unauthorized("Token missing sub");
-        return reply.code(401).send({
-          ok: false,
-          error: { code: err.code, message: err.message },
-          meta: { requestId: request.id },
-        });
-      }
-      const scopes = parseScopeClaim(payload);
-      const projectIds = parseProjectsClaim(payload, config.oidcProjectsClaim);
-      request.auth = {
-        kind: "oidc",
-        subject: sub,
-        scopes,
-        projectIds,
-        email: typeof payload.email === "string" ? payload.email : undefined,
-        tenantId: typeof payload["tenant_id"] === "string" ? (payload["tenant_id"] as string) : undefined,
-        claims: payload,
-      };
-    } catch {
-      const err = unauthorized("Invalid or expired JWT");
-      return reply.code(401).send({
-        ok: false,
-        error: { code: err.code, message: err.message },
-        meta: { requestId: request.id },
-      });
     }
   });
 };

@@ -131,14 +131,12 @@ describe("loadConfig", () => {
     ).toThrow(/AGENT_REWARD_EMISSION_START_AT/);
   });
 
-  const validProductionOidc = {
+  const validProductionStatic = {
     NODE_ENV: "production" as const,
     STORAGE_MODE: "postgres",
     DATABASE_URL: "postgres://localhost:5432/coordinator",
-    API_AUTH_MODE: "oidc",
-    OIDC_ISSUER: "https://idp.example",
-    OIDC_AUDIENCE: "coordinator-api",
-    OIDC_JWKS_URL: "https://idp.example/.well-known/jwks.json",
+    API_AUTH_MODE: "static-token",
+    API_TOKENS: "prod-token-1,prod-token-2",
     ENABLE_DEV_ROUTES: "false",
     CLIENT_VERSION_ENFORCEMENT: "true",
     VIBLY_DOT_RECEIVING_ADDRESS: "15oF4QnYy8Cq9vxufg9cB1HnYqHS8dJHEgHSZ1RPs3m7X5ZV",
@@ -185,16 +183,16 @@ describe("loadConfig", () => {
   };
 
   it("accepts a minimal valid production configuration", () => {
-    const config = loadConfig(validProductionOidc);
+    const config = loadConfig(validProductionStatic);
     expect(config.storageMode).toBe("postgres");
-    expect(config.apiAuthMode).toBe("oidc");
+    expect(config.apiAuthMode).toBe("static-token");
     expect(config.databaseUrl).toMatch(/^postgres/);
   });
 
   it("rejects production claim manifests unless the explicit claim gate is enabled", () => {
     expect(() =>
       loadConfig({
-        ...validProductionOidc,
+        ...validProductionStatic,
         NETWORK_MANIFEST_JSON: JSON.stringify([
           {
             manifestVersion: 1,
@@ -235,7 +233,7 @@ describe("loadConfig", () => {
 
   it("accepts production Get VIB claim when chain and publisher are configured", () => {
     const config = loadConfig({
-      ...validProductionOidc,
+      ...validProductionStatic,
       GET_VIB_CLAIM_ENABLED: "true",
       GET_VIB_ROOT_UPLOAD_MODE: "unsafe-papi",
       GET_VIB_ROOT_PUBLISHER_URI: "//RootPublisher",
@@ -280,7 +278,7 @@ describe("loadConfig", () => {
   it("rejects production network manifests with online chains missing genesis hashes", () => {
     expect(() =>
       loadConfig({
-        ...validProductionOidc,
+        ...validProductionStatic,
         NETWORK_MANIFEST_JSON: JSON.stringify([
           {
             manifestVersion: 1,
@@ -312,7 +310,7 @@ describe("loadConfig", () => {
   it("rejects production when storage is not postgres", () => {
     expect(() =>
       loadConfig({
-        ...validProductionOidc,
+        ...validProductionStatic,
         STORAGE_MODE: "sqlite",
       }),
     ).toThrow();
@@ -321,25 +319,43 @@ describe("loadConfig", () => {
   it("rejects production DATABASE_URL that is not postgres", () => {
     expect(() =>
       loadConfig({
-        ...validProductionOidc,
+        ...validProductionStatic,
         DATABASE_URL: "file:./data/app.db",
       }),
     ).toThrow();
   });
 
-  it("rejects production static-token auth", () => {
+  it("rejects production auth mode none", () => {
     expect(() =>
       loadConfig({
-        ...validProductionOidc,
-        API_AUTH_MODE: "static-token",
+        ...validProductionStatic,
+        API_AUTH_MODE: "none",
       }),
     ).toThrow();
+  });
+
+  it("rejects production default dev token", () => {
+    expect(() =>
+      loadConfig({
+        ...validProductionStatic,
+        API_TOKENS: "dev-token",
+      }),
+    ).toThrow(/dev-token/);
+  });
+
+  it("rejects production with empty API_TOKENS", () => {
+    expect(() =>
+      loadConfig({
+        ...validProductionStatic,
+        API_TOKENS: " , ",
+      }),
+    ).toThrow(/API_TOKENS/);
   });
 
   it("rejects production with dev routes enabled", () => {
     expect(() =>
       loadConfig({
-        ...validProductionOidc,
+        ...validProductionStatic,
         ENABLE_DEV_ROUTES: "true",
       }),
     ).toThrow();

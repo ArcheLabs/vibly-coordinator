@@ -84,8 +84,6 @@ const actionIntentsRoutes: FastifyPluginAsync<ActionIntentsPluginOptions> = asyn
         actorPrincipalId = session.address;
       } else if (request.auth?.kind === "agent-runtime") {
         actorPrincipalId = request.auth.subject;
-      } else if (request.auth?.kind === "oidc") {
-        actorPrincipalId = request.auth.subject;
       }
 
       if (!actorPrincipalId) {

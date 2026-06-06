@@ -87,7 +87,7 @@ Public endpoints such as `/health`, `/ready`, `/metrics`, `/openapi.json`, and `
 | Variable | Description |
 |---|---|
 | `PORT` | HTTP listen port (default `8787`) |
-| `API_AUTH_MODE` | `static-token` or `oidc` |
+| `API_AUTH_MODE` | `static-token` in hosted environments; `none` only for local dev/tests |
 | `API_TOKENS` | Comma-separated static Bearer tokens (when `static-token`) |
 | `STORAGE_MODE` | `sqlite` or `postgres` |
 | `DATABASE_URL` | SQLite file path (`file:./data/coordinator.db`) or Postgres DSN |

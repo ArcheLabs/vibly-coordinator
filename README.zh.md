@@ -63,7 +63,7 @@ coordinator 现在负责客户端兼容性策略，提供以下能力：
 | 变量 | 说明 |
 |---|---|
 | `PORT` | HTTP 监听端口，默认 `8787` |
-| `API_AUTH_MODE` | `static-token` 或 `oidc` |
+| `API_AUTH_MODE` | 托管环境使用 `static-token`；`none` 只用于本地开发/测试 |
 | `API_TOKENS` | `static-token` 模式下使用的 Bearer token 列表 |
 | `STORAGE_MODE` | `sqlite` 或 `postgres` |
 | `DATABASE_URL` | SQLite 文件路径或 Postgres DSN |

@@ -33,15 +33,11 @@ const envSchema = z
     // ─────────────────────────────────────────────────────────────────────────
     // API auth / OIDC
     // ─────────────────────────────────────────────────────────────────────────
-    // none/static-token are dev-only. Production must use oidc (enforced below).
-    API_AUTH_MODE: z.enum(["none", "static-token", "oidc"]).default("static-token"),
+    // Development may disable auth entirely. Hosted environments use static service tokens
+    // for protected non-wallet routes, while user writes authenticate with wallet sessions.
+    API_AUTH_MODE: z.enum(["none", "static-token"]).default("static-token"),
     // Comma-separated tokens used when API_AUTH_MODE=static-token.
     API_TOKENS: z.string().default("dev-token"),
-    OIDC_ISSUER: z.string().optional(),
-    OIDC_AUDIENCE: z.string().optional(),
-    OIDC_JWKS_URL: z.string().optional(),
-    // JWT claim name that contains accessible project IDs.
-    OIDC_PROJECTS_CLAIM: z.string().default("vibly_projects"),
 
     // ─────────────────────────────────────────────────────────────────────────
     // Background loops / infra toggles
@@ -389,11 +385,26 @@ const envSchema = z
       });
     }
 
-    if (val.API_AUTH_MODE === "none" || val.API_AUTH_MODE === "static-token") {
+    if (val.API_AUTH_MODE !== "static-token") {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "production requires API_AUTH_MODE=oidc (static-token/none are dev-only)",
+        message: "production requires API_AUTH_MODE=static-token",
         path: ["API_AUTH_MODE"],
+      });
+    }
+    const apiTokens = val.API_TOKENS.split(",").map((item) => item.trim()).filter(Boolean);
+    if (apiTokens.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "production requires at least one API token in API_TOKENS",
+        path: ["API_TOKENS"],
+      });
+    }
+    if (apiTokens.some((token) => token === "dev-token")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "production forbids the default API_TOKENS value dev-token",
+        path: ["API_TOKENS"],
       });
     }
 
@@ -424,35 +435,6 @@ const envSchema = z
         message: "production Guardian authority checks require CHAIN_AUTHORITY_MODE=rpc",
         path: ["CHAIN_AUTHORITY_MODE"],
       });
-    }
-
-    if (!val.OIDC_ISSUER?.trim()) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "production requires OIDC_ISSUER", path: ["OIDC_ISSUER"] });
-    }
-    if (!val.OIDC_AUDIENCE?.trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "production requires OIDC_AUDIENCE",
-        path: ["OIDC_AUDIENCE"],
-      });
-    }
-    const jwks = val.OIDC_JWKS_URL?.trim() ?? "";
-    if (!jwks) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "production requires OIDC_JWKS_URL",
-        path: ["OIDC_JWKS_URL"],
-      });
-    } else {
-      try {
-        new URL(jwks);
-      } catch {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "OIDC_JWKS_URL must be a valid URL",
-          path: ["OIDC_JWKS_URL"],
-        });
-      }
     }
 
     if (val.ENABLE_DEV_ROUTES) {
@@ -486,12 +468,8 @@ export interface CoordinatorConfig {
   coordinatorId: string;
 
   // ─── API auth / OIDC ─────────────────────────────────────────────────────
-  apiAuthMode: "none" | "static-token" | "oidc";
+  apiAuthMode: "none" | "static-token";
   apiTokens: string[];
-  oidcIssuer?: string;
-  oidcAudience?: string;
-  oidcJwksUrl?: string;
-  oidcProjectsClaim: string;
 
   // ─── Background loops / infra toggles ───────────────────────────────────
   sseHeartbeatMs: number;
@@ -579,7 +557,6 @@ export interface CoordinatorConfig {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorConfig {
   const parsed = envSchema.parse(env);
-  const jwks = parsed.OIDC_JWKS_URL?.trim();
   return {
     nodeEnv: parsed.NODE_ENV,
     host: parsed.HOST,
@@ -591,10 +568,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     coordinatorId: parsed.COORDINATOR_ID,
     apiAuthMode: parsed.API_AUTH_MODE,
     apiTokens: parsed.API_TOKENS.split(",").map((t) => t.trim()).filter(Boolean),
-    oidcIssuer: parsed.OIDC_ISSUER?.trim() || undefined,
-    oidcAudience: parsed.OIDC_AUDIENCE?.trim() || undefined,
-    oidcJwksUrl: jwks || undefined,
-    oidcProjectsClaim: parsed.OIDC_PROJECTS_CLAIM,
     sseHeartbeatMs: parsed.SSE_HEARTBEAT_MS,
     assignmentExpiryIntervalMs: parsed.ASSIGNMENT_EXPIRY_INTERVAL_MS,
     agentStakeSyncIntervalMs: parsed.AGENT_STAKE_SYNC_INTERVAL_MS,
