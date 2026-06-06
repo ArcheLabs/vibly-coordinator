@@ -19,7 +19,6 @@ const adminConversionRoutes: FastifyPluginAsync = async (fastify) => {
       initialRate: string;
       slope: string;
       minDot: string;
-      maxDot: string;
       dotReceivingAddress: string;
     };
   }>(
@@ -30,13 +29,12 @@ const adminConversionRoutes: FastifyPluginAsync = async (fastify) => {
         summary: "Update DOT to VIB conversion configuration",
         body: {
           type: "object",
-          required: ["totalCapVib", "initialRate", "slope", "minDot", "maxDot", "dotReceivingAddress"],
+          required: ["totalCapVib", "initialRate", "slope", "minDot", "dotReceivingAddress"],
           properties: {
             totalCapVib: { type: "string" },
             initialRate: { type: "string" },
             slope: { type: "string" },
             minDot: { type: "string" },
-            maxDot: { type: "string" },
             dotReceivingAddress: { type: "string" },
           },
         },

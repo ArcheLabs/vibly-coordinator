@@ -81,7 +81,6 @@ export interface ConversionConfigRecord {
   initialRate: string;
   slope: string;
   minDot: string;
-  maxDot: string;
   dotReceivingAddress: string;
   updatedAt: string;
 }
@@ -188,7 +187,6 @@ export async function getConversionConfig(store: CoordinatorStorePort, config: C
       initialRate: String(config.viblyConversionInitialRate),
       slope: String(config.viblyConversionSlope),
       minDot: String(config.viblyConversionMinDot),
-      maxDot: String(config.viblyConversionMaxDot),
       dotReceivingAddress: config.viblyDotReceivingAddress,
       updatedAt: new Date().toISOString(),
     }
@@ -198,10 +196,8 @@ export async function getConversionConfig(store: CoordinatorStorePort, config: C
 export function quoteVibAmount(dotAmountRaw: string | number, config: ConversionConfigRecord, alreadyIssuedVib = 0): string {
   const dotAmount = Number(dotAmountRaw);
   const minDot = Number(config.minDot);
-  const maxDot = Number(config.maxDot);
   if (!Number.isFinite(dotAmount) || dotAmount <= 0) throw badRequest("DOT amount must be positive");
   if (minDot > 0 && dotAmount < minDot) throw badRequest("DOT amount is below minimum", { minDot });
-  if (maxDot > 0 && dotAmount > maxDot) throw badRequest("DOT amount exceeds maximum", { maxDot });
   const initialRate = Number(config.initialRate);
   const slope = Number(config.slope);
   const effectiveRate = Math.max(initialRate / (1 + slope * alreadyIssuedVib), 0);

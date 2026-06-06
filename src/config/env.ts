@@ -102,7 +102,6 @@ const envSchema = z
     VIBLY_CONVERSION_INITIAL_RATE: z.coerce.number().default(1000),
     VIBLY_CONVERSION_SLOPE: z.coerce.number().default(0),
     VIBLY_CONVERSION_MIN_DOT: z.coerce.number().default(0.1),
-    VIBLY_CONVERSION_MAX_DOT: z.coerce.number().default(1000),
     GET_VIB_RELAY_RPC_URL: z.string().optional(),
     GET_VIB_RELAY_CHAIN_ID: z.string().default("polkadot-dev"),
     GET_VIB_RELAY_TOKEN_SYMBOL: z.string().default(""),
@@ -533,7 +532,6 @@ export interface CoordinatorConfig {
   viblyConversionInitialRate: number;
   viblyConversionSlope: number;
   viblyConversionMinDot: number;
-  viblyConversionMaxDot: number;
   getVibRelayRpcUrl?: string;
   getVibRelayChainId: string;
   getVibRelayTokenSymbol?: string;
@@ -631,7 +629,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     viblyConversionInitialRate: parsed.VIBLY_CONVERSION_INITIAL_RATE,
     viblyConversionSlope: parsed.VIBLY_CONVERSION_SLOPE,
     viblyConversionMinDot: parsed.VIBLY_CONVERSION_MIN_DOT,
-    viblyConversionMaxDot: parsed.VIBLY_CONVERSION_MAX_DOT,
     getVibRelayRpcUrl: parsed.GET_VIB_RELAY_RPC_URL?.trim() || undefined,
     getVibRelayChainId: parsed.GET_VIB_RELAY_CHAIN_ID,
     getVibRelayTokenSymbol: parsed.GET_VIB_RELAY_TOKEN_SYMBOL.trim() || undefined,
