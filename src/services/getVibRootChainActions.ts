@@ -1,5 +1,6 @@
 import type { CoordinatorConfig } from "../config/env.js";
-import type { AllocationManifest } from "../modules/conversion/get-vib/domain.js";
+import { badRequest, upgradeRequired } from "../domain/errors.js";
+import type { AllocationManifest, ClaimProof } from "../modules/conversion/get-vib/domain.js";
 import { getVibAmountToBaseUnits } from "../modules/conversion/get-vib/domain.js";
 
 export type GetVibRootUploadMode = "prepare-only" | "fixture" | "unsafe-papi";
@@ -36,7 +37,30 @@ export class GetVibRootChainActions {
     }
     return submitUnsafePapi({
       config: this.config,
-      manifest,
+      tx: buildSetClaimRootTx(manifest),
+      loadModule: this.loadModule,
+    });
+  }
+
+  async claimFor(proof: ClaimProof): Promise<GetVibRootReceipt> {
+    const mode = this.config.getVibRootUploadMode;
+    if (mode === "prepare-only") {
+      return {
+        txHash: `prepared:vib_claim:claim_for:${proof.networkId}:${proof.rootVersion}:${proof.accountId}`,
+        mode,
+        finality: "prepared",
+      };
+    }
+    if (mode === "fixture") {
+      return {
+        txHash: `0xvibclaim_for_${proof.networkId.replace(/[^a-zA-Z0-9]/g, "_")}_${proof.rootVersion}_${Date.now().toString(16)}`,
+        mode,
+        finality: "included",
+      };
+    }
+    return submitUnsafePapi({
+      config: this.config,
+      tx: buildClaimForTx(proof),
       loadModule: this.loadModule,
     });
   }
@@ -44,12 +68,12 @@ export class GetVibRootChainActions {
 
 async function submitUnsafePapi(input: {
   config: CoordinatorConfig;
-  manifest: AllocationManifest;
+  tx: (api: ChainApi) => ChainTx;
   loadModule: DynamicLoader;
 }): Promise<GetVibRootReceipt> {
   const publisherUri = input.config.getVibRootPublisherUri?.trim();
   if (!publisherUri) {
-    throw new Error("GET_VIB_ROOT_PUBLISHER_URI is required for GET_VIB_ROOT_UPLOAD_MODE=unsafe-papi");
+    throw badRequest("GET_VIB_ROOT_PUBLISHER_URI is required for GET_VIB_ROOT_UPLOAD_MODE=unsafe-papi");
   }
 
   const [apiModule, keyringModule, cryptoModule] = await Promise.all([
@@ -73,13 +97,7 @@ async function submitUnsafePapi(input: {
   try {
     const keyring = new Keyring({ type: "sr25519" });
     const signer = keyring.addFromUri(publisherUri);
-    const tx = api.tx.vibClaim.setClaimRoot(
-      input.manifest.networkId,
-      input.manifest.rootVersion,
-      input.manifest.merkleRoot,
-      getVibAmountToBaseUnits(input.manifest.totalCumulativeAmount),
-      input.manifest.metadataHash,
-    );
+    const tx = input.tx(api);
     const txHash = await new Promise<string>((resolve, reject) => {
       void tx.signAndSend(signer, (result) => {
         if (result.dispatchError) {
@@ -95,6 +113,40 @@ async function submitUnsafePapi(input: {
   } finally {
     await api.disconnect();
   }
+}
+
+function buildSetClaimRootTx(manifest: AllocationManifest): (api: ChainApi) => ChainTx {
+  return (api) => {
+    if (!api.tx.vibClaim?.setClaimRoot) {
+      throw upgradeRequired("Connected Vibly chain runtime does not expose vibClaim.setClaimRoot. Rebuild and restart the chain node.");
+    }
+    return api.tx.vibClaim.setClaimRoot(
+      manifest.networkId,
+      manifest.rootVersion,
+      manifest.merkleRoot,
+      getVibAmountToBaseUnits(manifest.totalCumulativeAmount),
+      manifest.metadataHash,
+    );
+  };
+}
+
+function buildClaimForTx(proof: ClaimProof): (api: ChainApi) => ChainTx {
+  return (api) => {
+    if (!api.tx.vibClaim?.claimFor) {
+      throw upgradeRequired("Connected Vibly chain runtime does not expose vibClaim.claimFor. Rebuild and restart the chain node.");
+    }
+    return api.tx.vibClaim.claimFor(
+      proof.accountId,
+      proof.networkId,
+      proof.rootVersion,
+      proof.identityId ?? "",
+      getVibAmountToBaseUnits(proof.cumulativeAmount),
+      proof.proof.map((item) => ({
+        position: item.position === "left" ? "Left" : "Right",
+        hash: item.hash,
+      })),
+    );
+  };
 }
 
 function dynamicImport(specifier: string): Promise<Record<string, unknown>> {
@@ -116,12 +168,20 @@ type ChainTx = {
 type ChainApi = {
   tx: {
     vibClaim: {
-      setClaimRoot: (
+      setClaimRoot?: (
         networkId: string,
         rootVersion: number,
         merkleRoot: string,
         totalCumulativeAmount: string,
         metadataHash: string,
+      ) => ChainTx;
+      claimFor?: (
+        accountId: string,
+        networkId: string,
+        rootVersion: number,
+        identityId: string,
+        cumulativeAmount: string,
+        proof: Array<{ position: "Left" | "Right"; hash: string }>,
       ) => ChainTx;
     };
   };

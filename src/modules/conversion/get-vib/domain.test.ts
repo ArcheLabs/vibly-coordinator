@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import { loadConfig } from "../../../config/env.js";
 import type { CoordinatorStorePort } from "../../../db/coordinatorStorePort.js";
 import {
+  buildAndSaveManifest,
   buildRelayDepositSourceId,
   decimalFromBaseUnits,
   getAllocationSummary,
+  getClaimProof,
   getRecords,
   ingestFinalizedDeposit,
   listObservedRelayDeposits,
@@ -196,6 +198,51 @@ describe("Get VIB relay deposits", () => {
       confirmedDepositId: result.deposit.id,
       allocationId: result.allocation.id,
     });
+  });
+
+  it("matches Get VIB accounts across SS58 prefixes for summaries, records, and proofs", async () => {
+    const store = makeStore();
+    const config = loadConfig({
+      NODE_ENV: "test",
+      SUBSTRATE_CHAIN_ID: "substrate:vibly-testnet",
+      VIBLY_DOT_RECEIVING_ADDRESS: "14zqZTuFsF4mwdwA92FLpYkbX4mwvofBWvfdSfJgkXmty4Fz",
+      GET_VIB_RELAY_CHAIN_ID: "paseo",
+    });
+    const walletSessionAddress = "5DkRyBiMehu8KwXE49Ho8RUrd94UCKDpZ8GYxvTYzUfGW7yY";
+    const paseoEventSender = "12gj7WyRWVAbmUXk1nLoGaK1Um47tcmxdd138DSuYZgngetP";
+
+    const observed = await saveObservedRelayDeposit(store, {
+      relayChainId: "paseo",
+      sourceId: "paseo:0xabc:2:67",
+      from: paseoEventSender,
+      to: "14zqZTuFsF4mwdwA92FLpYkbX4mwvofBWvfdSfJgkXmty4Fz",
+      amountBaseUnits: "1000000000000",
+      dotAmount: "100",
+      blockNumber: 11982640,
+      blockHash: "0xabc",
+      extrinsicIndex: 2,
+      eventIndex: 67,
+      extrinsicHash: "0xtx",
+      finalizedAt: "2026-06-06T08:10:26.930Z",
+    });
+
+    await ingestFinalizedDeposit({
+      store,
+      config,
+      observedDepositId: observed.deposit.id,
+      accountId: paseoEventSender,
+    });
+
+    const summary = await getAllocationSummary(store, config, walletSessionAddress);
+    const records = await getRecords(store, config, walletSessionAddress);
+    await buildAndSaveManifest(store, config);
+    const proof = await getClaimProof(store, config, walletSessionAddress);
+
+    expect(Number(summary.purchasedAllocation)).toBeGreaterThan(100_000);
+    expect(records.relayDeposits).toHaveLength(1);
+    expect(records.allocations).toHaveLength(1);
+    expect(proof.accountId).toBe(walletSessionAddress);
+    expect(Number(proof.cumulativeAmount)).toBeGreaterThan(100_000);
   });
 
   it("quotes direct wallet transfers without per-transaction purchase caps", async () => {

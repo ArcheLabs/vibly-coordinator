@@ -78,4 +78,53 @@ describe("GetVibRootChainActions", () => {
     expect(tx.signAndSend).toHaveBeenCalledWith("publisher-signer", expect.any(Function));
     expect(disconnect).toHaveBeenCalledTimes(1);
   });
+
+  it("submits claimFor directly with publisher hot key in unsafe-papi mode", async () => {
+    const tx = {
+      hash: { toHex: () => "0xclaimfor" },
+      signAndSend: vi.fn(async (_signer: unknown, callback: (result: { status: { isInBlock: boolean; isFinalized: boolean } }) => void) => {
+        callback({ status: { isInBlock: true, isFinalized: false } });
+        return () => undefined;
+      }),
+    };
+    const disconnect = vi.fn(async () => undefined);
+    const claimFor = vi.fn(() => tx);
+    const addFromUri = vi.fn(() => "publisher-signer");
+    const cryptoWaitReady = vi.fn(async () => undefined);
+    const create = vi.fn(async () => ({ tx: { vibClaim: { claimFor } }, disconnect }));
+    const WsProvider = vi.fn(function WsProvider(this: unknown, _rpcUrl: string) { return this; });
+    const Keyring = vi.fn(function Keyring(this: { addFromUri: typeof addFromUri }) { this.addFromUri = addFromUri; });
+    const loader = vi.fn(async (specifier: string): Promise<Record<string, unknown>> => {
+      if (specifier === "@polkadot/api") return { ApiPromise: { create }, WsProvider };
+      if (specifier === "@polkadot/keyring") return { Keyring };
+      if (specifier === "@polkadot/util-crypto") return { cryptoWaitReady };
+      throw new Error(`unexpected import ${specifier}`);
+    });
+
+    const receipt = await new GetVibRootChainActions(config("unsafe-papi"), loader).claimFor({
+      networkId: "substrate:vibly-solo",
+      accountId: "5claimer",
+      identityId: "identity-1",
+      rootVersion: 7,
+      cumulativeAmount: "123.45",
+      merkleRoot: manifest.merkleRoot,
+      metadataHash: manifest.metadataHash,
+      proof: [{ position: "left", hash: `0x${"33".repeat(32)}` }],
+      claimEnabled: true,
+      rootUploadStatus: "uploaded",
+    });
+
+    expect(receipt).toEqual({ txHash: "0xclaimfor", mode: "unsafe-papi", finality: "included" });
+    expect(addFromUri).toHaveBeenCalledWith("//RootPublisher");
+    expect(claimFor).toHaveBeenCalledWith(
+      "5claimer",
+      "substrate:vibly-solo",
+      7,
+      "identity-1",
+      "123450000000000",
+      [{ position: "Left", hash: `0x${"33".repeat(32)}` }],
+    );
+    expect(tx.signAndSend).toHaveBeenCalledWith("publisher-signer", expect.any(Function));
+    expect(disconnect).toHaveBeenCalledTimes(1);
+  });
 });

@@ -648,11 +648,11 @@ export async function getRecords(store: CoordinatorStorePort, config: Coordinato
   ]);
   return {
     relayDeposits: relayDeposits
-      .filter((record) => record.accountId === accountId || sameAccountAddress(record.from, accountId))
+      .filter((record) => sameAccountAddress(record.accountId ?? record.from, accountId) || sameAccountAddress(record.from, accountId))
       .sort(descTime("finalizedAt")),
-    deposits: deposits.filter((record) => record.accountId === accountId).sort(descTime("observedAt")),
-    allocations: allocations.filter((record) => record.accountId === accountId).sort(descTime("createdAt")),
-    claims: claims.filter((record) => record.accountId === accountId).sort(descTime("createdAt")),
+    deposits: deposits.filter((record) => sameAccountAddress(record.accountId, accountId)).sort(descTime("observedAt")),
+    allocations: allocations.filter((record) => sameAccountAddress(record.accountId, accountId)).sort(descTime("createdAt")),
+    claims: claims.filter((record) => sameAccountAddress(record.accountId, accountId)).sort(descTime("createdAt")),
   };
 }
 
@@ -701,8 +701,8 @@ export async function getClaimProof(store: CoordinatorStorePort, config: Coordin
   if (!manifest) throw notFound("Get VIB manifest", networkId);
   const rootUpload = await getRootUploadRecord(store, manifest.networkId, manifest.rootVersion);
   const tree = buildMerkleTree(manifest.allocations);
-  const proof = tree.proofs.get(accountId);
-  const allocation = manifest.allocations.find((item) => item.accountId === accountId);
+  const allocation = manifest.allocations.find((item) => sameAccountAddress(item.accountId, accountId));
+  const proof = allocation ? tree.proofs.get(allocation.accountId) : undefined;
   if (!allocation || !proof) throw notFound("Get VIB allocation", accountId);
   return {
     networkId,
@@ -733,7 +733,7 @@ export async function recordClaim(input: {
 }): Promise<ClaimRecord> {
   const networkId = getNetworkId(input.config);
   const existing = (await listNetworkClaims(input.store, networkId)).find((claim) =>
-    claim.accountId === input.accountId &&
+    sameAccountAddress(claim.accountId, input.accountId) &&
     claim.rootVersion === input.rootVersion &&
     claim.cumulativeAmount === input.cumulativeAmount &&
     claim.status === (input.status ?? "confirmed"),
@@ -964,9 +964,17 @@ function maxDecimalString(left: string, right: string): string {
 
 function sameAccountAddress(left: string, right: string): boolean {
   try {
-    return Buffer.compare(Buffer.from(decodeAddress(left)), Buffer.from(decodeAddress(right))) === 0;
+    return accountAddressKey(left) === accountAddressKey(right);
   } catch {
     return left === right;
+  }
+}
+
+function accountAddressKey(address: string): string {
+  try {
+    return Buffer.from(decodeAddress(address)).toString("hex");
+  } catch {
+    return address;
   }
 }
 
@@ -1045,14 +1053,14 @@ async function ensureCurveQuotePurchaseAllowed(input: {
 async function cumulativeAllocationForAccount(store: CoordinatorStorePort, networkId: string, accountId: string): Promise<string> {
   const allocations = await listNetworkAllocations(store, networkId);
   return allocations
-    .filter((allocation) => allocation.accountId === accountId && (allocation.status === "confirmed" || allocation.status === "root_included"))
+    .filter((allocation) => sameAccountAddress(allocation.accountId, accountId) && (allocation.status === "confirmed" || allocation.status === "root_included"))
     .reduce((sum, allocation) => addDecimalStrings(sum, allocation.vibAmount), "0");
 }
 
 async function claimedAmountForAccount(store: CoordinatorStorePort, networkId: string, accountId: string): Promise<string> {
   const claims = await listNetworkClaims(store, networkId);
   return claims
-    .filter((claim) => claim.accountId === accountId && claim.status === "confirmed")
+    .filter((claim) => sameAccountAddress(claim.accountId, accountId) && claim.status === "confirmed")
     .reduce((max, claim) => maxDecimalString(max, claim.cumulativeAmount), "0");
 }
 
@@ -1067,9 +1075,10 @@ async function findAnyOrderByPaymentId(store: CoordinatorStorePort, paymentId: s
 function cumulativeAllocations(allocations: AllocationRecord[]): Array<{ accountId: string; identityId?: string; cumulativeAmount: string }> {
   const byAccount = new Map<string, { accountId: string; identityId?: string; cumulativeAmount: string }>();
   for (const allocation of allocations.filter((item) => item.status === "confirmed" || item.status === "root_included")) {
-    const existing = byAccount.get(allocation.accountId);
-    byAccount.set(allocation.accountId, {
-      accountId: allocation.accountId,
+    const accountKey = accountAddressKey(allocation.accountId);
+    const existing = byAccount.get(accountKey);
+    byAccount.set(accountKey, {
+      accountId: existing?.accountId ?? allocation.accountId,
       identityId: allocation.identityId ?? existing?.identityId,
       cumulativeAmount: addDecimalStrings(existing?.cumulativeAmount ?? "0", allocation.vibAmount),
     });

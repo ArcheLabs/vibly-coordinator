@@ -6,6 +6,7 @@ import { badRequest } from "../../../domain/errors.js";
 import { envelopeKey } from "../../../domain/schemas.js";
 import { authPolicy } from "../../../plugins/authPolicy.js";
 import { getGetVibRootUploaderStatus } from "../../../services/getVibRootUploader.js";
+import { GetVibRootChainActions } from "../../../services/getVibRootChainActions.js";
 import { WALLET_SESSION, ensureActiveWalletSession, type WalletSessionRecord } from "../../identity/wallet/domain.js";
 import {
   buildAndSaveManifest,
@@ -18,6 +19,7 @@ import {
   getOrder,
   getRelayWatcherState,
   getRecords,
+  getVibAmountToBaseUnits,
   ingestFinalizedDeposit,
   listObservedRelayDeposits,
   quoteGetVibByBudget,
@@ -295,6 +297,58 @@ const getVibRoutes: FastifyPluginAsync = async (fastify) => {
       }),
     },
     async (request) => ok({ records: await getRecords(fastify.coordinatorStore, configForRequest(fastify.config, request), request.params.accountId) }),
+  );
+
+  fastify.post<{ Body: { networkId?: string } }>(
+    "/get-vib/claim-for",
+    {
+      ...authPolicy("wallet-session", {
+        tags: ["Get VIB"],
+        summary: "Sponsor a Get VIB claim with the configured claim-root publisher relayer",
+        body: {
+          type: "object",
+          properties: {
+            networkId: { type: "string" },
+          },
+        },
+        response: { 200: envelopeKey("result") },
+      }),
+    },
+    async (request) => {
+      const session = await requirePolkadotWalletSession(fastify.coordinatorStore, request.headers as Record<string, string | string[] | undefined>);
+      const requestConfig = configForRequest(fastify.config, request, request.body?.networkId);
+      if (!requestConfig.getVibClaimEnabled) throw badRequest("Get VIB claim is not enabled");
+
+      const [summary, proof] = await Promise.all([
+        getAllocationSummary(fastify.coordinatorStore, requestConfig, session.address),
+        getClaimProof(fastify.coordinatorStore, requestConfig, session.address),
+      ]);
+      if (BigInt(getVibAmountToBaseUnits(summary.claimableAmount)) <= 0n) {
+        throw badRequest("No claimable Get VIB allocation is available");
+      }
+      if (proof.rootUploadStatus !== "uploaded") {
+        throw badRequest("Get VIB claim root has not been uploaded yet", {
+          rootVersion: proof.rootVersion,
+          rootUploadStatus: proof.rootUploadStatus,
+        });
+      }
+
+      const receipt = await new GetVibRootChainActions(requestConfig).claimFor(proof);
+      const claim = receipt.finality === "prepared"
+        ? undefined
+        : await recordClaim({
+          store: fastify.coordinatorStore,
+          config: requestConfig,
+          accountId: session.address,
+          identityId: proof.identityId,
+          rootVersion: proof.rootVersion,
+          cumulativeAmount: proof.cumulativeAmount,
+          claimedDelta: summary.claimableAmount,
+          txHash: receipt.txHash,
+          status: "confirmed",
+        });
+      return ok({ result: { receipt, claim } });
+    },
   );
 
   fastify.get(
