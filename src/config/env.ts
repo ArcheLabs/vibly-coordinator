@@ -288,10 +288,10 @@ const envSchema = z
           path: ["GET_VIB_RELAY_RPC_URL"],
         });
       }
-      if (val.GET_VIB_RELAY_CHAIN_ID !== "polkadot") {
+      if (val.GET_VIB_RELAY_CHAIN_ID !== "polkadot" && val.GET_VIB_RELAY_CHAIN_ID !== "paseo") {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "production Get VIB conversion requires GET_VIB_RELAY_CHAIN_ID=polkadot",
+          message: "production Get VIB conversion requires GET_VIB_RELAY_CHAIN_ID=polkadot (mainnet) or =paseo (testnet)",
           path: ["GET_VIB_RELAY_CHAIN_ID"],
         });
       }

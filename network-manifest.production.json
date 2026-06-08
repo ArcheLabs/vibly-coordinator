@@ -59,7 +59,7 @@
       "daemon": false,
       "staking": false,
       "rootIdentityRegistration": false,
-      "getVibConversion": true,
+      "getVibConversion": false,
       "getVibClaim": false
     },
     "messages": {
