@@ -12,7 +12,7 @@ const corsPlugin: FastifyPluginAsync<CorsPluginOptions> = async (fastify, opts) 
   await fastify.register(cors, {
     origin: opts.config.nodeEnv === "production" ? allowedOrigins : true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "x-wallet-session", "X-Vibly-Network-Id"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-wallet-session", "X-Vibly-Network-Id", "x-vibly-client-version"],
   });
 };
 
