@@ -51,7 +51,6 @@ export function startGetVibRelayDepositWatcher(input: {
     return () => {};
   }
 
-  let api: ApiPromise | undefined;
   let running = false;
   let stopped = false;
 
@@ -59,6 +58,8 @@ export function startGetVibRelayDepositWatcher(input: {
     if (running || stopped) return;
     running = true;
     let leaseId: string | undefined;
+    let api: ApiPromise | undefined;
+
     try {
       const lease = await input.store.tryAcquireLease({
         kind: LEASE_KIND,
@@ -69,13 +70,21 @@ export function startGetVibRelayDepositWatcher(input: {
       if (!lease) return;
       leaseId = lease.id;
 
-      api ??= await ApiPromise.create({ provider: new WsProvider(input.config.getVibRelayRpcUrl) });
+      // Fresh ApiPromise per tick — recover from public RPC WebSocket closures.
+      const provider = new WsProvider(input.config.getVibRelayRpcUrl);
+      api = await ApiPromise.create({ provider });
       await scanRelayDeposits({ ...input, api });
     } catch (err) {
-      await recordWatcherError(input.store, input.config, err);
+      // Best-effort state recording — must not hide the original scan error.
+      try {
+        await recordWatcherError(input.store, input.config, err);
+      } catch (stateErr) {
+        console.error("[GetVibRelayDepositWatcher] failed to record watcher error", stateErr);
+      }
       console.error("[GetVibRelayDepositWatcher]", err);
     } finally {
       if (leaseId) await input.store.releaseLease(leaseId).catch(() => {});
+      if (api) await api.disconnect().catch(() => {});
       running = false;
     }
   };
@@ -85,7 +94,6 @@ export function startGetVibRelayDepositWatcher(input: {
   return () => {
     stopped = true;
     clearInterval(timer);
-    void api?.disconnect();
   };
 }
 
@@ -98,18 +106,27 @@ async function scanRelayDeposits(input: {
   const finalizedHash = await input.api.rpc.chain.getFinalizedHead();
   const finalizedHeader = await input.api.rpc.chain.getHeader(finalizedHash);
   const finalizedBlock = Number(finalizedHeader.number.toString());
-  const targetBlock = Math.max(0, finalizedBlock - input.config.getVibDepositFinalityBlocks);
+  const fullTargetBlock = Math.max(0, finalizedBlock - input.config.getVibDepositFinalityBlocks);
   const previous = await getRelayWatcherState(input.store, input.config.getVibRelayChainId);
   const startBlock = Math.max(
     input.config.getVibDepositStartBlock,
     (previous?.lastProcessedBlock ?? input.config.getVibDepositStartBlock - 1) + 1,
   );
+
+  // Bounded scan: at most GET_VIB_DEPOSIT_SCAN_MAX_BLOCKS per tick.
+  const targetBlock = Math.min(
+    fullTargetBlock,
+    startBlock + input.config.getVibDepositScanMaxBlocks - 1,
+  );
+
   let observedCount = 0;
   let lastProcessedBlock = previous?.lastProcessedBlock;
 
-  for (let blockNumber = startBlock; blockNumber <= targetBlock; blockNumber += 1) {
-    observedCount += await scanBlock(input, blockNumber);
-    lastProcessedBlock = blockNumber;
+  if (startBlock <= targetBlock) {
+    for (let blockNumber = startBlock; blockNumber <= targetBlock; blockNumber += 1) {
+      observedCount += await scanBlock(input, blockNumber);
+      lastProcessedBlock = blockNumber;
+    }
   }
 
   const now = new Date().toISOString();

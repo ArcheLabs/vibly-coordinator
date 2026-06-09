@@ -13,8 +13,20 @@ export interface CoordinatorPostgresClients {
   close: () => Promise<void>;
 }
 
+function positiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const value = Number(raw);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
 export function createCoordinatorPostgres(databaseUrl: string): CoordinatorPostgresClients {
-  const sql = postgres(databaseUrl, { max: 12 });
+  const sql = postgres(databaseUrl, {
+    max: positiveIntEnv("POSTGRES_POOL_MAX", 4),
+    idle_timeout: positiveIntEnv("POSTGRES_IDLE_TIMEOUT_SECONDS", 20),
+    connect_timeout: positiveIntEnv("POSTGRES_CONNECT_TIMEOUT_SECONDS", 10),
+    max_lifetime: positiveIntEnv("POSTGRES_MAX_LIFETIME_SECONDS", 1800),
+  });
   const db = drizzle(sql, { schema });
   return {
     sql,

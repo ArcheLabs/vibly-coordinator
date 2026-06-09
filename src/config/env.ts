@@ -107,6 +107,7 @@ const envSchema = z
     GET_VIB_DEPOSIT_SCAN_INTERVAL_MS: z.coerce.number().default(0),
     GET_VIB_DEPOSIT_START_BLOCK: z.coerce.number().int().min(0).default(0),
     GET_VIB_DEPOSIT_FINALITY_BLOCKS: z.coerce.number().int().min(0).default(0),
+    GET_VIB_DEPOSIT_SCAN_MAX_BLOCKS: z.coerce.number().int().min(1).default(200),
     GET_VIB_CURVE_PAUSED: z.string().transform((v) => v === "true").default("false"),
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -506,6 +507,7 @@ export interface CoordinatorConfig {
   getVibDepositScanIntervalMs: number;
   getVibDepositStartBlock: number;
   getVibDepositFinalityBlocks: number;
+  getVibDepositScanMaxBlocks: number;
   getVibCurvePaused: boolean;
 
   // ─── Observability ────────────────────────────────────────────────────────
@@ -599,6 +601,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     getVibDepositScanIntervalMs: parsed.GET_VIB_DEPOSIT_SCAN_INTERVAL_MS,
     getVibDepositStartBlock: parsed.GET_VIB_DEPOSIT_START_BLOCK,
     getVibDepositFinalityBlocks: parsed.GET_VIB_DEPOSIT_FINALITY_BLOCKS,
+    getVibDepositScanMaxBlocks: parsed.GET_VIB_DEPOSIT_SCAN_MAX_BLOCKS,
     getVibCurvePaused: parsed.GET_VIB_CURVE_PAUSED,
     otelExporterOtlpEndpoint: parsed.OTEL_EXPORTER_OTLP_ENDPOINT?.trim() || undefined,
     viblyCoordinationRoundIntervalMs: parsed.VIBLY_COORDINATION_ROUND_INTERVAL_MS,
