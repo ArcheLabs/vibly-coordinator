@@ -11,7 +11,7 @@
     "chains": {
       "payment": {
         "chainId": "paseo",
-        "rpcUrls": ["wss://rpc.ibp.network/paseo"],
+        "rpcUrls": ["wss://paseo-rpc.n.dwellir.com"],
         "tokenSymbol": "PAS",
         "tokenDecimals": 10,
         "status": "online"
