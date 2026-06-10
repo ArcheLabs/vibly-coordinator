@@ -41,6 +41,8 @@ const authorizationPlugin: FastifyPluginAsync<AuthorizationPluginOptions> = asyn
     if (policy === "wallet-session") {
       if (auth.kind === "none" && auth.scopes.includes("wallet-session")) return;
       if (auth.kind === "agent-runtime") return;
+      // Static token is allowed as a trusted internal bootstrap/admin path.
+      if (auth.kind === "static") return;
       throw forbidden("Wallet session is required for this endpoint");
     }
 

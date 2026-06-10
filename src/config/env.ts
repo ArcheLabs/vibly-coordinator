@@ -150,6 +150,9 @@ const envSchema = z
     // Who can perform privileged organization management:
     // guardian = chain Guardian required; local = no chain check (dev default).
     ORG_ADMIN_AUTHORITY_SOURCE: z.enum(["guardian", "local"]).default("local"),
+    // When ORG_ADMIN_AUTHORITY_SOURCE=guardian, static-token requests are
+    // forbidden from creating organizations. Set to "true" to allow it.
+    VIBLY_ALLOW_STATIC_TOKEN_CREATE_ORG: z.string().default("false"),
     // Minimum active stake (as bigint string) required to join an organization.
     // "0" disables the stake requirement.
     ORG_MEMBERSHIP_MIN_ACTIVE_STAKE: z.string().default("0"),
@@ -543,6 +546,7 @@ export interface CoordinatorConfig {
   chainAuthorityCacheTtlMs: number;
   chainAuthorityMaxStalenessBlocks: number;
   orgAdminAuthoritySource: "guardian" | "local";
+  allowStaticTokenCreateOrg: boolean;
   orgMembershipMinActiveStake: string;
 }
 
@@ -629,6 +633,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     chainAuthorityCacheTtlMs: parsed.CHAIN_AUTHORITY_CACHE_TTL_MS,
     chainAuthorityMaxStalenessBlocks: parsed.CHAIN_AUTHORITY_MAX_STALENESS_BLOCKS,
     orgAdminAuthoritySource: parsed.ORG_ADMIN_AUTHORITY_SOURCE,
+    allowStaticTokenCreateOrg: parsed.VIBLY_ALLOW_STATIC_TOKEN_CREATE_ORG === "true",
     orgMembershipMinActiveStake: parsed.ORG_MEMBERSHIP_MIN_ACTIVE_STAKE,
   };
 }

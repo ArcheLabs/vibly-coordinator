@@ -74,24 +74,49 @@ const actionIntentsRoutes: FastifyPluginAsync<ActionIntentsPluginOptions> = asyn
       }
 
       const intent = parsed.data;
-      let actorPrincipalId = intent.principalId;
+      let actorPrincipalId: string | undefined;
       const walletSessionToken = sessionTokenFromRequest(request.headers as Record<string, string | string[] | undefined>);
+
       if (walletSessionToken) {
         const session = ensureActiveWalletSession(
           await fastify.coordinatorStore.getProjection<WalletSessionRecord>(WALLET_SESSION, walletSessionToken),
           walletSessionToken,
         );
+        // Inferred principal from wallet session is the session's wallet address.
         actorPrincipalId = session.address;
+
+        // Wallet session cannot submit for a different principal.
+        if (intent.principalId && intent.principalId !== actorPrincipalId) {
+          throw forbidden("Wallet session cannot submit for a different principal");
+        }
       } else if (request.auth?.kind === "agent-runtime") {
         actorPrincipalId = request.auth.subject;
+
+        // Agent runtime token cannot submit for a different principal.
+        if (intent.principalId && request.auth.subject !== intent.principalId) {
+          throw forbidden("Agent runtime token cannot submit for a different principal");
+        }
+      } else if (request.auth?.kind === "static") {
+        // Static token path is a trusted internal bootstrap/admin path.
+        // It is not a public user authentication mechanism.
+        actorPrincipalId = intent.principalId;
+        if (!actorPrincipalId) {
+          throw badRequest("ActionIntent principalId is required for static-token bootstrap requests");
+        }
       }
 
       if (!actorPrincipalId) {
         throw badRequest("ActionIntent principalId is required when no wallet session or authenticated subject is present");
       }
 
-      if (request.auth?.kind === "agent-runtime" && intent.principalId && request.auth.subject !== intent.principalId) {
-        throw forbidden("Agent runtime token cannot submit for a different principal");
+      // Safety valve: static token cannot create organizations in guardian mode.
+      if (
+        request.auth?.kind === "static" &&
+        intent.type === "CreateOrganization" &&
+        fastify.config.orgAdminAuthoritySource === "guardian" &&
+        !fastify.config.allowStaticTokenCreateOrg
+      ) {
+        throw forbidden("Static token cannot create organizations when ORG_ADMIN_AUTHORITY_SOURCE=guardian");
       }
 
       const result = await dispatcher.dispatch(

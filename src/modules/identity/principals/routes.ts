@@ -1,7 +1,10 @@
 import type { FastifyPluginAsync } from "fastify";
+import { z } from "zod";
 import { ok, okList } from "../../../domain/apiTypes.js";
-import { notFound } from "../../../domain/errors.js";
+import { badRequest, notFound } from "../../../domain/errors.js";
 import { envelopeKey, listEnvelope } from "../../../domain/schemas.js";
+
+const principalKindSchema = z.enum(["human", "agent"]);
 
 const principalsRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /principals
@@ -34,6 +37,13 @@ const principalsRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
+      const kindResult = principalKindSchema.safeParse(request.body.kind);
+      if (!kindResult.success) {
+        throw badRequest(
+          `Invalid principal kind "${request.body.kind}". Allowed values: human, agent`,
+        );
+      }
+
       const principal = await fastify.concord.principals.registerPrincipal({
         kind: request.body.kind as never,
         displayName: request.body.displayName,

@@ -148,7 +148,7 @@ async function runAgentCollaborationWorkflow(fastify: Parameters<FastifyPluginAs
   await ensureInitialKnowledge(fastify, sponsor);
 
   for (const seed of AGENTS) {
-    const principal = await ensurePrincipal(fastify, `${seed.displayName} Principal`, "service");
+    const principal = await ensurePrincipal(fastify, `${seed.displayName} Principal`, "agent");
     const agent = await ensureAgent(fastify, principal, seed);
     principals.set(seed.key, principal);
     agents.set(seed.key, agent);
