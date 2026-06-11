@@ -7,7 +7,7 @@
     "label": "Lumen",
     "stage": "testnet",
     "status": "active",
-    "coordinatorUrls": ["https://coordinator.vibly.network"],
+    "coordinatorUrls": ["https://vibly-coordinator-910361199868.asia-east1.run.app"],
     "chains": {
       "payment": {
         "chainId": "paseo",
