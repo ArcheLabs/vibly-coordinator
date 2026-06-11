@@ -9,6 +9,7 @@
 export type ActionIntentType =
   // ─── Organization / Authority ───────────────────────────────────────────
   | "CreateOrganization"
+  | "CreateProject"
   | "UpdateOrganization"
   | "DissolveOrganization"
   | "UpdateHandbook"

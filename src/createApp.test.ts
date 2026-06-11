@@ -64,10 +64,60 @@ function makeStore(): CoordinatorStorePort {
 }
 
 function makeConcord(): Concord {
+  const principals: Array<Record<string, unknown>> = [];
+  const projects: Array<Record<string, unknown>> = [];
   return {
     governanceIndexQuery: null,
     governanceGateway: {
       submitProposal: async () => ({ id: "mock", status: "submitted" }),
+    },
+    principals: {
+      registerPrincipal: async (input: Record<string, unknown>) => {
+        const now = new Date().toISOString();
+        const principal = {
+          id: `principal_${principals.length + 1}`,
+          kind: input.kind,
+          displayName: input.displayName,
+          description: input.description,
+          status: "active",
+          identityBindings: input.identityBindings ?? [],
+          addressBindings: input.addressBindings ?? [],
+          createdAt: now,
+          updatedAt: now,
+        };
+        principals.push(principal);
+        return principal;
+      },
+      getPrincipal: async (principalId: string) => principals.find((principal) => principal.id === principalId) ?? null,
+      listPrincipals: async () => principals,
+    },
+    projects: {
+      createProject: async (input: Record<string, unknown>) => {
+        if (!principals.some((principal) => principal.id === input.sponsorPrincipalId)) {
+          throw new Error(`Principal not found: ${String(input.sponsorPrincipalId)}`);
+        }
+        if (projects.some((project) => project.slug === input.slug)) {
+          throw new Error(`Project slug already exists: ${String(input.slug)}`);
+        }
+        const now = new Date().toISOString();
+        const project = {
+          id: `project_${projects.length + 1}`,
+          organizationId: input.organizationId,
+          slug: input.slug,
+          name: input.name,
+          description: input.description,
+          status: "draft",
+          sponsorPrincipalId: input.sponsorPrincipalId,
+          metadata: input.metadata,
+          createdAt: now,
+          updatedAt: now,
+        };
+        projects.push(project);
+        return project;
+      },
+      getProject: async (projectId: string) => projects.find((project) => project.id === projectId) ?? null,
+      getProjectBySlug: async (slug: string) => projects.find((project) => project.slug === slug) ?? null,
+      listProjects: async () => projects,
     },
     state: {
       events: { append: async () => {} },
@@ -319,7 +369,7 @@ describe("createApp governance runtime config", () => {
     await app.close();
   });
 
-  it("derives action-intent actor from wallet session instead of body principalId", async () => {
+  it("rejects wallet action-intent principalId spoofing", async () => {
     await cryptoWaitReady();
     const keyring = new Keyring({ type: "sr25519" });
     const alice = keyring.addFromUri("//Alice");
@@ -355,10 +405,136 @@ describe("createApp governance runtime config", () => {
       },
     });
 
+    expect(res.statusCode).toBe(403);
+    const orgs = await store.listProjections("organization_v2");
+    expect(orgs).toHaveLength(0);
+
+    await app.close();
+  });
+
+  it("allows an organization admin wallet session to create a project", async () => {
+    await cryptoWaitReady();
+    const keyring = new Keyring({ type: "sr25519" });
+    const admin = keyring.addFromUri("//Alice");
+    const store = makeStore();
+    const concord = makeConcord();
+    const config = loadConfig({
+      NODE_ENV: "test",
+      API_AUTH_MODE: "static-token",
+      API_TOKENS: "dev-token",
+      ORG_ADMIN_AUTHORITY_SOURCE: "guardian",
+      CHAIN_AUTHORITY_MODE: "disabled",
+    });
+    const now = new Date().toISOString();
+    await store.saveProjection("organization_v2", "org_admin", {
+      id: "org_admin",
+      name: "Admin Org",
+      status: "active",
+      members: [{ principalId: admin.address, role: "admin", joinedAt: now }],
+      authorities: [],
+      createdBy: admin.address,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const app = await createApp({
+      config,
+      logger: createLogger(config),
+      concord,
+      coordinatorStore: store,
+      eventBus: createEventBus(),
+      startGovernanceConsumers: false,
+    });
+    const token = await createWalletSession(app, admin.address, admin);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/action-intents",
+      headers: {
+        authorization: "Bearer dev-token",
+        "x-wallet-session": token,
+      },
+      payload: {
+        type: "CreateProject",
+        payload: {
+          organizationId: "org_admin",
+          slug: "admin-project",
+          name: "Admin Project",
+          description: "Created from wallet session",
+          metadata: { organizationId: "forged-org", source: "test" },
+        },
+      },
+    });
+
     expect(res.statusCode).toBe(200);
-    const body = res.json<{ data: { aggregateRef: { id: string } } }>();
-    const org = await store.getProjection<{ createdBy: string }>("organization_v2", body.data.aggregateRef.id);
-    expect(org?.createdBy).toBe(alice.address);
+    const body = res.json<{ data: { aggregateRef: { kind: string; id: string } } }>();
+    expect(body.data.aggregateRef.kind).toBe("Project");
+    const project = await concord.projects.getProject(body.data.aggregateRef.id as never);
+    expect(project).toMatchObject({
+      id: body.data.aggregateRef.id,
+      organizationId: "org_admin",
+      slug: "admin-project",
+      name: "Admin Project",
+    });
+    expect(project?.metadata).toMatchObject({
+      organizationId: "org_admin",
+      source: "test",
+      createdBy: admin.address,
+    });
+
+    await app.close();
+  });
+
+  it("rejects a normal agent wallet session for project creation", async () => {
+    await cryptoWaitReady();
+    const keyring = new Keyring({ type: "sr25519" });
+    const agent = keyring.addFromUri("//Bob");
+    const store = makeStore();
+    const config = loadConfig({
+      NODE_ENV: "test",
+      API_AUTH_MODE: "static-token",
+      API_TOKENS: "dev-token",
+      ORG_ADMIN_AUTHORITY_SOURCE: "guardian",
+      CHAIN_AUTHORITY_MODE: "disabled",
+    });
+    const now = new Date().toISOString();
+    await store.saveProjection("organization_v2", "org_agent", {
+      id: "org_agent",
+      name: "Agent Org",
+      status: "active",
+      members: [{ principalId: agent.address, role: "member", joinedAt: now }],
+      authorities: [],
+      createdBy: agent.address,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const app = await createApp({
+      config,
+      logger: createLogger(config),
+      concord: makeConcord(),
+      coordinatorStore: store,
+      eventBus: createEventBus(),
+      startGovernanceConsumers: false,
+    });
+    const token = await createWalletSession(app, agent.address, agent);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/action-intents",
+      headers: {
+        authorization: "Bearer dev-token",
+        "x-wallet-session": token,
+      },
+      payload: {
+        type: "CreateProject",
+        payload: {
+          organizationId: "org_agent",
+          slug: "agent-project",
+          name: "Agent Project",
+        },
+      },
+    });
+
+    expect(res.statusCode).toBe(403);
 
     await app.close();
   });

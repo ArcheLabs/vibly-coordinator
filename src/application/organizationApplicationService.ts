@@ -18,7 +18,7 @@ import type { ActionIntent, ActionIntentResult } from "./types.js";
 import { badRequest, conflict, notFound, forbidden } from "../domain/errors.js";
 import { OrganizationRepository } from "../contexts/organization/repository.js";
 import { apply, type OrganizationEvent } from "../contexts/organization/aggregate.js";
-import type { OrganizationHandbook, OrganizationMember, AuthorityAssignment } from "../contexts/organization/types.js";
+import type { Organization, OrganizationHandbook, OrganizationMember, AuthorityAssignment } from "../contexts/organization/types.js";
 import { isKnownAuthority } from "../contexts/authority/types.js";
 import { IdentityRepository } from "../contexts/identity/repository.js";
 import type { AgentProfile, Principal } from "../contexts/identity/types.js";
@@ -36,6 +36,14 @@ const createOrganizationSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
   chainId: z.string().optional(),
+});
+
+const createProjectSchema = z.object({
+  organizationId: z.string().min(1),
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  metadata: z.record(z.unknown()).optional(),
 });
 
 const updateHandbookSchema = z.object({
@@ -235,6 +243,44 @@ async function handleCreateOrganization(intent: ActionIntent, ctx: DispatchConte
   ctx.eventBus.publish(env);
 
   return makeResult(env, "Organization", id);
+}
+
+async function handleCreateProject(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
+  const data = parsePayload(createProjectSchema, intent);
+  const repo = new OrganizationRepository(ctx.store);
+  const org = await repo.get(data.organizationId);
+  if (!org) throw notFound("Organization", data.organizationId);
+  if (org.status !== "active") throw conflict(`Organization is ${org.status}`);
+
+  await assertProjectCreator(intent.principalId, org, ctx);
+  const sponsorPrincipalId = await ensureConcordPrincipalForActor(intent.principalId, ctx);
+  const metadata = {
+    ...(data.metadata ?? {}),
+    organizationId: data.organizationId,
+    createdBy: intent.principalId,
+  };
+
+  const project = await ctx.concord.projects.createProject({
+    organizationId: data.organizationId as never,
+    slug: data.slug,
+    name: data.name,
+    description: data.description,
+    sponsorPrincipalId: sponsorPrincipalId as never,
+    boundary: {
+      projectId: undefined,
+      createdBy: sponsorPrincipalId as never,
+    },
+    metadata,
+  });
+
+  const env = createEvent({
+    type: "ProjectCreated",
+    payload: { project, organizationId: data.organizationId },
+    actorId: intent.principalId as never,
+    correlationId: project.id as never,
+  });
+  ctx.eventBus.publish(env);
+  return makeResult(env, "Project", project.id);
 }
 
 async function handleUpdateHandbook(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
@@ -622,6 +668,59 @@ async function assertOrgAdmin(principalId: string, ctx: DispatchContext): Promis
   // "local" mode: no check
 }
 
+async function isGuardian(principalId: string, ctx: DispatchContext): Promise<boolean> {
+  const decision = await ctx.authorityResolver.isGuardian(principalId);
+  return decision.isGuardian === true;
+}
+
+async function assertProjectCreator(
+  principalId: string,
+  org: Organization,
+  ctx: DispatchContext,
+): Promise<void> {
+  if (await isGuardian(principalId, ctx)) return;
+
+  const hasAdminRole = org.members.some((member) =>
+    member.principalId === principalId &&
+    ["admin", "owner"].includes(member.role.toLowerCase())
+  );
+  if (hasAdminRole) return;
+
+  const canCreateProject = org.authorities.some((assignment) =>
+    assignment.principalId === principalId &&
+    assignment.authority === "approve-resource-creation"
+  );
+  if (canCreateProject) return;
+
+  throw forbidden("Project creation requires a chain Guardian or organization resource-creation authority");
+}
+
+async function ensureConcordPrincipalForActor(principalId: string, ctx: DispatchContext): Promise<string> {
+  const existing = await ctx.concord.principals.listPrincipals();
+  const byId = existing.find((principal) => principal.id === principalId);
+  if (byId) return byId.id;
+
+  const byAddress = existing.find((principal) =>
+    principal.addressBindings.some((binding) => binding.address === principalId && binding.status !== "revoked")
+  );
+  if (byAddress) return byAddress.id;
+
+  const now = new Date().toISOString();
+  const principal = await ctx.concord.principals.registerPrincipal({
+    kind: "human",
+    displayName: `Wallet ${principalId.slice(0, 8)}`,
+    addressBindings: [{
+      id: makeId("addr") as never,
+      chain: ctx.config.substrateChainId,
+      address: principalId,
+      status: "verified",
+      createdAt: now,
+      verifiedAt: now,
+    }] as never,
+  });
+  return principal.id;
+}
+
 // ─── New org management handlers ─────────────────────────────────────────────
 
 async function handleUpdateOrganization(intent: ActionIntent, ctx: DispatchContext): Promise<ActionIntentResult> {
@@ -814,6 +913,7 @@ async function handleGuardianRemoveOrganizationAgent(intent: ActionIntent, ctx: 
 export function registerOrganizationHandlers(dispatcher: ActionIntentDispatcher): void {
   dispatcher
     .register("CreateOrganization", handleCreateOrganization)
+    .register("CreateProject", handleCreateProject)
     .register("UpdateOrganization", handleUpdateOrganization)
     .register("DissolveOrganization", handleDissolveOrganization)
     .register("UpdateHandbook", handleUpdateHandbook)
