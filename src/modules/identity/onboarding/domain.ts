@@ -9,15 +9,10 @@ export const AIRDROP_CLAIM = "identity.airdrop.claim";
 export const ROOT_ROTATION_PAYLOAD = "identity.root-rotation.payload";
 export const ROOT_ROTATION = "identity.root-rotation";
 export const IDENTITY_STATUS = "identity.status";
-export const CONVERSION_CONFIG = "conversion.dot-vib.config";
-export const CONVERSION_ORDER = "conversion.dot-vib.order";
-export const GET_VIB_DEPOSIT = "get-vib.deposit";
-export const GET_VIB_ALLOCATION = "get-vib.allocation";
-export const GET_VIB_CLAIM = "get-vib.claim";
-export const GET_VIB_MANIFEST = "get-vib.manifest";
+export const IDENTITY_EVM_LINK = "identity.evm-link";
+export const IDENTITY_EVM_UNLINK = "identity.evm-unlink";
 
 export type ClaimStatus = "pending" | "submitted" | "finalized" | "completed" | "failed";
-export type ConversionOrderStatus = "quoted" | "pending_payment" | "payment_finalized" | "submitted" | "completed" | "failed";
 
 export interface AirdropEligibility {
   evmAddress: string;
@@ -76,41 +71,29 @@ export interface RootRotationRecord {
   updatedAt: string;
 }
 
-export interface ConversionConfigRecord {
-  totalCapVib: string;
-  initialRate: string;
-  slope: string;
-  minDot: string;
-  dotReceivingAddress: string;
-  updatedAt: string;
-}
-
-export interface ConversionOrderRecord {
+export interface EvmAddressLinkRecord {
   id: string;
-  evmAddress?: string;
-  identityId?: string;
-  viblyRootAddress: string;
-  dotAmount: string;
-  quotedVibAmount: string;
-  finalVibAmount?: string;
-  paymentAsset?: "DOT" | "USDC";
-  paymentAmount?: string;
-  costUsd?: number;
-  assetUsdPrice?: number;
-  averagePriceUsd?: number;
-  startPriceUsd?: number;
-  endPriceUsd?: number;
-  soldBefore?: string;
-  soldAfter?: string;
-  memo: string;
-  dotReceivingAddress: string;
-  quoteExpiresAt: string;
-  status: ConversionOrderStatus;
-  paymentId?: string;
+  evmAddress: string;
+  viblyAccountId: string;
+  substrateAddress?: string;
+  status: "pending" | "submitted" | "confirmed" | "failed";
+  chainSubmissionId?: string;
   failureReason?: string;
   createdAt: string;
   updatedAt: string;
 }
+
+export interface EvmAddressUnlinkRecord {
+  id: string;
+  evmAddress: string;
+  viblyAccountId?: string;
+  status: "pending" | "submitted" | "confirmed" | "failed";
+  chainSubmissionId?: string;
+  failureReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 
 export function normalizeEvmAddress(address: string): string {
   if (!/^0x[0-9a-fA-F]{40}$/.test(address)) throw badRequest("Invalid EVM address", { address });
@@ -177,38 +160,4 @@ export async function verifyStoredPayload(input: {
 
 function isPlausibleEoaSignature(signature: string): boolean {
   return /^0x[0-9a-fA-F]{130}$/.test(signature);
-}
-
-export async function getConversionConfig(store: CoordinatorStorePort, config: CoordinatorConfig): Promise<ConversionConfigRecord> {
-  return (
-    (await store.getProjection<ConversionConfigRecord>(CONVERSION_CONFIG, "active")) ?? {
-      totalCapVib: String(config.viblyConversionTotalCap),
-      initialRate: String(config.viblyConversionInitialRate),
-      slope: String(config.viblyConversionSlope),
-      minDot: String(config.viblyConversionMinDot),
-      dotReceivingAddress: config.viblyDotReceivingAddress,
-      updatedAt: new Date().toISOString(),
-    }
-  );
-}
-
-export function quoteVibAmount(dotAmountRaw: string | number, config: ConversionConfigRecord, alreadyIssuedVib = 0): string {
-  const dotAmount = Number(dotAmountRaw);
-  const minDot = Number(config.minDot);
-  if (!Number.isFinite(dotAmount) || dotAmount <= 0) throw badRequest("DOT amount must be positive");
-  if (minDot > 0 && dotAmount < minDot) throw badRequest("DOT amount is below minimum", { minDot });
-  const initialRate = Number(config.initialRate);
-  const slope = Number(config.slope);
-  const effectiveRate = Math.max(initialRate / (1 + slope * alreadyIssuedVib), 0);
-  const vibAmount = dotAmount * effectiveRate;
-  const totalCap = Number(config.totalCapVib);
-  if (totalCap > 0 && alreadyIssuedVib + vibAmount > totalCap) throw badRequest("VIB conversion cap exceeded");
-  return vibAmount.toFixed(6).replace(/\.?0+$/, "");
-}
-
-export async function completedConversionTotal(store: CoordinatorStorePort): Promise<number> {
-  const orders = await store.listProjections<ConversionOrderRecord>(CONVERSION_ORDER);
-  return orders
-    .filter((order) => order.status === "completed" && order.finalVibAmount)
-    .reduce((sum, order) => sum + Number(order.finalVibAmount), 0);
 }

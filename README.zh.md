@@ -92,16 +92,10 @@ coordinator 现在负责客户端兼容性策略，提供以下能力：
 | `AGENT_STAKE_SYNC_INTERVAL_MS` | 质押账本同步间隔，`0` 表示关闭 |
 | `AGENT_STAKE_FRESHNESS_MS` | 质押账本可接受的新鲜度阈值 |
 | `SUBSTRATE_STAKE_TX_MODE` | `prepare-only`、`fixture` 或 `unsafe-papi` |
-| `GET_VIB_ROOT_UPLOAD_INTERVAL_MS` | Get VIB claim root 生成并上传间隔，`0` 表示关闭，默认 `600000` |
-| `GET_VIB_ROOT_UPLOAD_MODE` | `prepare-only`、`fixture` 或 `unsafe-papi`，直接提交 `vibClaim.setClaimRoot` |
-| `GET_VIB_ROOT_PUBLISHER_URI` | 链上授权的 Get VIB claim root publisher 热号 URI；不要使用 sudo/root 账号 |
 | `SUBSTRATE_CHAIN_ID` | 逻辑链标识 |
 | `GOVERNANCE_BACKENDS` | 需要注册的治理后端列表 |
 
-生成或检查专用 Get VIB root publisher 热号：
-`pnpm get-vib-root-publisher:generate`
 或
-`pnpm get-vib-root-publisher:inspect -- --uri '<助记词或 derivation URI>'`
 
 `SUBSTRATE_INDEXER_URL` 在生产环境必须指向真实部署的 `vibly-indexer` GraphQL 服务。coordinator 不会内嵌 SubQuery，也不会替你管理 indexer 生命周期。
 

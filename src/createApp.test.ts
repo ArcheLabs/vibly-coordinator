@@ -7,9 +7,9 @@ import { createEventBus } from "./services/eventBus.js";
 import type { Concord } from "@concord/sdk";
 import { Keyring } from "@polkadot/keyring";
 import { cryptoWaitReady } from "@polkadot/util-crypto";
-import { saveObservedRelayDeposit } from "./modules/conversion/get-vib/domain.js";
 import { IdentityRepository } from "./contexts/identity/repository.js";
 import { normalizeSubstrateAccount } from "./services/chainIdentityIndexerSync.js";
+import { privateKeyToAccount } from "viem/accounts";
 
 function makeStore(): CoordinatorStorePort {
   const projections = new Map<string, Map<string, unknown>>();
@@ -243,64 +243,6 @@ describe("createApp governance runtime config", () => {
     await app.close();
   });
 
-  it("exposes Get VIB relay watcher status and finalizes observed relay deposits", async () => {
-    const store = makeStore();
-    const config = loadConfig({
-      NODE_ENV: "test",
-      API_AUTH_MODE: "none",
-      SUBSTRATE_CHAIN_ID: "local:get-vib-test",
-      VIBLY_DOT_RECEIVING_ADDRESS: "deposit",
-      VIBLY_CONVERSION_INITIAL_RATE: "1000",
-      GET_VIB_RELAY_CHAIN_ID: "polkadot-dev",
-    });
-    const observed = await saveObservedRelayDeposit(store, {
-      relayChainId: "polkadot-dev",
-      sourceId: "polkadot-dev:0xabc:0:1",
-      from: "from",
-      to: "deposit",
-      amountBaseUnits: "10000000000",
-      dotAmount: "1",
-      blockNumber: 1,
-      blockHash: "0xabc",
-      extrinsicIndex: 0,
-      eventIndex: 1,
-      extrinsicHash: "0xtx",
-      finalizedAt: "2026-05-24T00:00:00.000Z",
-    });
-    const app = await createApp({
-      config,
-      logger: createLogger(config),
-      concord: makeConcord(),
-      coordinatorStore: store,
-      eventBus: createEventBus(),
-      startGovernanceConsumers: false,
-    });
-
-    const statusRes = await app.inject({ method: "GET", url: "/admin/get-vib/relay-watcher/status" });
-    expect(statusRes.statusCode).toBe(200);
-    expect(statusRes.json<{ data: { status: { status: string } } }>().data.status.status).toBe("disabled");
-
-    const listRes = await app.inject({ method: "GET", url: "/admin/get-vib/relay-deposits?status=observed" });
-    expect(listRes.statusCode).toBe(200);
-    expect(listRes.json<{ data: { deposits: unknown[] } }>().data.deposits).toHaveLength(1);
-
-    const finalizeRes = await app.inject({
-      method: "POST",
-      url: "/admin/get-vib/deposits/finalize",
-      payload: {
-        observedDepositId: observed.deposit.id,
-        accountId: "0x1111111111111111111111111111111111111111111111111111111111111111",
-      },
-    });
-    expect(finalizeRes.statusCode).toBe(200);
-    const finalizeBody = finalizeRes.json<{ data: { result: { allocation: { vibAmount: string } } } }>();
-    expect(finalizeBody.data.result.allocation.vibAmount).toMatch(/^1097\./);
-    expect(Number(finalizeBody.data.result.allocation.vibAmount)).toBeGreaterThanOrEqual(1097);
-    expect(Number(finalizeBody.data.result.allocation.vibAmount)).toBeLessThan(1098);
-
-    await app.close();
-  });
-
   it("supports wallet challenge/session lifecycle for polkadot signatures", async () => {
     await cryptoWaitReady();
     const keyring = new Keyring({ type: "sr25519" });
@@ -365,6 +307,226 @@ describe("createApp governance runtime config", () => {
     expect(delRes.statusCode).toBe(200);
     const delBody = delRes.json<{ data: { session: { revokedAt?: string } } }>();
     expect(typeof delBody.data.session.revokedAt).toBe("string");
+
+    await app.close();
+  });
+
+  it("supports auth nonce/login/me flow for EVM wallets", async () => {
+    const account = privateKeyToAccount("0x8b3a350cf5c34c9194ca3a545d0863a9e9ea0b38b842a90a9a4048b4fcb9d6d1");
+    const config = loadConfig({
+      NODE_ENV: "test",
+      API_AUTH_MODE: "static-token",
+      API_TOKENS: "dev-token",
+      CHAIN_AUTHORITY_CHAIN_ID: "eip155:84532",
+    });
+    const app = await createApp({
+      config,
+      logger: createLogger(config),
+      concord: makeConcord(),
+      coordinatorStore: makeStore(),
+      eventBus: createEventBus(),
+      startGovernanceConsumers: false,
+    });
+
+    const nonceRes = await app.inject({
+      method: "GET",
+      url: `/auth/nonce?address=${account.address}&kind=evm`,
+      headers: { origin: "https://console.vibly.example" },
+    });
+    expect(nonceRes.statusCode).toBe(200);
+    const nonceBody = nonceRes.json<{ data: { nonce: string; message: string; expiresAt: string } }>();
+    expect(nonceBody.data.nonce).toMatch(/^nonce_/);
+    expect(nonceBody.data.message).toContain("Sign in to Vibly");
+    expect(nonceBody.data.message).toContain(`Address: ${account.address.toLowerCase()}`);
+    expect(nonceBody.data.message).toContain("Kind: evm");
+    expect(nonceBody.data.message).toContain("Domain: https://console.vibly.example");
+    expect(nonceBody.data.message).toContain("Network: eip155:84532");
+
+    const signature = await account.signMessage({ message: nonceBody.data.message });
+    const loginRes = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: {
+        address: account.address,
+        kind: "evm",
+        walletName: "test-wallet",
+        message: nonceBody.data.message,
+        signature,
+      },
+    });
+    expect(loginRes.statusCode).toBe(200);
+    const loginBody = loginRes.json<{ data: { sessionToken: string; identity: { viblyAccountId: string; evmAddress: string; primaryAddress: string; primaryKind: string; role: string } } }>();
+    expect(loginBody.data.sessionToken).toMatch(/^ws_/);
+    expect(loginBody.data.identity.evmAddress).toBe(account.address.toLowerCase());
+    expect(loginBody.data.identity.primaryKind).toBe("evm");
+    expect(loginBody.data.identity.role).toBe("user");
+
+    const meRes = await app.inject({
+      method: "GET",
+      url: "/me",
+      headers: { "x-wallet-session": loginBody.data.sessionToken },
+    });
+    expect(meRes.statusCode).toBe(200);
+    const meBody = meRes.json<{ data: { identity: { evmAddress: string; primaryKind: string } } }>();
+    expect(meBody.data.identity.evmAddress).toBe(account.address.toLowerCase());
+    expect(meBody.data.identity.primaryKind).toBe("evm");
+
+    await app.close();
+  });
+
+  it("links and unlinks an EVM address with a matching wallet session", async () => {
+    const account = privateKeyToAccount("0x8b3a350cf5c34c9194ca3a545d0863a9e9ea0b38b842a90a9a4048b4fcb9d6d1");
+    const config = loadConfig({
+      NODE_ENV: "test",
+      API_AUTH_MODE: "static-token",
+      API_TOKENS: "dev-token",
+    });
+    const app = await createApp({
+      config,
+      logger: createLogger(config),
+      concord: makeConcord(),
+      coordinatorStore: makeStore(),
+      eventBus: createEventBus(),
+      startGovernanceConsumers: false,
+    });
+    const token = await createEvmWalletSession(app, account);
+
+    const linkRes = await app.inject({
+      method: "POST",
+      url: "/identity/link-evm",
+      headers: { "x-wallet-session": token },
+      payload: {
+        evmAddress: account.address,
+        viblyAccountId: "vibly_account_1",
+        substrateAddress: "5GrwvaEF5zXb26Fz9rcQpDWS9rrAHH8amJhWzYbHWYJx3WKh",
+      },
+    });
+    expect(linkRes.statusCode).toBe(200);
+    const linkBody = linkRes.json<{ data: { link: { evmAddress: string; viblyAccountId: string; status: string; chainSubmissionId: string } } }>();
+    expect(linkBody.data.link.evmAddress).toBe(account.address.toLowerCase());
+    expect(linkBody.data.link.viblyAccountId).toBe("vibly_account_1");
+    expect(linkBody.data.link.status).toBe("pending");
+    expect(linkBody.data.link.chainSubmissionId).toMatch(/^chain_/);
+
+    const linkedCenterRes = await app.inject({
+      method: "GET",
+      url: "/personal-center",
+      headers: { "x-wallet-session": token },
+    });
+    expect(linkedCenterRes.statusCode).toBe(200);
+    const linkedCenterBody = linkedCenterRes.json<{ data: { personalCenter: { identity: { evmAddress: string; identityId: string } | null } } }>();
+    expect(linkedCenterBody.data.personalCenter.identity?.evmAddress).toBe(account.address.toLowerCase());
+    expect(linkedCenterBody.data.personalCenter.identity?.identityId).toBe("vibly_account_1");
+
+    const unlinkRes = await app.inject({
+      method: "POST",
+      url: "/identity/unlink-evm",
+      headers: { "x-wallet-session": token },
+      payload: { evmAddress: account.address, viblyAccountId: "vibly_account_1" },
+    });
+    expect(unlinkRes.statusCode).toBe(200);
+    const unlinkBody = unlinkRes.json<{ data: { unlink: { evmAddress: string; viblyAccountId: string; status: string; chainSubmissionId: string } } }>();
+    expect(unlinkBody.data.unlink.evmAddress).toBe(account.address.toLowerCase());
+    expect(unlinkBody.data.unlink.viblyAccountId).toBe("vibly_account_1");
+    expect(unlinkBody.data.unlink.status).toBe("pending");
+    expect(unlinkBody.data.unlink.chainSubmissionId).toMatch(/^chain_/);
+
+    const unlinkedCenterRes = await app.inject({
+      method: "GET",
+      url: "/personal-center",
+      headers: { "x-wallet-session": token },
+    });
+    expect(unlinkedCenterRes.statusCode).toBe(200);
+    const unlinkedCenterBody = unlinkedCenterRes.json<{ data: { personalCenter: { identity: unknown } } }>();
+    expect(unlinkedCenterBody.data.personalCenter.identity).toBeNull();
+
+    await app.close();
+  });
+
+  it("rejects EVM address linking when the wallet session address does not match", async () => {
+    const account = privateKeyToAccount("0x59c6995e998f97a5a0044966f094538556f38e4e1710820fa5ed2a8a5b36a95e");
+    const other = privateKeyToAccount("0x7c8521182940bd1f8bff1bb9a6004b9fe870ac64f3cb470d830e72b78993f7cd");
+    const config = loadConfig({
+      NODE_ENV: "test",
+      API_AUTH_MODE: "static-token",
+      API_TOKENS: "dev-token",
+    });
+    const app = await createApp({
+      config,
+      logger: createLogger(config),
+      concord: makeConcord(),
+      coordinatorStore: makeStore(),
+      eventBus: createEventBus(),
+      startGovernanceConsumers: false,
+    });
+    const token = await createEvmWalletSession(app, account);
+
+    const linkRes = await app.inject({
+      method: "POST",
+      url: "/identity/link-evm",
+      headers: { "x-wallet-session": token },
+      payload: { evmAddress: other.address, viblyAccountId: "vibly_account_1" },
+    });
+    expect(linkRes.statusCode).toBe(400);
+
+    await app.close();
+  });
+
+  it("supports wallet challenge/session lifecycle for EVM personal_sign signatures", async () => {
+    const account = privateKeyToAccount("0x59c6995e998f97a5a0044966f094538556f38e4e1710820fa5ed2a8a5b36a95e");
+    const config = loadConfig({
+      NODE_ENV: "test",
+      API_AUTH_MODE: "static-token",
+      API_TOKENS: "dev-token",
+    });
+    const app = await createApp({
+      config,
+      logger: createLogger(config),
+      concord: makeConcord(),
+      coordinatorStore: makeStore(),
+      eventBus: createEventBus(),
+      startGovernanceConsumers: false,
+    });
+
+    const challengeRes = await app.inject({
+      method: "POST",
+      url: "/wallet/challenges",
+      payload: { ecosystem: "evm", address: account.address, chainId: "eip155:84532" },
+    });
+    expect(challengeRes.statusCode).toBe(200);
+    const challengeBody = challengeRes.json<{ data: { challenge: { id: string; message: string; address: string } } }>();
+    expect(challengeBody.data.challenge.message).toContain("Sign in to Vibly");
+    expect(challengeBody.data.challenge.message).toContain("Kind: evm");
+    expect(challengeBody.data.challenge.address).toBe(account.address.toLowerCase());
+
+    const signature = await account.signMessage({ message: challengeBody.data.challenge.message });
+    const sessionRes = await app.inject({
+      method: "POST",
+      url: "/wallet/sessions",
+      payload: {
+        challengeId: challengeBody.data.challenge.id,
+        ecosystem: "evm",
+        address: account.address,
+        signature,
+      },
+    });
+    expect(sessionRes.statusCode).toBe(200);
+    const sessionBody = sessionRes.json<{ data: { session: { token: string; ecosystem: string; address: string } } }>();
+    expect(sessionBody.data.session.token).toMatch(/^ws_/);
+    expect(sessionBody.data.session.ecosystem).toBe("evm");
+    expect(sessionBody.data.session.address).toBe(account.address.toLowerCase());
+
+    const replayRes = await app.inject({
+      method: "POST",
+      url: "/wallet/sessions",
+      payload: {
+        challengeId: challengeBody.data.challenge.id,
+        ecosystem: "evm",
+        address: account.address,
+        signature,
+      },
+    });
+    expect(replayRes.statusCode).toBe(409);
 
     await app.close();
   });
@@ -891,6 +1053,31 @@ async function createWalletSession(app: Awaited<ReturnType<typeof createApp>>, a
   return sessionRes.json<{ data: { session: { token: string } } }>().data.session.token;
 }
 
+async function createEvmWalletSession(
+  app: Awaited<ReturnType<typeof createApp>>,
+  account: { address: `0x${string}`; signMessage(input: { message: string }): Promise<`0x${string}`> },
+) {
+  const nonceRes = await app.inject({
+    method: "GET",
+    url: `/auth/nonce?address=${account.address}&kind=evm`,
+  });
+  expect(nonceRes.statusCode).toBe(200);
+  const nonceBody = nonceRes.json<{ data: { message: string } }>();
+  const signature = await account.signMessage({ message: nonceBody.data.message });
+  const loginRes = await app.inject({
+    method: "POST",
+    url: "/auth/login",
+    payload: {
+      address: account.address,
+      kind: "evm",
+      message: nonceBody.data.message,
+      signature,
+    },
+  });
+  expect(loginRes.statusCode).toBe(200);
+  return loginRes.json<{ data: { sessionToken: string } }>().data.sessionToken;
+}
+
 describe("client version policy", () => {
   it("publishes version policy and rejects protected requests from old clients", async () => {
     const config = loadConfig({
@@ -965,8 +1152,6 @@ describe("network manifests", () => {
       status: "prelaunch",
       minimumClientVersion: "0.2.0",
       features: {
-        getVibConversion: true,
-        getVibClaim: false,
         agentJoin: false,
         daemon: false,
         staking: false,

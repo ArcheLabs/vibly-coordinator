@@ -2,11 +2,13 @@ import { v4 as uuidv4 } from "uuid";
 import { badRequest, conflict, notFound } from "../../../domain/errors.js";
 import type { CoordinatorStorePort } from "../../../db/coordinatorStorePort.js";
 import { cryptoWaitReady, signatureVerify } from "@polkadot/util-crypto";
+import { verifyMessage, type Address } from "viem";
 
 export const WALLET_CHALLENGE = "wallet.challenge.v1";
 export const WALLET_SESSION = "wallet.session.v1";
 
 export type WalletEcosystem = "evm" | "polkadot";
+export type WalletAccountKind = "evm" | "substrate";
 
 export interface WalletChallengeRecord {
   id: string;
@@ -35,6 +37,15 @@ export interface WalletSessionRecord {
   revokedAt?: string;
 }
 
+export interface ViblyIdentity {
+  viblyAccountId: string;
+  evmAddress?: `0x${string}`;
+  substrateAddress?: string;
+  primaryAddress: string;
+  primaryKind: WalletAccountKind;
+  role?: "user" | "agent" | "observer" | "reviewer";
+}
+
 function makeId(prefix: string): string {
   return `${prefix}_${uuidv4().replace(/-/g, "").slice(0, 24)}`;
 }
@@ -48,6 +59,14 @@ export function normalizeWalletAddress(ecosystem: WalletEcosystem, address: stri
   }
   if (trimmed.length < 20 || trimmed.length > 80) throw badRequest("Invalid Polkadot/Substrate address", { address });
   return trimmed;
+}
+
+export function walletKindFromEcosystem(ecosystem: WalletEcosystem): WalletAccountKind {
+  return ecosystem === "polkadot" ? "substrate" : "evm";
+}
+
+export function ecosystemFromWalletKind(kind: WalletAccountKind): WalletEcosystem {
+  return kind === "substrate" ? "polkadot" : "evm";
 }
 
 export function buildWalletChallenge(input: {
@@ -64,18 +83,17 @@ export function buildWalletChallenge(input: {
   const id = makeId("wch");
   const nonce = makeId("nonce");
   const address = normalizeWalletAddress(input.ecosystem, input.address);
-  const chainLabel = input.chainId ? `Chain: ${input.chainId}` : "Chain: n/a";
-  const requestedPrincipal = input.requestedPrincipalId ?? "any";
+  const domain = input.origin;
+  const network = input.chainId ?? "vibly";
   const message = [
-    "Vibly Wallet Login",
-    `Origin: ${input.origin}`,
-    `Ecosystem: ${input.ecosystem}`,
+    "Sign in to Vibly",
     `Address: ${address}`,
-    chainLabel,
-    `Requested Principal: ${requestedPrincipal}`,
+    `Kind: ${walletKindFromEcosystem(input.ecosystem)}`,
     `Nonce: ${nonce}`,
     `Issued At: ${issuedAt}`,
     `Expires At: ${expiresAt}`,
+    `Domain: ${domain}`,
+    `Network: ${network}`,
   ].join("\n");
 
   return {
@@ -91,6 +109,48 @@ export function buildWalletChallenge(input: {
   };
 }
 
+async function verifyChallengeSignature(input: {
+  challenge: WalletChallengeRecord;
+  ecosystem: WalletEcosystem;
+  address: string;
+  signature: string;
+}): Promise<void> {
+  const normalizedAddress = normalizeWalletAddress(input.ecosystem, input.address);
+  if (input.challenge.ecosystem !== input.ecosystem) throw badRequest("Challenge ecosystem mismatch");
+  if (input.challenge.address !== normalizedAddress) throw badRequest("Challenge address mismatch");
+
+  if (input.ecosystem === "evm") {
+    const valid = await verifyMessage({
+      address: normalizedAddress as Address,
+      message: input.challenge.message,
+      signature: input.signature as `0x${string}`,
+    });
+    if (!valid) throw badRequest("Invalid wallet signature");
+    return;
+  }
+
+  await cryptoWaitReady();
+  const verified = signatureVerify(input.challenge.message, input.signature, normalizedAddress);
+  if (!verified.isValid) throw badRequest("Invalid wallet signature");
+}
+
+async function consumeChallengeRecord(input: {
+  store: CoordinatorStorePort;
+  challenge: WalletChallengeRecord;
+  ecosystem: WalletEcosystem;
+  address: string;
+  signature: string;
+}): Promise<WalletChallengeRecord> {
+  if (input.challenge.usedAt) throw conflict("Challenge already used", { challengeId: input.challenge.id });
+  if (new Date(input.challenge.expiresAt).getTime() <= Date.now()) throw badRequest("Challenge expired", { challengeId: input.challenge.id });
+
+  await verifyChallengeSignature(input);
+
+  const used = { ...input.challenge, usedAt: new Date().toISOString() };
+  await input.store.saveProjection(WALLET_CHALLENGE, input.challenge.id, used);
+  return used;
+}
+
 export async function consumeChallenge(input: {
   store: CoordinatorStorePort;
   challengeId: string;
@@ -100,20 +160,20 @@ export async function consumeChallenge(input: {
 }): Promise<WalletChallengeRecord> {
   const challenge = await input.store.getProjection<WalletChallengeRecord>(WALLET_CHALLENGE, input.challengeId);
   if (!challenge) throw notFound("WalletChallenge", input.challengeId);
-  if (challenge.usedAt) throw conflict("Challenge already used", { challengeId: input.challengeId });
-  if (new Date(challenge.expiresAt).getTime() <= Date.now()) throw badRequest("Challenge expired", { challengeId: input.challengeId });
+  return consumeChallengeRecord({ ...input, challenge });
+}
 
-  const normalizedAddress = normalizeWalletAddress(input.ecosystem, input.address);
-  if (challenge.ecosystem !== input.ecosystem) throw badRequest("Challenge ecosystem mismatch");
-  if (challenge.address !== normalizedAddress) throw badRequest("Challenge address mismatch");
-
-  await cryptoWaitReady();
-  const verified = signatureVerify(challenge.message, input.signature, normalizedAddress);
-  if (!verified.isValid) throw badRequest("Invalid wallet signature");
-
-  const used = { ...challenge, usedAt: new Date().toISOString() };
-  await input.store.saveProjection(WALLET_CHALLENGE, challenge.id, used);
-  return used;
+export async function consumeChallengeByMessage(input: {
+  store: CoordinatorStorePort;
+  message: string;
+  ecosystem: WalletEcosystem;
+  address: string;
+  signature: string;
+}): Promise<WalletChallengeRecord> {
+  const challenges = await input.store.listProjections<WalletChallengeRecord>(WALLET_CHALLENGE);
+  const challenge = challenges.find((candidate) => candidate.message === input.message);
+  if (!challenge) throw notFound("WalletChallenge", "message");
+  return consumeChallengeRecord({ ...input, challenge });
 }
 
 export function buildWalletSession(input: {
@@ -143,4 +203,17 @@ export function ensureActiveWalletSession(session: WalletSessionRecord | undefin
   if (session.revokedAt) throw badRequest("Wallet session is revoked", { token });
   if (new Date(session.expiresAt).getTime() <= Date.now()) throw badRequest("Wallet session is expired", { token });
   return session;
+}
+
+export function buildViblyIdentityFromSession(session: WalletSessionRecord): ViblyIdentity {
+  const primaryKind = walletKindFromEcosystem(session.ecosystem);
+  const viblyAccountId = session.requestedPrincipalId ?? session.principalBindings[0] ?? session.address;
+  return {
+    viblyAccountId,
+    evmAddress: session.ecosystem === "evm" ? (session.address as `0x${string}`) : undefined,
+    substrateAddress: session.ecosystem === "polkadot" ? session.address : undefined,
+    primaryAddress: session.address,
+    primaryKind,
+    role: session.agentBindings.length > 0 ? "agent" : "user",
+  };
 }

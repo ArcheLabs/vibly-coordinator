@@ -7,8 +7,6 @@ const FeatureFlagsSchema = z.object({
   daemon: z.boolean(),
   staking: z.boolean(),
   rootIdentityRegistration: z.boolean(),
-  getVibConversion: z.boolean(),
-  getVibClaim: z.boolean(),
 });
 
 const ChainManifestSchema = z.object({
@@ -31,7 +29,6 @@ export const NetworkManifestSchema = z.object({
   status: z.enum(["active", "prelaunch", "maintenance", "deprecated"]),
   coordinatorUrls: z.array(z.string().url()).min(1),
   chains: z.object({
-    payment: ChainManifestSchema,
     vibly: ChainManifestSchema,
   }),
   features: FeatureFlagsSchema,
@@ -71,11 +68,6 @@ export function parseConfiguredManifests(config: CoordinatorConfig): NetworkMani
 function defaultNetworkManifests(config: CoordinatorConfig): NetworkManifest[] {
   const now = new Date().toISOString();
   const coordinatorUrl = `http://localhost:${config.port}`;
-  const polkadotRpcUrls = [
-    "wss://rpc.polkadot.io",
-    "wss://polkadot.api.onfinality.io/public-ws",
-    "wss://polkadot-rpc.dwellir.com",
-  ];
   return [
     {
       manifestVersion: 1,
@@ -87,13 +79,6 @@ function defaultNetworkManifests(config: CoordinatorConfig): NetworkManifest[] {
       status: "active",
       coordinatorUrls: [coordinatorUrl],
       chains: {
-        payment: {
-          chainId: config.getVibRelayChainId,
-          rpcUrls: config.getVibRelayRpcUrl ? [config.getVibRelayRpcUrl] : [],
-          tokenSymbol: config.getVibRelayTokenSymbol ?? "DOT",
-          tokenDecimals: config.getVibRelayTokenDecimals,
-          status: config.getVibRelayRpcUrl ? "online" : "maintenance",
-        },
         vibly: {
           chainId: config.substrateChainId,
           rpcUrls: [config.substrateRpcUrl],
@@ -105,8 +90,6 @@ function defaultNetworkManifests(config: CoordinatorConfig): NetworkManifest[] {
         daemon: true,
         staking: true,
         rootIdentityRegistration: true,
-        getVibConversion: !config.getVibCurvePaused,
-        getVibClaim: config.getVibClaimEnabled,
       },
     },
     {
@@ -119,13 +102,6 @@ function defaultNetworkManifests(config: CoordinatorConfig): NetworkManifest[] {
       status: "prelaunch",
       coordinatorUrls: [coordinatorUrl],
       chains: {
-        payment: {
-          chainId: "polkadot",
-          rpcUrls: polkadotRpcUrls,
-          tokenSymbol: "DOT",
-          tokenDecimals: 10,
-          status: "online",
-        },
         vibly: {
           chainId: "substrate:vibly-incentivized-testnet",
           rpcUrls: [],
@@ -137,11 +113,8 @@ function defaultNetworkManifests(config: CoordinatorConfig): NetworkManifest[] {
         daemon: false,
         staking: false,
         rootIdentityRegistration: false,
-        getVibConversion: true,
-        getVibClaim: false,
       },
       messages: {
-        getVibClaim: "VIB claim to Monolith is not live yet.",
         prelaunch: "Monolith agent onboarding will open after the network launch.",
       },
     },

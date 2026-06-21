@@ -59,15 +59,6 @@ const envSchema = z
     AGENT_REWARD_EMISSION_START_AT: z.string().default(""),
     AGENT_REWARD_MAX_CATCHUP_DAYS: z.coerce.number().int().min(1).default(7),
     LEGACY_REWARD_INTENT_MODE: z.enum(["hidden", "disabled", "enabled"]).default("hidden"),
-    // Get VIB root upload scheduler interval; 0 means disabled.
-    GET_VIB_ROOT_UPLOAD_INTERVAL_MS: z.coerce.number().default(120000),
-    // Get VIB root upload tx mode.
-    GET_VIB_ROOT_UPLOAD_MODE: z.enum(["prepare-only", "fixture", "unsafe-papi"]).default("prepare-only"),
-    // Dedicated least-privilege hot key authorized on-chain only for vibClaim.setClaimRoot.
-    GET_VIB_ROOT_PUBLISHER_URI: z.string().default(""),
-    // Explicit production gate for on-chain VIB claims. Keep false until Vibly Chain is live
-    // and a claim root has been uploaded.
-    GET_VIB_CLAIM_ENABLED: z.string().transform((v) => v === "true").default("false"),
     // Maximum acceptable staleness for cached stake data.
     AGENT_STAKE_FRESHNESS_MS: z.coerce.number().default(30000),
     // Local trace output path for debug/event traces.
@@ -91,24 +82,7 @@ const envSchema = z
     EVM_GOVERNOR_FIXTURE: z.string().transform((v) => v === "true").default("false"),
     EVM_CHAIN_ID: z.string().default("31337"),
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Dot/VIB conversion settings
-    // ─────────────────────────────────────────────────────────────────────────
-    VIBLY_DOT_RECEIVING_ADDRESS: z.string().default(""),
     VIBLY_AIRDROP_DOMAIN: z.string().default("vibly.identity.airdrop"),
-    VIBLY_CONVERSION_TOTAL_CAP: z.coerce.number().default(0),
-    VIBLY_CONVERSION_INITIAL_RATE: z.coerce.number().default(1000),
-    VIBLY_CONVERSION_SLOPE: z.coerce.number().default(0),
-    VIBLY_CONVERSION_MIN_DOT: z.coerce.number().default(0.1),
-    GET_VIB_RELAY_RPC_URL: z.string().optional(),
-    GET_VIB_RELAY_CHAIN_ID: z.string().default("polkadot-dev"),
-    GET_VIB_RELAY_TOKEN_SYMBOL: z.string().default(""),
-    GET_VIB_RELAY_TOKEN_DECIMALS: z.coerce.number().int().min(0).max(30).default(10),
-    GET_VIB_DEPOSIT_SCAN_INTERVAL_MS: z.coerce.number().default(0),
-    GET_VIB_DEPOSIT_START_BLOCK: z.coerce.number().int().min(0).default(0),
-    GET_VIB_DEPOSIT_FINALITY_BLOCKS: z.coerce.number().int().min(0).default(0),
-    GET_VIB_DEPOSIT_SCAN_MAX_BLOCKS: z.coerce.number().int().min(1).default(200),
-    GET_VIB_CURVE_PAUSED: z.string().transform((v) => v === "true").default("false"),
 
     // ─────────────────────────────────────────────────────────────────────────
     // Observability
@@ -193,22 +167,6 @@ const envSchema = z
       });
     }
 
-    if (val.GET_VIB_ROOT_UPLOAD_MODE === "unsafe-papi" && !val.GET_VIB_ROOT_PUBLISHER_URI.trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "GET_VIB_ROOT_UPLOAD_MODE=unsafe-papi requires GET_VIB_ROOT_PUBLISHER_URI",
-        path: ["GET_VIB_ROOT_PUBLISHER_URI"],
-      });
-    }
-
-    if (val.NODE_ENV === "production" && val.GET_VIB_CLAIM_ENABLED && val.GET_VIB_ROOT_UPLOAD_MODE !== "unsafe-papi") {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "GET_VIB_CLAIM_ENABLED=true requires GET_VIB_ROOT_UPLOAD_MODE=unsafe-papi",
-        path: ["GET_VIB_ROOT_UPLOAD_MODE"],
-      });
-    }
-
     if (val.AGENT_REWARD_ENABLED) {
       if (!val.SUBSTRATE_INDEXER_URL?.trim()) {
         ctx.addIssue({
@@ -274,84 +232,6 @@ const envSchema = z
     }
 
     if (val.NODE_ENV !== "production") return;
-
-    const getVibConversionRequested = hasManifestFeature(manifests, "getVibConversion");
-    const getVibClaimRequested = val.GET_VIB_CLAIM_ENABLED || hasManifestFeature(manifests, "getVibClaim");
-    if (getVibConversionRequested) {
-      if (!val.VIBLY_DOT_RECEIVING_ADDRESS.trim()) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "production Get VIB conversion requires VIBLY_DOT_RECEIVING_ADDRESS",
-          path: ["VIBLY_DOT_RECEIVING_ADDRESS"],
-        });
-      }
-      if (!val.GET_VIB_RELAY_RPC_URL?.trim()) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "production Get VIB conversion requires GET_VIB_RELAY_RPC_URL",
-          path: ["GET_VIB_RELAY_RPC_URL"],
-        });
-      }
-      if (val.GET_VIB_RELAY_CHAIN_ID !== "polkadot" && val.GET_VIB_RELAY_CHAIN_ID !== "paseo") {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "production Get VIB conversion requires GET_VIB_RELAY_CHAIN_ID=polkadot (mainnet) or =paseo (testnet)",
-          path: ["GET_VIB_RELAY_CHAIN_ID"],
-        });
-      }
-      if (val.GET_VIB_RELAY_TOKEN_DECIMALS !== 10) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "production Get VIB conversion requires GET_VIB_RELAY_TOKEN_DECIMALS=10 for Polkadot DOT",
-          path: ["GET_VIB_RELAY_TOKEN_DECIMALS"],
-        });
-      }
-      if (val.GET_VIB_DEPOSIT_SCAN_INTERVAL_MS <= 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "production Get VIB conversion requires GET_VIB_DEPOSIT_SCAN_INTERVAL_MS > 0",
-          path: ["GET_VIB_DEPOSIT_SCAN_INTERVAL_MS"],
-        });
-      }
-      if (val.GET_VIB_DEPOSIT_FINALITY_BLOCKS <= 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "production Get VIB conversion requires GET_VIB_DEPOSIT_FINALITY_BLOCKS > 0",
-          path: ["GET_VIB_DEPOSIT_FINALITY_BLOCKS"],
-        });
-      }
-    }
-
-    if (getVibClaimRequested) {
-      if (!val.GET_VIB_CLAIM_ENABLED) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "production manifest getVibClaim=true requires GET_VIB_CLAIM_ENABLED=true",
-          path: ["GET_VIB_CLAIM_ENABLED"],
-        });
-      }
-      if (!manifestViblyChainOnline(manifests)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "production Get VIB claim requires an online Vibly chain in the network manifest",
-          path: [manifestInput.path],
-        });
-      }
-      if (!val.SUBSTRATE_RPC_URL.trim()) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "production Get VIB claim requires SUBSTRATE_RPC_URL",
-          path: ["SUBSTRATE_RPC_URL"],
-        });
-      }
-      if (!val.GET_VIB_ROOT_PUBLISHER_URI.trim()) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "production Get VIB claim requires GET_VIB_ROOT_PUBLISHER_URI",
-          path: ["GET_VIB_ROOT_PUBLISHER_URI"],
-        });
-      }
-    }
 
     if (!manifestInput.raw.trim()) {
       ctx.addIssue({
@@ -476,10 +356,6 @@ export interface CoordinatorConfig {
   agentRewardEmissionStartAt?: string;
   agentRewardMaxCatchupDays: number;
   legacyRewardIntentMode: "hidden" | "disabled" | "enabled";
-  getVibRootUploadIntervalMs: number;
-  getVibRootUploadMode: "prepare-only" | "fixture" | "unsafe-papi";
-  getVibRootPublisherUri?: string;
-  getVibClaimEnabled: boolean;
   agentStakeFreshnessMs: number;
   traceOutputDir: string;
   enableSwagger: boolean;
@@ -496,22 +372,7 @@ export interface CoordinatorConfig {
   evmGovernorFixture: boolean;
   evmChainId: string;
 
-  // ─── Dot/VIB conversion settings ─────────────────────────────────────────
-  viblyDotReceivingAddress: string;
   viblyAirdropDomain: string;
-  viblyConversionTotalCap: number;
-  viblyConversionInitialRate: number;
-  viblyConversionSlope: number;
-  viblyConversionMinDot: number;
-  getVibRelayRpcUrl?: string;
-  getVibRelayChainId: string;
-  getVibRelayTokenSymbol?: string;
-  getVibRelayTokenDecimals: number;
-  getVibDepositScanIntervalMs: number;
-  getVibDepositStartBlock: number;
-  getVibDepositFinalityBlocks: number;
-  getVibDepositScanMaxBlocks: number;
-  getVibCurvePaused: boolean;
 
   // ─── Observability ────────────────────────────────────────────────────────
   otelExporterOtlpEndpoint?: string;
@@ -575,10 +436,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     agentRewardEmissionStartAt: parsed.AGENT_REWARD_EMISSION_START_AT.trim() || undefined,
     agentRewardMaxCatchupDays: parsed.AGENT_REWARD_MAX_CATCHUP_DAYS,
     legacyRewardIntentMode: parsed.LEGACY_REWARD_INTENT_MODE,
-    getVibRootUploadIntervalMs: parsed.GET_VIB_ROOT_UPLOAD_INTERVAL_MS,
-    getVibRootUploadMode: parsed.GET_VIB_ROOT_UPLOAD_MODE,
-    getVibRootPublisherUri: parsed.GET_VIB_ROOT_PUBLISHER_URI.trim() || undefined,
-    getVibClaimEnabled: parsed.GET_VIB_CLAIM_ENABLED,
     agentStakeFreshnessMs: parsed.AGENT_STAKE_FRESHNESS_MS,
     traceOutputDir: parsed.TRACE_OUTPUT_DIR,
     enableSwagger: parsed.ENABLE_SWAGGER,
@@ -592,21 +449,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoordinatorCon
     substrateCoordinatorAuthorityUri: parsed.SUBSTRATE_COORDINATOR_AUTHORITY_URI,
     evmGovernorFixture: parsed.EVM_GOVERNOR_FIXTURE,
     evmChainId: parsed.EVM_CHAIN_ID,
-    viblyDotReceivingAddress: parsed.VIBLY_DOT_RECEIVING_ADDRESS,
     viblyAirdropDomain: parsed.VIBLY_AIRDROP_DOMAIN,
-    viblyConversionTotalCap: parsed.VIBLY_CONVERSION_TOTAL_CAP,
-    viblyConversionInitialRate: parsed.VIBLY_CONVERSION_INITIAL_RATE,
-    viblyConversionSlope: parsed.VIBLY_CONVERSION_SLOPE,
-    viblyConversionMinDot: parsed.VIBLY_CONVERSION_MIN_DOT,
-    getVibRelayRpcUrl: parsed.GET_VIB_RELAY_RPC_URL?.trim() || undefined,
-    getVibRelayChainId: parsed.GET_VIB_RELAY_CHAIN_ID,
-    getVibRelayTokenSymbol: parsed.GET_VIB_RELAY_TOKEN_SYMBOL.trim() || undefined,
-    getVibRelayTokenDecimals: parsed.GET_VIB_RELAY_TOKEN_DECIMALS,
-    getVibDepositScanIntervalMs: parsed.GET_VIB_DEPOSIT_SCAN_INTERVAL_MS,
-    getVibDepositStartBlock: parsed.GET_VIB_DEPOSIT_START_BLOCK,
-    getVibDepositFinalityBlocks: parsed.GET_VIB_DEPOSIT_FINALITY_BLOCKS,
-    getVibDepositScanMaxBlocks: parsed.GET_VIB_DEPOSIT_SCAN_MAX_BLOCKS,
-    getVibCurvePaused: parsed.GET_VIB_CURVE_PAUSED,
     otelExporterOtlpEndpoint: parsed.OTEL_EXPORTER_OTLP_ENDPOINT?.trim() || undefined,
     viblyCoordinationRoundIntervalMs: parsed.VIBLY_COORDINATION_ROUND_INTERVAL_MS,
     observationSubmitRatio: parsed.OBSERVATION_SUBMIT_RATIO,

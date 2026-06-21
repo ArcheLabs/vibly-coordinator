@@ -38,8 +38,8 @@ const manifestSchema = {
     chains: {
       type: "object" as const,
       additionalProperties: false,
-      properties: { payment: chainSchema, vibly: chainSchema },
-      required: ["payment", "vibly"],
+      properties: { vibly: chainSchema },
+      required: ["vibly"],
     },
     features: {
       type: "object" as const,
@@ -49,10 +49,8 @@ const manifestSchema = {
         daemon: { type: "boolean" as const },
         staking: { type: "boolean" as const },
         rootIdentityRegistration: { type: "boolean" as const },
-        getVibConversion: { type: "boolean" as const },
-        getVibClaim: { type: "boolean" as const },
       },
-      required: ["agentJoin", "daemon", "staking", "rootIdentityRegistration", "getVibConversion", "getVibClaim"],
+      required: ["agentJoin", "daemon", "staking", "rootIdentityRegistration"],
     },
     messages: { type: "object" as const, additionalProperties: { type: "string" as const } },
     minimumClientVersion: { type: "string" as const },

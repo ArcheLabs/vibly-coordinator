@@ -37,10 +37,7 @@ import onboardingRoutes from "./modules/identity/onboarding/routes.js";
 import walletRoutes from "./modules/identity/wallet/routes.js";
 import agentEnrollmentsRoutes from "./modules/identity/agent-enrollments/routes.js";
 import personalCenterRoutes from "./api/routes/personalCenter.js";
-import dotVibRoutes from "./modules/conversion/dot-vib/routes.js";
-import getVibRoutes from "./modules/conversion/get-vib/routes.js";
 import adminAirdropRoutes from "./modules/admin/airdrop/routes.js";
-import adminConversionRoutes from "./modules/admin/conversion/routes.js";
 
 import projectsRoutes from "./modules/project/projects/routes.js";
 import objectivesRoutes from "./modules/project/objectives/routes.js";
@@ -221,19 +218,6 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
     })
     : () => {};
 
-  const { startGetVibRelayDepositWatcher } = await import("./process-managers/getVibRelayDepositWatcher.js");
-  const stopGetVibRelayDepositWatcher = startGetVibRelayDepositWatcher({
-    config,
-    store: coordinatorStore,
-    eventBus,
-  });
-
-  const { startGetVibRootUploader } = await import("./services/getVibRootUploader.js");
-  const stopGetVibRootUploader = startGetVibRootUploader({
-    config,
-    store: coordinatorStore,
-  });
-
   const { startAgentRewardSettlementProcess } = await import("./process-managers/agentRewardSettlementProcess.js");
   const stopAgentRewardSettlementProcess = config.agentRewardEnabled
     ? startAgentRewardSettlementProcess(eventBus, coordinatorStore, config)
@@ -265,8 +249,6 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
     stopAgentRewardIndexerSync();
     stopChainIdentityIndexerSync();
     stopCoordinationRoundScheduler();
-    stopGetVibRelayDepositWatcher();
-    stopGetVibRootUploader();
     stopAgentRewardSettlementProcess();
     await authorityResolver.close();
   });
@@ -302,10 +284,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   await fastify.register(walletRoutes);
   await fastify.register(agentEnrollmentsRoutes);
   await fastify.register(onboardingRoutes);
-  await fastify.register(getVibRoutes);
-  await fastify.register(dotVibRoutes);
   await fastify.register(adminAirdropRoutes);
-  await fastify.register(adminConversionRoutes);
   await fastify.register(contextRoutes);
   await fastify.register(stateRoutes);
   await fastify.register(knowledgeRoutes);
