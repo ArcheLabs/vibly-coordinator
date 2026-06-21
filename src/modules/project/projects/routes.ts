@@ -13,6 +13,7 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
       description?: string;
       sponsorPrincipalId: string;
       metadata?: Record<string, unknown>;
+      observationCycleInterval?: number;
     };
   }>(
     "/projects",
@@ -29,6 +30,7 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
             description: { type: "string" },
             sponsorPrincipalId: { type: "string" },
             metadata: { type: "object" },
+            observationCycleInterval: { type: "integer", minimum: 1 },
           },
         },
         response: { 200: envelopeKey("project") },
@@ -44,6 +46,7 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
           projectId: undefined,
           createdBy: request.body.sponsorPrincipalId as never,
         },
+        protocol: { observationCycleInterval: request.body.observationCycleInterval },
         metadata: request.body.metadata,
       });
       return ok({ project });

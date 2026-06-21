@@ -43,6 +43,7 @@ const createProjectSchema = z.object({
   slug: z.string().min(1),
   name: z.string().min(1),
   description: z.string().optional(),
+  observationCycleInterval: z.number().int().min(1).optional(),
   metadata: z.record(z.unknown()).optional(),
 });
 
@@ -270,6 +271,7 @@ async function handleCreateProject(intent: ActionIntent, ctx: DispatchContext): 
       projectId: undefined,
       createdBy: sponsorPrincipalId as never,
     },
+    protocol: { observationCycleInterval: data.observationCycleInterval },
     metadata,
   });
 

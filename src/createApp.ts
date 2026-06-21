@@ -170,7 +170,7 @@ export async function createApp(opts: CreateAppOptions): Promise<FastifyInstance
   });
 
   const { startObservationTaskScheduler } = await import("./process-managers/observationTaskScheduler.js");
-  startObservationTaskScheduler(eventBus, coordinatorStore);
+  startObservationTaskScheduler(eventBus, coordinatorStore, concord.projects);
 
   const { startRewardCreationProcess } = await import("./process-managers/rewardCreationProcess.js");
   startRewardCreationProcess(eventBus, coordinatorStore);
